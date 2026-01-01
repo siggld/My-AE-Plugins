@@ -1,0 +1,40 @@
+[package]
+name = "{{ crate_name }}"
+version = "0.1.0"
+
+[profile.dev]
+debug = 2
+opt-level = 3
+
+[lib]
+name = "aod_{{ crate_name | pascal_case }}"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+anyhow = "1"
+after-effects = "0.2.1"
+utils = { path = "../../utils" }
+{% if features contains "opencv" %}
+opencv = { workspace = true }
+{% endif %}
+{% if features contains "rustfft" %}
+rustfft = { workspace = true }
+num-complex = { workspace = true }
+{% endif %}
+{% if features contains "nalgebra" %}
+nalgebra = { workspace = true }
+{% endif %}
+{% if features contains "rand" %}
+rand = { workspace = true }
+{% endif %}
+
+
+[build-dependencies]
+chrono = "0.4.42"
+pipl = "0.1.1"
+
+[lints]
+workspace = true
