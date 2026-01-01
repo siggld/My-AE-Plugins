@@ -3,6 +3,9 @@
         "rust-lang.rust-analyzer",
         "vadimcn.vscode-lldb",
         "cordx56.rustowl-vscode",
-        "fill-labs.dependi"
+        "fill-labs.dependi",
+        "skellock.just",
+        "rhaiscript.vscode-rhai",
+        "shopify.theme-check-vscode"
     ]
 }
