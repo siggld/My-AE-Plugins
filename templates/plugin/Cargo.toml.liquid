@@ -14,23 +14,21 @@ crate-type = ["cdylib"]
 default = []
 
 [dependencies]
-anyhow = "1"
-after-effects = "0.2.1"
+after-effects = { workspace = true }
 utils = { path = "../../utils" }
-{% if features contains "opencv" %}
+{% if features contains "opencv" -%}
 opencv = { workspace = true }
-{% endif %}
-{% if features contains "rustfft" %}
+{%- endif %}
+{%- if features contains "rustfft" -%}
 rustfft = { workspace = true }
 num-complex = { workspace = true }
-{% endif %}
-{% if features contains "nalgebra" %}
+{%- endif %}
+{%- if features contains "nalgebra" -%}
 nalgebra = { workspace = true }
-{% endif %}
-{% if features contains "rand" %}
+{%- endif %}
+{%- if features contains "rand" %}
 rand = { workspace = true }
-{% endif %}
-
+{%- endif %}
 
 [build-dependencies]
 chrono = "0.4.42"
