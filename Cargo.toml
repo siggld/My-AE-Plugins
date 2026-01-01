@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    # "plugins/*", 
+    "xtask",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MPL-2.0"
