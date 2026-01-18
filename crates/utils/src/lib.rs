@@ -1,13 +1,15 @@
-use ae::{Pixel16, Pixel8, PixelF32};
-use after_effects as ae;
+use ae::{Pixel8, Pixel16, PixelF32};
+use after_effects::{self as ae, sys::PF_Pixel};
 
 pub trait ToPixel {
     fn to_pixel32(&self) -> PixelF32;
     fn to_pixel16(&self) -> Pixel16;
     fn to_pixel8(&self) -> Pixel8;
 }
-impl ToPixel for Pixel8 {
+
+impl ToPixel for PF_Pixel {
     fn to_pixel32(&self) -> PixelF32 {
+        // PF_Pixel は 8bpc 相当として扱う
         PixelF32 {
             red: self.red as f32 / ae::MAX_CHANNEL8 as f32,
             green: self.green as f32 / ae::MAX_CHANNEL8 as f32,
@@ -15,6 +17,7 @@ impl ToPixel for Pixel8 {
             alpha: self.alpha as f32 / ae::MAX_CHANNEL8 as f32,
         }
     }
+
     fn to_pixel16(&self) -> Pixel16 {
         Pixel16 {
             red: (self.red as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
@@ -23,10 +26,38 @@ impl ToPixel for Pixel8 {
             alpha: (self.alpha as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
         }
     }
+
     fn to_pixel8(&self) -> Pixel8 {
-        *self
+        Pixel8 {
+            red: self.red as u8,
+            green: self.green as u8,
+            blue: self.blue as u8,
+            alpha: self.alpha as u8,
+        }
     }
 }
+
+// impl ToPixel for Pixel8 {
+//     fn to_pixel32(&self) -> PixelF32 {
+//         PixelF32 {
+//             red: self.red as f32 / ae::MAX_CHANNEL8 as f32,
+//             green: self.green as f32 / ae::MAX_CHANNEL8 as f32,
+//             blue: self.blue as f32 / ae::MAX_CHANNEL8 as f32,
+//             alpha: self.alpha as f32 / ae::MAX_CHANNEL8 as f32,
+//         }
+//     }
+//     fn to_pixel16(&self) -> Pixel16 {
+//         Pixel16 {
+//             red: (self.red as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
+//             green: (self.green as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
+//             blue: (self.blue as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
+//             alpha: (self.alpha as f32 / ae::MAX_CHANNEL8 as f32 * ae::MAX_CHANNEL16 as f32) as u16,
+//         }
+//     }
+//     fn to_pixel8(&self) -> Pixel8 {
+//         *self
+//     }
+// }
 impl ToPixel for Pixel16 {
     fn to_pixel32(&self) -> PixelF32 {
         PixelF32 {
