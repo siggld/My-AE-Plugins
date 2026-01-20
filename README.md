@@ -4,19 +4,19 @@
 [![Latest Release](https://img.shields.io/github/v/release/Aodaruma/aod-AE-plugin)](https://github.com/Aodaruma/aod-AE-plugin/releases/latest)
 [![Pre-release](https://img.shields.io/github/v/release/Aodaruma/aod-AE-plugin?include_prereleases&label=pre-release)](https://github.com/Aodaruma/aod-AE-plugin/releases)
 
-Aodaruma 開発による、Rust で書かれた Adobe After Effects プラグイン集です。
+[Aodaruma](https://aodaruma.net/)によって開発された、Rust で書かれた Adobe After Effects プラグイン集です。
 複数のAEエフェクトプラグインを、テンプレートを用いて構築・量産、自動でMacOS/Windows向けにビルド・リリースします。
 
-A collection of Adobe After Effects plugins written in Rust, developed by Aodaruma.
+A collection of Adobe After Effects plugins written in Rust, developed by [Aodaruma](https://aodaruma.net/).
 This repository is a Cargo
 workspace that builds multiple AE effect plugins, plus shared utilities and a plugin
 template.
 
 ## 1. Plugins / プラグイン説明
 
-リリース済みのプラグインは、[Releases](https://github.com/Aodaruma/aod-AE-plugin/releases) ページからダウンロードできます。
-
-You can download released plugins from the [Releases](https://github.com/Aodaruma/aod-AE-plugin/releases) page.
+> [!TIP]
+> リリース済みのプラグインは [Releases](https://github.com/Aodaruma/aod-AE-plugin/releases) からダウンロードできます。  
+> You can download released plugins from [Releases](https://github.com/Aodaruma/aod-AE-plugin/releases).
 
 - AOD_ColorAjust
   - OKLCH/HSLで色相・彩度・明度を調整します / Adjusts hue, chroma, and lightness in OKLCH or HSL color spaces
@@ -29,7 +29,15 @@ You can download released plugins from the [Releases](https://github.com/Aodarum
 
 If you find a bug, please report it on the [Issues](https://github.com/Aodaruma/aod-AE-plugin/issues).
 
-## 3. License
+## 3. Support / 支援
+
+> [!NOTE]
+> もしこのプロジェクトが役に立ったら、GitHub Sponsors での支援をご検討ください。  
+> If this project helps you, please consider supporting it via GitHub Sponsors.
+
+https://github.com/sponsors/Aodaruma
+
+## 4. License
 
 ライセンスはMPL-2.0です。`LICENSE` ファイルを参照してください。
 
@@ -37,23 +45,34 @@ Licensed under the MPL-2.0. See `LICENSE`.
 
 ---
 
-## 4. For Developers / 開発者向け情報
+## 5. For Developers / 開発者向け情報
 
-以下は開発者向け情報です。プラグインのビルド方法や新規プラグインの作成方法を説明します（英語のみ）
+> [!NOTE]
+> 以下は開発者向け情報です。利用のみの場合は上部のReleasesを参照してください（英語のみ）。
+> 
+> The following is for developers. If you only want to use the plugins, see the Releases section above.
 
 ### Build and install
 
 Prerequisites:
 
-- Rust (stable)
+- Rust toolchain and cargo
+- cargo-generate
 - just (recommended)
 
 Build all plugins:
 
 ```sh
+# for debug versions:
 just build
+
+# you can also build release versions:
 just release
 ```
+
+> [!WARNING]
+> `just build` installs to the Adobe Common Plug-ins folder by default.  
+> Skip installation with `NO_INSTALL=1 just build`.
 
 By default the build installs to the Adobe Common Plug-ins folder. To skip installation:
 
