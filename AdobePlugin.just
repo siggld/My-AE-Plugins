@@ -1,6 +1,7 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-TargetDir := env_var_or_default("CARGO_TARGET_DIR", "target")
+WorkspaceRoot := justfile_directory() + "/../.."
+TargetDir := env_var_or_default("CARGO_TARGET_DIR", WorkspaceRoot + "/target")
 
 [windows]
 build:
