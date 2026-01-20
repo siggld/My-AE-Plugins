@@ -23,11 +23,15 @@ fn main() {
     let patch: u32 = version_parts[2].parse().expect("Invalid patch version");
 
     // Determine the stage based on building whether debug or release
+    /*
+    // pipl load error occured when stage = Stage::Release in pipl == v0.1.1, so temporarily fixed to Develop
     let stage = if cfg!(debug_assertions) {
         Stage::Develop
     } else {
         Stage::Release
     };
+    */
+    let stage = Stage::Develop;
 
     // --------------------------------------------------
     // Build the plugin with PiPL
@@ -49,7 +53,7 @@ fn main() {
             version: major,
             subversion: minor,
             bugversion: patch,
-            stage: stage,
+            stage,
             build: 1,
         },
         Property::AE_Effect_Info_Flags(0),
@@ -58,6 +62,7 @@ fn main() {
             | OutFlags::UseOutputExtent
             | OutFlags::DeepColorAware
             | OutFlags::WideTimeInput
+            | OutFlags::SendUpdateParamsUI
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2( 
@@ -66,8 +71,8 @@ fn main() {
             | OutFlags2::SupportsThreadedRendering
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
-            | OutFlags2::SupportsGetFlattenedSequenceData
-            // | OutFlags2::SupportsGPURenderF32
+            // | OutFlags2::SupportsGetFlattenedSequenceData
+            // | OutFlags2::SupportsGpuRenderF32
             ,
         ),
         Property::AE_Effect_Match_Name("ColorChange"),

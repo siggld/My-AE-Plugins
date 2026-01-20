@@ -5,12 +5,14 @@ use std::env;
 use utils::ToPixel;
 
 const MAX_PAIRS: usize = 32;
+const DEFAULT_PAIRS: usize = 1;
 seq!(N in 1..=32 {
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     Tolerrance,
     AddPairButton,
     RemovePairButton,
+    PairCount,
     #(
         ColorFrom~N,
         ColorTo~N,
@@ -24,7 +26,9 @@ seq!(N in 1..=32 {
 });
 
 #[derive(Default)]
-struct Plugin {}
+struct Plugin {
+    aegp_id: Option<ae::aegp::PluginId>,
+}
 
 ae::define_effect!(Plugin, (), Params);
 
@@ -65,6 +69,22 @@ impl AdobePluginGlobal for Plugin {
             ae::pf::ButtonDef::setup(|d| {
                 d.set_label("remove");
             }),
+        )?;
+
+        params.add_with_flags(
+            Params::PairCount,
+            "Pair Count",
+            ae::pf::FloatSliderDef::setup(|d| {
+                d.set_default(DEFAULT_PAIRS as f64);
+                d.set_value(DEFAULT_PAIRS as f64);
+                d.set_valid_min(1.0);
+                d.set_valid_max(MAX_PAIRS as f32);
+                d.set_slider_min(1.0);
+                d.set_slider_max(MAX_PAIRS as f32);
+                d.set_precision(0);
+            }),
+            ae::ParamFlag::CANNOT_TIME_VARY | ae::ParamFlag::CANNOT_INTERP,
+            ae::ParamUIFlags::NO_ECW_UI,
         )?;
 
         seq!(N in 1..=32 {
@@ -120,6 +140,11 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::GlobalSetup => {
                 // Declare that we do or do not support smart rendering
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
+                // if let Ok(suite) = ae::aegp::suites::Utility::new() {
+                //     if let Ok(plugin_id) = suite.register_with_aegp("AOD_ColorChange") {
+                //         self.aegp_id = Some(plugin_id);
+                //     }
+                // }
             }
             ae::Command::Render {
                 in_layer,
@@ -160,21 +185,22 @@ impl AdobePluginGlobal for Plugin {
                         params,
                     )?;
                 }
+                // self.do_render(in_data, in_layer_opt, out_data, out_layer_opt, params)?;
                 cb.checkin_layer_pixels(0)?;
             }
 
             ae::Command::UserChangedParam { param_index } => match params.type_at(param_index) {
                 Params::AddPairButton => {
-                    let current_pairs = Self::count_color_pairs(params);
+                    let current_pairs = Self::pair_count(params);
                     if current_pairs < MAX_PAIRS {
-                        Self::set_color_pairs(params, current_pairs + 1)?;
+                        Self::set_pair_count(params, current_pairs + 1)?;
                         out_data.set_out_flag(OutFlags::RefreshUi, true);
                     }
                 }
                 Params::RemovePairButton => {
-                    let current_pairs = Self::count_color_pairs(params);
-                    if current_pairs > 1 {
-                        Self::set_color_pairs(params, current_pairs - 1)?;
+                    let current_pairs = Self::pair_count(params);
+                    if current_pairs > DEFAULT_PAIRS {
+                        Self::set_pair_count(params, current_pairs - 1)?;
                         out_data.set_out_flag(OutFlags::RefreshUi, true);
                     }
                 }
@@ -182,8 +208,9 @@ impl AdobePluginGlobal for Plugin {
             },
 
             ae::Command::UpdateParamsUi => {
-                let current_pairs = Self::count_color_pairs(params);
-                Self::set_color_pairs(params, current_pairs)?;
+                let current_pairs = Self::pair_count(params);
+                let mut params_copy = params.cloned();
+                self.set_color_pairs(in_data, &mut params_copy, current_pairs)?;
             }
 
             _ => {}
@@ -193,41 +220,71 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
-    fn count_color_pairs(params: &ae::Parameters<Params>) -> usize {
-        // Determine the active pair count from the highest visible ColorFrom parameter.
-        // (We use UI visibility as state; this is cheap and works well with UpdateParamsUi.)
-        for idx in (0..MAX_PAIRS).rev() {
-            if let Ok(p) = params.get(COLOR_FROM_PARAMS[idx]) {
-                if !p.ui_flags().contains(ae::pf::ParamUIFlags::INVISIBLE) {
-                    return idx + 1;
-                }
-            }
-        }
-        1
+    fn pair_count(params: &ae::Parameters<Params>) -> usize {
+        params
+            .get(Params::PairCount)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|s| s.value()))
+            .map(|v| v.round() as usize)
+            .unwrap_or(DEFAULT_PAIRS)
+            .clamp(DEFAULT_PAIRS, MAX_PAIRS)
     }
 
-    fn set_color_pairs(params: &mut ae::Parameters<Params>, pairs: usize) -> Result<(), Error> {
-        let pairs = pairs.clamp(1, MAX_PAIRS);
+    fn set_pair_count(params: &mut ae::Parameters<Params>, pairs: usize) -> Result<usize, Error> {
+        let pairs = pairs.clamp(DEFAULT_PAIRS, MAX_PAIRS);
+        let mut p = params.get_mut(Params::PairCount)?;
+        p.as_float_slider_mut()?.set_value(pairs as f64);
+        p.set_change_flag(ae::ChangeFlag::CHANGED_VALUE, true);
+        Ok(pairs)
+    }
+
+    fn set_color_pairs(
+        &self,
+        in_data: InData,
+        params: &mut ae::Parameters<Params>,
+        pairs: usize,
+    ) -> Result<(), Error> {
+        let pairs = pairs.clamp(DEFAULT_PAIRS, MAX_PAIRS);
 
         // Enable/disable the +/- buttons based on bounds.
         Self::set_param_enabled(params, Params::AddPairButton, pairs < MAX_PAIRS)?;
-        Self::set_param_enabled(params, Params::RemovePairButton, pairs > 1)?;
+        Self::set_param_enabled(params, Params::RemovePairButton, pairs > DEFAULT_PAIRS)?;
 
         // Show/hide pairs.
         for idx in 0..MAX_PAIRS {
             let visible = idx < pairs;
-            Self::set_param_visible(params, COLOR_FROM_PARAMS[idx], visible)?;
-            Self::set_param_visible(params, COLOR_TO_PARAMS[idx], visible)?;
+            self.set_param_visible(in_data, params, COLOR_FROM_PARAMS[idx], visible)?;
+            self.set_param_visible(in_data, params, COLOR_TO_PARAMS[idx], visible)?;
         }
 
         Ok(())
     }
 
     fn set_param_visible(
+        &self,
+        in_data: InData,
         params: &mut ae::Parameters<Params>,
         id: Params,
         visible: bool,
     ) -> Result<(), Error> {
+        if in_data.is_premiere() {
+            return Self::set_param_ui_flag(params, id, ae::pf::ParamUIFlags::INVISIBLE, !visible);
+        }
+
+        if let Some(plugin_id) = self.aegp_id {
+            let effect = in_data.effect();
+            if let Some(index) = params.index(id) {
+                if let Ok(effect_ref) = effect.aegp_effect(plugin_id) {
+                    let stream = effect_ref.new_stream_by_index(plugin_id, index as i32)?;
+                    return stream.set_dynamic_stream_flag(
+                        ae::aegp::DynamicStreamFlags::Hidden,
+                        false,
+                        !visible,
+                    );
+                }
+            }
+        }
+
         Self::set_param_ui_flag(params, id, ae::pf::ParamUIFlags::INVISIBLE, !visible)
     }
 
@@ -275,7 +332,7 @@ impl Plugin {
 
         // Process here
         let tolerance = params.get(Params::Tolerrance)?.as_float_slider()?.value() as f32;
-        let active_pairs = Self::count_color_pairs(params);
+        let active_pairs = Self::pair_count(params);
 
         for i in 0..active_pairs {
             let color_from = params
