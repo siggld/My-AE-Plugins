@@ -7,6 +7,6 @@ CrateName := if os() == "windows" {
 
 PluginName       := "AOD_ColorAjust"
 BundleIdentifier := "com.aodaruma." + PluginName
-BinaryName       := lowercase(PluginName)
+BinaryName       := CrateName
 
 import "../../AdobePlugin.just"
