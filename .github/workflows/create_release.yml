@@ -1,0 +1,158 @@
+name: Create Release Plugin from main
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: plugin-prerelease-main
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: target
+  NO_INSTALL: "1"
+
+jobs:
+  build:
+    # workflow_run の場合は CI 成功時のみ続行
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # workflow_run では GITHUB_SHA が「この workflow の実体」の SHA になるため、CI が走った SHA を明示して checkout
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          submodules: recursive
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        run: just release
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # tag があれば tag、なければ short sha
+          TAG="$(git tag --points-at HEAD | head -n 1 || true)"
+          if [ -n "${TAG}" ]; then
+            SUFFIX="${TAG}"
+          else
+            SUFFIX="$(git rev-parse --short=12 HEAD)"
+          fi
+
+          ZIP_NAME="aod-AE-plugins_macos_${SUFFIX}.zip"
+
+          mkdir -p dist/macos
+          shopt -s nullglob
+          plugins=(target/release/*.plugin)
+          if [ ${#plugins[@]} -eq 0 ]; then
+            echo "No .plugin found in target/release" >&2
+            ls -la target/release || true
+            exit 1
+          fi
+
+          cp -R "${plugins[@]}" dist/macos/
+          ditto -c -k --sequesterRsrc --keepParent dist/macos "${ZIP_NAME}"
+          ls -la "${ZIP_NAME}"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tag = (git tag --points-at HEAD | Select-Object -First 1)
+          if ($tag) {
+            $suffix = $tag.Trim()
+          } else {
+            $suffix = (git rev-parse --short=12 HEAD).Trim()
+          }
+
+          $zipName = "aod-AE-plugins_windows_$suffix.zip"
+
+          New-Item -ItemType Directory -Force -Path dist\windows | Out-Null
+          $plugins = Get-ChildItem -Path target\release -Filter *.aex -ErrorAction SilentlyContinue
+          if (-not $plugins) {
+            Write-Error "No .aex found in target\release"
+          }
+
+          Copy-Item -Force $plugins.FullName dist\windows\
+          if (Test-Path $zipName) { Remove-Item -Force $zipName }
+          Compress-Archive -Path dist\windows\* -DestinationPath $zipName -Force
+          Get-Item $zipName | Format-List
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zips-${{ matrix.os }}
+          path: |
+            aod-AE-plugins_macos_*.zip
+            aod-AE-plugins_windows_*.zip
+          if-no-files-found: error
+
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # main の CI 成功後のみ draft prerelease を作る
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # 既存 draft（=同一タグの release）があれば削除して上書き
+      - name: Delete existing draft prerelease (ignore if missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +e
+          gh release delete main-prerelease -y --cleanup-tag
+          # 念のため ref が残っているケースへのフォールバック（存在しなければ失敗してよいので握りつぶす）
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/main-prerelease" >/dev/null 2>&1
+          exit 0
+
+      - name: Create draft prerelease and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          ls -la artifacts
+          gh release create main-prerelease artifacts/*.zip \
+            --target "$TARGET_SHA" \
+            --title "Pre-release (main)" \
+            --draft \
+            --prerelease \
+            --generate-notes
