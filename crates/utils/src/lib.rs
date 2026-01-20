@@ -1,5 +1,6 @@
+use ae::sys::{PF_Pixel, PF_PixelFloat};
 use ae::{Pixel8, Pixel16, PixelF32};
-use after_effects::{self as ae, sys::PF_Pixel};
+use after_effects as ae;
 
 pub trait ToPixel {
     fn to_pixel32(&self) -> PixelF32;
@@ -80,7 +81,7 @@ impl ToPixel for Pixel16 {
     }
 }
 impl ToPixel for PixelF32 {
-    fn to_pixel32(&self) -> PixelF32 {
+    fn to_pixel32(&self) -> PF_PixelFloat {
         *self
     }
     fn to_pixel16(&self) -> Pixel16 {
