@@ -2,7 +2,7 @@
 CrateName := if os() == "windows" {
     `$inPackage = $false; foreach ($line in Get-Content -Path Cargo.toml) { if ($line -match '^\s*\[package\]\s*$') { $inPackage = $true; continue }; if ($line -match '^\s*\[.+\]\s*$') { if ($inPackage) { break } }; if ($inPackage -and $line -match '^\s*name\s*=\s*"([^"]+)"') { $matches[1]; break } }`
 } else {
-    `awk '/^[[:space:]]*\\[package\\][[:space:]]*$/ { in_pkg=1; next } /^[[:space:]]*\\[/ { if (in_pkg) exit } in_pkg && /^[[:space:]]*name[[:space:]]*=/ { if (match($0, /\"[^\"]+\"/)) { print substr($0, RSTART+1, RLENGTH-2); exit } }' Cargo.toml`
+    `awk -F'"' 'BEGIN{in_pkg=0} /^[[:space:]]*\[package\][[:space:]]*$/{in_pkg=1;next} /^[[:space:]]*\[/{if(in_pkg)exit} in_pkg && /^[[:space:]]*name[[:space:]]*=/ {print $2; exit}' Cargo.toml`
 }
 
 PluginName       := "AOD_ColorAjust"
