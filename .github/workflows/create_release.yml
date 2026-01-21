@@ -150,16 +150,36 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Delete existing draft prerelease (ignore if missing)
+      - name: Prepare draft prerelease tag
+        id: draft_release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          set +e
-          gh release delete main-prerelease -y --cleanup-tag
-          gh api -X DELETE "repos/${GH_REPO}/git/refs/tags/main-prerelease" >/dev/null 2>&1
-          exit 0
+          set -euo pipefail
+
+          PRIMARY_TAG="main-prerelease"
+          DRAFT_TAG="$PRIMARY_TAG"
+
+          primary_draft=$(gh release view "$PRIMARY_TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [ "$primary_draft" = "true" ]; then
+            gh release delete "$PRIMARY_TAG" -y --cleanup-tag
+            gh api -X DELETE "repos/${GH_REPO}/git/refs/tags/${PRIMARY_TAG}" >/dev/null 2>&1 || true
+          elif [ "$primary_draft" = "false" ]; then
+            # Keep published prerelease; use a separate tag for new drafts.
+            DRAFT_TAG="${PRIMARY_TAG}-draft"
+          fi
+
+          if [ "$DRAFT_TAG" != "$PRIMARY_TAG" ]; then
+            alt_draft=$(gh release view "$DRAFT_TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+            if [ "$alt_draft" = "true" ]; then
+              gh release delete "$DRAFT_TAG" -y --cleanup-tag
+              gh api -X DELETE "repos/${GH_REPO}/git/refs/tags/${DRAFT_TAG}" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          echo "tag=$DRAFT_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create draft prerelease and upload assets
         env:
@@ -169,9 +189,10 @@ jobs:
         shell: bash
         run: |
           ls -la artifacts
-          gh release create main-prerelease artifacts/*.zip \
+          RELEASE_DATE="$(date -u +%Y-%m-%d)"
+          gh release create "${{ steps.draft_release.outputs.tag }}" artifacts/*.zip \
             --target "$TARGET_SHA" \
-            --title "Pre-release (main)" \
+            --title "Pre-release (main) - ${RELEASE_DATE}" \
             --draft \
             --prerelease \
             --generate-notes
