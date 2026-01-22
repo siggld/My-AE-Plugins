@@ -7,6 +7,6 @@ CrateName := if os() == "windows" {
 
 PluginName       := "AOD_{{ crate_name | pascal_case }}"
 BundleIdentifier := "com.aodaruma." + PluginName
-BinaryName       := lowercase(PluginName)
+BinaryName       := snakecase(CrateName)
 
 import "../../AdobePlugin.just"
