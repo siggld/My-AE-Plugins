@@ -13,11 +13,10 @@ fn main() {
     println!("cargo:rustc-env=BUILD_YEAR={}", current_year);
 
     let pkg_version = env!("CARGO_PKG_VERSION");
-    let mut version_parts: Vec<&str> = pkg_version.split('.').collect();
+    let version_parts: Vec<&str> = pkg_version.split('.').collect();
     if version_parts.len() != 3 {
         panic!("CARGO_PKG_VERSION must be in the format 'major.minor.patch'");
     }
-    version_parts = version_parts.iter().map(|s| *s).collect();
     let major: u32 = version_parts[0].parse().expect("Invalid major version");
     let minor: u32 = version_parts[1].parse().expect("Invalid minor version");
     let patch: u32 = version_parts[2].parse().expect("Invalid patch version");
@@ -69,9 +68,9 @@ fn main() {
             // set up from https://docs.rs/pipl/latest/pipl/struct.OutFlags2.html
             OutFlags2::FloatColorAware
             | OutFlags2::SupportsThreadedRendering
+            // | OutFlags2::SupportsGetFlattenedSequenceData
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
-            // | OutFlags2::SupportsGetFlattenedSequenceData
             // | OutFlags2::SupportsGpuRenderF32
             ,
         ),

@@ -36,7 +36,7 @@ fn main() {
     // Build the plugin with PiPL
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_ColorAjust"),
+        Property::Name("AOD_NormalGenerate"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -61,7 +61,7 @@ fn main() {
             OutFlags::PixIndependent
             | OutFlags::UseOutputExtent
             | OutFlags::DeepColorAware
-            | OutFlags::WideTimeInput
+            | OutFlags::WideTimeInput            
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2( 
@@ -74,7 +74,7 @@ fn main() {
             // | OutFlags2::SupportsGpuRenderF32
             ,
         ),
-        Property::AE_Effect_Match_Name("ColorAjust"),
+        Property::AE_Effect_Match_Name("NormalGenerate"),
         Property::AE_Reserved_Info(8),
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
     ])
