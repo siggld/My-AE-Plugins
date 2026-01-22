@@ -23,7 +23,11 @@ template.
   - OKLCH/HSLで色相・彩度・明度を調整します / Adjusts hue, chroma, and lightness in OKLCH or HSL color spaces
 - AOD_ColorChange:
   - 指定色を別の色に置換します / Changes a specific color to another color with tolerance
-    
+- AOD_ColorConvert
+  - RGBと各色空間を相互変換します / Converts between RGB and multiple color spaces
+- AOD_NormalGenerate
+  - 色領域から法線マップを生成します / Generate a normal map from the color region.
+
 ## 2. Issue / バグ報告
 
 もしバグを見つけた場合は、[Issues](https://github.com/Aodaruma/aod-AE-plugin/issues) ページで報告してください。
