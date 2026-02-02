@@ -9,7 +9,7 @@ enum Params {
     DistanceType,
     Direction,
     LpExponent,
-    Scale,
+    Width,
     Offset,
     Clamp32,
     AlphaThreshold,
@@ -79,14 +79,14 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         params.add(
-            Params::Scale,
-            "Scale",
+            Params::Width,
+            "Gradient Width (px)",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1000.0);
-                d.set_valid_max(1000.0);
-                d.set_slider_min(-10.0);
-                d.set_slider_max(10.0);
-                d.set_default(1.0);
+                d.set_valid_min(0.0);
+                d.set_valid_max(10000.0);
+                d.set_slider_min(1.0);
+                d.set_slider_max(256.0);
+                d.set_default(32.0);
                 d.set_precision(4);
             }),
         )?;
@@ -244,7 +244,8 @@ impl Plugin {
         let lp_exp = params.get(Params::LpExponent)?.as_float_slider()?.value() as f32;
         let lp_exp = lp_exp.max(0.1);
 
-        let scale = params.get(Params::Scale)?.as_float_slider()?.value() as f32;
+        let width = params.get(Params::Width)?.as_float_slider()?.value() as f32;
+        let width = width.max(1.0e-6);
         let offset = params.get(Params::Offset)?.as_float_slider()?.value() as f32;
         let clamp_32 = params.get(Params::Clamp32)?.as_checkbox()?.value();
 
@@ -434,7 +435,7 @@ impl Plugin {
                 }
             };
 
-            v = v * scale + offset;
+            v = v / width + offset;
             if !v.is_finite() {
                 v = 0.0;
             }
