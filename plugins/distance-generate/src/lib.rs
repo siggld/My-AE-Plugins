@@ -12,6 +12,7 @@ enum Params {
     Width,
     Offset,
     Clamp32,
+    UseOriginalAlpha,
     AlphaThreshold,
     LabelTolerance,
 }
@@ -138,6 +139,14 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
+        params.add(
+            Params::UseOriginalAlpha,
+            "Use Original Alpha",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
+
         Ok(())
     }
 
@@ -248,6 +257,10 @@ impl Plugin {
         let width = width.max(1.0e-6);
         let offset = params.get(Params::Offset)?.as_float_slider()?.value() as f32;
         let clamp_32 = params.get(Params::Clamp32)?.as_checkbox()?.value();
+        let use_original_alpha = params
+            .get(Params::UseOriginalAlpha)?
+            .as_checkbox()?
+            .value();
 
         let alpha_thr = params
             .get(Params::AlphaThreshold)?
@@ -263,11 +276,13 @@ impl Plugin {
         // label != 0 => packed RGB 0xRRGGBB (8-bit quantized)
         let in_world_type = in_layer.world_type();
         let mut label: Vec<u32> = vec![0; n];
+        let mut alpha_map: Vec<f32> = vec![1.0; n];
         for y in 0..h {
             for x in 0..w {
                 let idx = y * w + x;
                 let px = read_pixel_f32(&in_layer, in_world_type, x, y);
                 label[idx] = pack_label(px, alpha_thr, label_tol);
+                alpha_map[idx] = px.alpha;
             }
         }
 
@@ -448,11 +463,22 @@ impl Plugin {
                 v = v.clamp(0.0, 1.0);
             }
 
+            let mut out_alpha = 1.0;
+            let mut out_v = v;
+            if use_original_alpha {
+                out_alpha = alpha_map[i];
+                if !out_alpha.is_finite() {
+                    out_alpha = 0.0;
+                }
+                out_alpha = out_alpha.clamp(0.0, 1.0);
+                out_v *= out_alpha;
+            }
+
             let out_px = PixelF32 {
-                alpha: 1.0,
-                red: v,
-                green: v,
-                blue: v,
+                alpha: out_alpha,
+                red: out_v,
+                green: out_v,
+                blue: out_v,
             };
 
             match out_world_type {
