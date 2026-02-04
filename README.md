@@ -23,7 +23,21 @@ template.
   - OKLCH/HSLで色相・彩度・明度を調整します / Adjusts hue, chroma, and lightness in OKLCH or HSL color spaces
 - AOD_ColorChange:
   - 指定色を別の色に置換します / Changes a specific color to another color with tolerance
-    
+- AOD_ColorConvert
+  - RGBと各色空間を相互変換します / Converts between RGB and multiple color spaces
+- AOD_ContourGenerate
+  - Canny法でレイヤーから輪郭線を抽出します / Extracts contour lines from a layer using the Canny method
+- AOD_DistanceGenerate
+  - 色領域の輪郭から距離画像を生成します / Generates distance images from the contours of colored regions
+- AOD_MobiusTransform
+  - レイヤーにメビウス変換を適用します / Applies Mobius transformation to layers
+- AOD_NormalGenerate
+  - 色領域から法線マップを生成します / Generate a normal map from the color region.
+- AOD_RegionColorize
+  - 不透明または色領域をランダム・位置・インデックスで色分けします / Colors connected regions with random, positional, or index-based schemes.
+- AOD_VoronoiGenerate
+  - BlenderのVoronoi Textureノードに着想したボロノイテクスチャマップを生成します / Generates Voronoi texture maps inspired by Blender's Voronoi Texture node.
+
 ## 2. Issue / バグ報告
 
 もしバグを見つけた場合は、[Issues](https://github.com/Aodaruma/aod-AE-plugin/issues) ページで報告してください。

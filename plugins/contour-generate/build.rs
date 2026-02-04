@@ -36,7 +36,7 @@ fn main() {
     // Build the plugin with PiPL
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_{{ crate_name | pascal_case }}"),
+        Property::Name("AOD_ContourGenerate"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -60,29 +60,21 @@ fn main() {
             // set up from https://docs.rs/pipl/latest/pipl/struct.OutFlags.html
             OutFlags::PixIndependent
             | OutFlags::UseOutputExtent
-            {% if with_deepcolor -%}
             | OutFlags::DeepColorAware
-            {%- endif %}
-            {% if with_smartrender -%}
             | OutFlags::WideTimeInput
-            {%- endif %}
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2( 
             // set up from https://docs.rs/pipl/latest/pipl/struct.OutFlags2.html
             OutFlags2::FloatColorAware
-            {% if with_thrededrender -%}
             | OutFlags2::SupportsThreadedRendering
             // | OutFlags2::SupportsGetFlattenedSequenceData // error occured in pipl == v0.1.1, so temporarily commented out
-            {%- endif %}
-            {% if with_smartrender -%}
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
-            {%- endif %}
             // | OutFlags2::SupportsGpuRenderF32
             ,
         ),
-        Property::AE_Effect_Match_Name("{{ crate_name | pascal_case }}"),
+        Property::AE_Effect_Match_Name("ContourGenerate"),
         Property::AE_Reserved_Info(8),
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
     ])

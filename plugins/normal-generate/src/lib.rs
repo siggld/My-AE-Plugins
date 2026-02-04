@@ -12,6 +12,7 @@ enum Params {
     NormalStrength,
     Invert,
     FlipY,
+    UseOriginalAlpha,
 
     AlphaThreshold,
     LabelTolerance,
@@ -259,6 +260,14 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
+        params.add(
+            Params::UseOriginalAlpha,
+            "Use Original Alpha",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
+
         Ok(())
     }
 
@@ -372,6 +381,7 @@ impl Plugin {
             .value() as f32;
         let invert = params.get(Params::Invert)?.as_checkbox()?.value();
         let flip_y = params.get(Params::FlipY)?.as_checkbox()?.value();
+        let use_original_alpha = params.get(Params::UseOriginalAlpha)?.as_checkbox()?.value();
 
         let alpha_thr = params
             .get(Params::AlphaThreshold)?
@@ -412,12 +422,14 @@ impl Plugin {
         // label != 0 => packed RGB 0xRRGGBB (8-bit quantized)
         let in_world_type = in_layer.world_type();
         let mut label: Vec<u32> = vec![0; n];
+        let mut alpha_map: Vec<f32> = vec![1.0; n];
 
         for y in 0..h {
             for x in 0..w {
                 let idx = y * w + x;
                 let px = read_pixel_f32(&in_layer, in_world_type, x, y);
                 label[idx] = pack_label(px, alpha_thr, label_tol);
+                alpha_map[idx] = px.alpha;
             }
         }
 
@@ -696,7 +708,7 @@ impl Plugin {
             let y = y as usize;
             let i = y * w + x;
             /* */
-            let out_px = if label[i] == 0 {
+            let mut out_px = if label[i] == 0 {
                 // flat normal
                 PixelF32 {
                     alpha: 1.0,
@@ -783,6 +795,18 @@ impl Plugin {
                     blue: 0.5 * nz + 0.5,
                 }
             };
+
+            if use_original_alpha {
+                let mut out_alpha = alpha_map[i];
+                if !out_alpha.is_finite() {
+                    out_alpha = 0.0;
+                }
+                out_alpha = out_alpha.clamp(0.0, 1.0);
+                out_px.red *= out_alpha;
+                out_px.green *= out_alpha;
+                out_px.blue *= out_alpha;
+                out_px.alpha = out_alpha;
+            }
 
             match out_world_type {
                 ae::aegp::WorldType::U8 => dst.set_from_u8(out_px.to_pixel8()),
