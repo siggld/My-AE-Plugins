@@ -36,7 +36,7 @@ template.
 - AOD_RegionColorize
   - 不透明または色領域をランダム・位置・インデックスで色分けします / Colors connected regions with random, positional, or index-based schemes.
 - AOD_VoronoiGenerate
-  - BlenderのVoronoi Textureノードに着想したボロノイテクスチャマップを生成します / Generates Voronoi texture maps inspired by Blender's Voronoi Texture node.
+  - ボロノイテクスチャマップを生成します / Generates Voronoi texture maps.
 
 ## 2. Issue / バグ報告
 

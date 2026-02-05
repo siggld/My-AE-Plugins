@@ -1,6 +1,6 @@
 # voronoi-generate ( AOD_VoronoiGenerate )
 
-Generates Voronoi texture maps inspired by Blender's Voronoi Texture node.
+Generates Voronoi texture maps.
 
 This is the After Effects plugin **AOD_VoronoiGenerate**, which provides the **VoronoiGenerate.aex** plugin file for Adobe After Effects.
 
