@@ -67,8 +67,7 @@ struct Plugin {}
 
 ae::define_effect!(Plugin, (), Params);
 
-const PLUGIN_DESCRIPTION: &str =
-    "Generates Voronoi texture maps inspired by Blender's Voronoi Texture node.";
+const PLUGIN_DESCRIPTION: &str = "Generates Voronoi texture maps";
 
 #[cfg(feature = "gpu_wgpu")]
 static WGPU_CONTEXT: OnceLock<Result<Arc<WgpuContext>, ()>> = OnceLock::new();
