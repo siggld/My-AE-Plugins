@@ -21,7 +21,6 @@ fn main() {
     let minor: u32 = version_parts[1].parse().expect("Invalid minor version");
     let patch: u32 = version_parts[2].parse().expect("Invalid patch version");
 
-    // Determine the stage based on building whether debug or release
     /*
     // pipl load error occured when stage = Stage::Release in pipl == v0.1.1, so temporarily fixed to Develop
     let stage = if cfg!(debug_assertions) {
@@ -30,13 +29,13 @@ fn main() {
         Stage::Release
     };
     */
-    let stage = Stage::Develop; 
+    let stage = Stage::Develop;
 
     // --------------------------------------------------
     // Build the plugin with PiPL
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_ContourGenerate"),
+        Property::Name("AOD_UvDistortPro"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -64,18 +63,19 @@ fn main() {
             | OutFlags::WideTimeInput
             ,
         ),
-        Property::AE_Effect_Global_OutFlags_2( 
+        Property::AE_Effect_Global_OutFlags_2(
             // set up from https://docs.rs/pipl/latest/pipl/struct.OutFlags2.html
             OutFlags2::FloatColorAware
             | OutFlags2::SupportsThreadedRendering
-            // | OutFlags2::SupportsGetFlattenedSequenceData // error occured in pipl == v0.1.1, so temporarily commented out
+            // | OutFlags2::SupportsGetFlattenedSequenceData
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
             // | OutFlags2::SupportsGpuRenderF32
             ,
         ),
-        Property::AE_Effect_Match_Name("ContourGenerate"),
+        Property::AE_Effect_Match_Name("UvDistortPro"),
         Property::AE_Reserved_Info(8),
-        Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
+        Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aod-AE-plugin"),
     ])
 }
+

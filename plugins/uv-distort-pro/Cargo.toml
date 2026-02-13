@@ -1,6 +1,6 @@
 [package]
-name = "contour_generate"
-description = "A plugin for extracting contour lines from a layer using the Canny method."
+name = "uv_distort_pro"
+description = "High-quality UV-based distortion mapping."
 version = "0.1.0"
 edition = "2024"
 
@@ -14,7 +14,6 @@ catch-panics = []
 [dependencies]
 after-effects = { workspace = true }
 utils = { path = "../../crates/utils" }
-imageproc = { workspace = true }
 
 [dev-dependencies]
 pipl = { workspace = true }
@@ -25,3 +24,4 @@ pipl.workspace = true
 
 [lints]
 workspace = true
+
