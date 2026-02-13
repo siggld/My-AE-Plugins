@@ -159,12 +159,10 @@ impl Plugin {
 }
 
 fn pseudo_random(x: usize, y: usize, frame: usize) -> f32 {
-    let mut v = (x as u32)
-        .wrapping_mul(73856093)
+    let mut v = (x as u32).wrapping_mul(73856093)
         ^ (y as u32).wrapping_mul(19349663)
         ^ (frame as u32).wrapping_mul(83492791);
     v = v.wrapping_mul(747796405u32).wrapping_add(2891336453u32);
     let max = u32::MAX as f32;
     (v as f32) / max
 }
-
