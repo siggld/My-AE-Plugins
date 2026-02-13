@@ -78,4 +78,3 @@ fn main() {
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
     ])
 }
-
