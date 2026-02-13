@@ -137,15 +137,7 @@ impl AdobePluginGlobal for Plugin {
                 out_layer,
             } => {
                 // Fallback: use the same input layer for texture / UV / distort.
-                self.do_render(
-                    in_data,
-                    in_layer,
-                    in_layer,
-                    in_layer,
-                    out_data,
-                    out_layer,
-                    params,
-                )?;
+                self.do_render(in_data, in_layer, in_layer, in_layer, out_data, out_layer, params)?;
             }
 
             ae::Command::SmartPreRender { mut extra } => {
