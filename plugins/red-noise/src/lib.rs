@@ -137,7 +137,7 @@ impl Plugin {
             let noise = (n * 2.0 - 1.0) * strength;
 
             // αはそのまま、赤チャンネルだけにノイズを載せる（0..α の範囲にクランプ）
-            let max_red = px.alpha.max(0.0).min(1.0);
+            let max_red = px.alpha.clamp(0.0, 1.0);
             px.red = (px.red + noise).clamp(0.0, max_red);
 
             match out_world_type {

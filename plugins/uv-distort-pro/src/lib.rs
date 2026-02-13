@@ -138,7 +138,7 @@ impl AdobePluginGlobal for Plugin {
             } => {
                 // Fallback: use the same input layer for texture / UV / distort.
                 self.do_render(
-                    in_data, in_layer, in_layer, in_layer, out_data, out_layer, params,
+                    in_data, &in_layer, &in_layer, &in_layer, out_data, out_layer, params,
                 )?;
             }
 
@@ -176,7 +176,7 @@ impl AdobePluginGlobal for Plugin {
                 if let (Some(tex), Some(uv), Some(dist), Some(out_layer)) =
                     (tex_layer_opt, uv_layer_opt, dist_layer_opt, out_layer_opt)
                 {
-                    self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
+                    self.do_render(in_data, &tex, &uv, &dist, out_data, out_layer, params)?;
                 }
 
                 cb.checkin_layer_pixels(0)?;
@@ -194,9 +194,9 @@ impl Plugin {
     fn do_render(
         &self,
         _in_data: InData,
-        texture_layer: Layer,
-        uv_layer: Layer,
-        distort_layer: Layer,
+        texture_layer: &Layer,
+        uv_layer: &Layer,
+        distort_layer: &Layer,
         _out_data: OutData,
         mut out_layer: Layer,
         params: &mut Parameters<Params>,
@@ -232,8 +232,6 @@ impl Plugin {
         let uv_h = uv_layer.height() as usize;
         let dist_w = distort_layer.width() as usize;
         let dist_h = distort_layer.height() as usize;
-        let out_w = out_layer.width() as usize;
-        let out_h = out_layer.height() as usize;
 
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let x = x as usize;
@@ -246,12 +244,12 @@ impl Plugin {
             let y_dist = y.min(dist_h.saturating_sub(1));
 
             // Base UV from UV map (R=U, G=V).
-            let uv_px = read_pixel_f32(&uv_layer, uv_world_type, x_uv, y_uv);
+            let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
             let u_base = uv_px.red;
             let v_base = uv_px.green;
 
             // Distort luminance from Distort map.
-            let dist_px = read_pixel_f32(&distort_layer, dist_world_type, x_dist, y_dist);
+            let dist_px = read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
             let l = luminance(dist_px); // 0..1
 
             // UV distortion formula.
@@ -264,7 +262,7 @@ impl Plugin {
 
             // Sample texture with bilinear interpolation (high-quality sampling).
             let tex_px = sample_layer_f32(
-                &texture_layer,
+                texture_layer,
                 tex_world_type,
                 tex_w,
                 tex_h,
