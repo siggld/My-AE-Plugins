@@ -218,14 +218,8 @@ impl Plugin {
             .get(Params::DistortIntensityY)?
             .as_float_slider()?
             .value() as f32;
-        let u_offset = params
-            .get(Params::UOffset)?
-            .as_float_slider()?
-            .value() as f32;
-        let v_offset = params
-            .get(Params::VOffset)?
-            .as_float_slider()?
-            .value() as f32;
+        let u_offset = params.get(Params::UOffset)?.as_float_slider()?.value() as f32;
+        let v_offset = params.get(Params::VOffset)?.as_float_slider()?.value() as f32;
 
         let wrap_mode = match params.get(Params::WrapMode)?.as_popup()?.value() {
             1 => WrapMode::Clamp,
@@ -385,4 +379,3 @@ fn sample_layer_f32(
 
     out
 }
-
