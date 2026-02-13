@@ -122,32 +122,29 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32;
 
-        in_layer.iterate_with(&mut out_layer, 0, progress_final, None, |x, y, ip, op| {
+        let in_world_type = in_layer.world_type();
+        let out_world_type = out_layer.world_type();
+
+        out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let x = x as usize;
             let y = y as usize;
 
-            let mut px = ip.as_f32();
+            // 入力ピクセル（アルファ付き）を取得
+            let mut px = read_pixel_f32(&in_layer, in_world_type, x, y);
 
+            // フレーム＋座標ベースの赤ノイズ
             let n = pseudo_random(x, y, frame_num);
             let noise = (n * 2.0 - 1.0) * strength;
 
-            px.red = (px.red + noise).clamp(0.0, 1.0);
+            // αはそのまま、赤チャンネルだけにノイズを載せる（0..α の範囲にクランプ）
+            let max_red = px.alpha.max(0.0).min(1.0);
+            px.red = (px.red + noise).clamp(0.0, max_red);
 
-            match op {
-                GenericPixelMut::Pixel8(p) => {
-                    *p = px.to_pixel8();
-                }
-                GenericPixelMut::Pixel16(p) => {
-                    *p = px.to_pixel16();
-                }
-                GenericPixelMut::PixelF32(p) => {
-                    *p = px;
-                }
-                GenericPixelMut::PixelF64(p) => {
-                    p.alphaF = px.alpha as f64;
-                    p.redF = px.red as f64;
-                    p.greenF = px.green as f64;
-                    p.blueF = px.blue as f64;
+            match out_world_type {
+                ae::aegp::WorldType::U8 => dst.set_from_u8(px.to_pixel8()),
+                ae::aegp::WorldType::U15 => dst.set_from_u16(px.to_pixel16()),
+                ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => {
+                    dst.set_from_f32(px);
                 }
             }
 
@@ -155,6 +152,14 @@ impl Plugin {
         })?;
 
         Ok(())
+    }
+}
+
+fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: usize) -> PixelF32 {
+    match world_type {
+        ae::aegp::WorldType::U8 => layer.as_pixel8(x, y).to_pixel32(),
+        ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
+        ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
     }
 }
 
