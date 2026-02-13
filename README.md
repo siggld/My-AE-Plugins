@@ -7,7 +7,7 @@
 
 [Aodaruma](https://aodaruma.net/)によって開発された、Rust で書かれた Adobe After Effects プラグイン集です。
 複数のAEエフェクトプラグインを、テンプレートを用いて構築・量産、自動でMacOS/Windows向けにビルド・リリースします。
-
+ 
 A collection of Adobe After Effects plugins written in Rust, developed by [Aodaruma](https://aodaruma.net/).
 This repository is a Cargo
 workspace that builds multiple AE effect plugins, plus shared utilities and a plugin
