@@ -398,7 +398,7 @@ impl Plugin {
             };
 
             let mut tex_px = if texture_fit == LayerFit::Center
-                && (u_tex < 0.0 || u_tex > 1.0 || v_tex < 0.0 || v_tex > 1.0)
+                && (!(0.0..=1.0).contains(&u_tex) || !(0.0..=1.0).contains(&v_tex))
             {
                 PixelF32 {
                     red: 0.0,
