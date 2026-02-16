@@ -10,27 +10,29 @@ use utils::ToPixel;
 enum Params {
     TextureLayer,        // 1
     TextureLayerFit,     // 2
-    TextureCenterX,      // 3  (anchor for scale/offset, 0..1)
+    TextureCenterX,      // 3
     TextureCenterY,      // 4
-    TextureScaleU,       // 5   (UI: %, 100 = 1.0)
+    TextureScaleU,       // 5   (%, 100 = 1.0)
     TextureScaleV,       // 6
     TextureOffsetU,      // 7
     TextureOffsetV,      // 8
     UvMapLayer,          // 9
     UvMapLayerFit,       // 10
-    WrapMode,            // 11
-    UOffset,             // 12
-    VOffset,             // 13
-    DistortMapLayer,     // 14  (UI: Displacement Map)
-    EnableDisplacement,  // 15
-    DistortMapLayerFit,  // 16  (UI: Displacement Map Fit)
-    DistortIntensityX,   // 17  (UI: Displacement X)
-    DistortIntensityY,   // 18  (UI: Displacement Y)
-    AlphaEdgesThreshold, // 19  (alpha channel edge)
-    TextureEdgeMode,     // 20  (image boundary: Transparent / Repeat Edge Pixels)
-    TextureFlipU,        // 21
-    TextureFlipV,        // 22
-    UseGpu,              // 23  (last: global setting)
+    UvMapScale,         // 11  (%, 100 = 1.0)
+    UvMapCenterU,       // 12
+    UvMapCenterV,       // 13
+    WrapMode,            // 14
+    UOffset,             // 15
+    VOffset,             // 16
+    DistortMapLayer,     // 17  (Displacement Map)
+    DistortMapLayerFit,  // 18
+    DistortIntensityX,   // 19
+    DistortIntensityY,   // 20
+    AlphaEdgesThreshold, // 21
+    TextureEdgeMode,     // 22
+    TextureFlipU,        // 23
+    TextureFlipV,        // 24
+    UseGpu,              // 25
 }
 
 #[derive(Default)]
@@ -109,7 +111,7 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        // ---- Texture Layer group (index 1 = Texture Layer) ----
+        // ---- Texture Settings (group; PF_ADD_TOPIC not exposed in crate) ----
         params.add(
             Params::TextureLayer,
             "Texture Layer",
@@ -120,7 +122,7 @@ impl AdobePluginGlobal for Plugin {
             "Texture Layer Fit",
             PopupDef::setup(|d| {
                 d.set_options(&["Center", "Stretch"]);
-                d.set_default(2);
+                d.set_default(1);
             }),
         )?;
         params.add(
@@ -132,7 +134,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(0.0);
                 d.set_slider_max(1.0);
                 d.set_default(0.5);
-                d.set_precision(4);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -144,7 +146,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(0.0);
                 d.set_slider_max(1.0);
                 d.set_default(0.5);
-                d.set_precision(4);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -180,7 +182,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-0.5);
                 d.set_slider_max(0.5);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -192,18 +194,54 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-0.5);
                 d.set_slider_max(0.5);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
 
-        // ---- UV Map Layer group (index 7 = UV Map Layer) ----
+        // ---- UV Map Settings ----
         params.add(Params::UvMapLayer, "UV Map Layer", LayerDef::setup(|_d| {}))?;
         params.add(
             Params::UvMapLayerFit,
             "UV Map Layer Fit",
             PopupDef::setup(|d| {
                 d.set_options(&["Center", "Stretch"]);
-                d.set_default(2);
+                d.set_default(1);
+            }),
+        )?;
+        params.add(
+            Params::UvMapScale,
+            "UV Map Scale (%)",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(1.0);
+                d.set_valid_max(1000.0);
+                d.set_slider_min(25.0);
+                d.set_slider_max(200.0);
+                d.set_default(100.0);
+                d.set_precision(2);
+            }),
+        )?;
+        params.add(
+            Params::UvMapCenterU,
+            "UV Map Center U",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(1.0);
+                d.set_default(0.5);
+                d.set_precision(2);
+            }),
+        )?;
+        params.add(
+            Params::UvMapCenterV,
+            "UV Map Center V",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(1.0);
+                d.set_default(0.5);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -223,7 +261,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -235,29 +273,22 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
 
-        // ---- Displacement Map group (index 12 = Displacement Map) ----
+        // ---- Displacement Settings (disabled when X and Y are both 0) ----
         params.add(
             Params::DistortMapLayer,
             "Displacement Map",
             LayerDef::setup(|_d| {}),
         )?;
         params.add(
-            Params::EnableDisplacement,
-            "Enable Displacement",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-        )?;
-        params.add(
             Params::DistortMapLayerFit,
             "Displacement Map Fit",
             PopupDef::setup(|d| {
                 d.set_options(&["Center", "Stretch"]);
-                d.set_default(2);
+                d.set_default(1);
             }),
         )?;
         params.add(
@@ -269,7 +300,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -281,11 +312,11 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(5);
+                d.set_precision(2);
             }),
         )?;
 
-        // ---- Edge / boundary (alpha edge = separate from image edge) ----
+        // ---- Edge / boundary ----
         params.add(
             Params::AlphaEdgesThreshold,
             "Alpha Edges Threshold (%)",
@@ -321,7 +352,7 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // ---- Global (last) ----
+        // ---- Global ----
         params.add(
             Params::UseGpu,
             "Use GPU",
@@ -378,9 +409,8 @@ impl AdobePluginGlobal for Plugin {
                 let ts = in_data.time_step();
                 let tscale = in_data.time_scale();
 
-                // Checkout layer params (indices 1=Texture, 9=UV Map, 14=Displacement) and input (0) as fallback.
-                // checkout_id: 0=Texture, 1=UV Map, 2=Displacement, 3=input layer.
-                for (param_index, checkout_id) in [(1, 0), (9, 1), (14, 2), (0, 3)] {
+                // Checkout layer params (1=Texture, 9=UV Map, 17=Displacement) and input (0).
+                for (param_index, checkout_id) in [(1, 0), (9, 1), (17, 2), (0, 3)] {
                     if let Ok(result) =
                         cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale)
                     {
@@ -452,6 +482,20 @@ impl Plugin {
         let u_offset = params.get(Params::UOffset)?.as_float_slider()?.value() as f32;
         let v_offset = params.get(Params::VOffset)?.as_float_slider()?.value() as f32;
 
+        let uv_map_scale = params
+            .get(Params::UvMapScale)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let uv_map_center_u = params
+            .get(Params::UvMapCenterU)?
+            .as_float_slider()?
+            .value() as f32;
+        let uv_map_center_v = params
+            .get(Params::UvMapCenterV)?
+            .as_float_slider()?
+            .value() as f32;
+
         let wrap_mode = match params.get(Params::WrapMode)?.as_popup()?.value() {
             1 => WrapMode::Clamp,
             2 => WrapMode::Repeat,
@@ -471,10 +515,8 @@ impl Plugin {
             _ => TextureEdgeMode::Transparent,
         };
 
-        let enable_displacement = params
-            .get(Params::EnableDisplacement)?
-            .as_checkbox()?
-            .value();
+        // Displacement disabled when both X and Y are 0 (no Enable checkbox).
+        let displacement_disabled = intensity_x == 0.0 && intensity_y == 0.0;
 
         let _use_gpu = params.get(Params::UseGpu)?.as_checkbox()?.value();
         // GPU path not implemented; _use_gpu reserved for future use.
@@ -593,8 +635,8 @@ impl Plugin {
                 }
             };
 
-            // Displacement: when disabled or no layer, use constant 0.5 (no displacement).
-            let l = if !enable_displacement {
+            // Displacement: when both X and Y are 0 or no layer, use constant 0.5 (no displacement).
+            let l = if displacement_disabled {
                 0.5
             } else {
                 match distort_layer {
@@ -615,24 +657,24 @@ impl Plugin {
                 }
             };
 
-            // UV distortion formula.
-            let u_final = u_base + (l - 0.5) * intensity_x + u_offset;
-            let v_final = v_base + (l - 0.5) * intensity_y + v_offset;
+            // UV Map pivot transform: origin move → scale → offset → restore. Then add displacement.
+            let u_uv = (u_base - uv_map_center_u) / uv_map_scale - u_offset + uv_map_center_u;
+            let v_uv = (v_base - uv_map_center_v) / uv_map_scale - v_offset + uv_map_center_v;
+            let u_final = u_uv + (l - 0.5) * intensity_x;
+            let v_final = v_uv + (l - 0.5) * intensity_y;
 
             // Apply wrap mode in normalized 0..1 space.
             let u_wrapped = wrap_coord(u_final, wrap_mode);
             let v_wrapped = wrap_coord(v_final, wrap_mode);
 
-            // Texture scale and offset around Texture Center (anchor): translate to center, scale, offset, translate back.
+            // Texture pivot transform: origin move → scale (divide) → offset (subtract) → restore.
             let u_scaled = wrap_coord(
-                (u_wrapped - texture_center_x) * texture_scale_u
-                    + texture_offset_u
+                (u_wrapped - texture_center_x) / texture_scale_u - texture_offset_u
                     + texture_center_x,
                 wrap_mode,
             );
             let v_scaled = wrap_coord(
-                (v_wrapped - texture_center_y) * texture_scale_v
-                    + texture_offset_v
+                (v_wrapped - texture_center_y) / texture_scale_v - texture_offset_v
                     + texture_center_y,
                 wrap_mode,
             );
