@@ -193,7 +193,9 @@ impl AdobePluginGlobal for Plugin {
         params.add(
             Params::UseGpu,
             "Use GPU",
-            CheckBoxDef::setup(|d| d.set_default(false)),
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
         )?;
 
         // Texture scale/offset after UV (applied in 0..1 space before sampling).
