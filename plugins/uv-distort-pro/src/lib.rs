@@ -513,8 +513,16 @@ impl Plugin {
             // When no UV Map: use output position so texture is stretched with no distortion.
             let (u_base, v_base) = match uv_layer {
                 None => {
-                    let u = if out_w > 0 { x as f32 / out_w as f32 } else { 0.5 };
-                    let v = if out_h > 0 { y as f32 / out_h as f32 } else { 0.5 };
+                    let u = if out_w > 0 {
+                        x as f32 / out_w as f32
+                    } else {
+                        0.5
+                    };
+                    let v = if out_h > 0 {
+                        y as f32 / out_h as f32
+                    } else {
+                        0.5
+                    };
                     (u, v)
                 }
                 Some(uv_layer) => {
@@ -523,8 +531,7 @@ impl Plugin {
                     if uv_inside {
                         let x_uv = (lx_uv as usize).min(uv_w.saturating_sub(1));
                         let y_uv = (ly_uv as usize).min(uv_h.saturating_sub(1));
-                        let uv_px =
-                            read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
+                        let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
                         let u = uv_px.red;
                         let v = 1.0 - uv_px.green;
                         (u, v)
