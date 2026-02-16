@@ -10,25 +10,27 @@ use utils::ToPixel;
 enum Params {
     TextureLayer,        // 1
     TextureLayerFit,     // 2
-    TextureScaleU,       // 3
-    TextureScaleV,       // 4
-    TextureOffsetU,      // 5
-    TextureOffsetV,      // 6
-    UvMapLayer,          // 7
-    UvMapLayerFit,       // 8
-    WrapMode,            // 9
-    UOffset,             // 10
-    VOffset,             // 11
-    DistortMapLayer,     // 12  (UI: Displacement Map)
-    EnableDisplacement,  // 13
-    DistortMapLayerFit,  // 14  (UI: Displacement Map Fit)
-    DistortIntensityX,   // 15  (UI: Displacement X)
-    DistortIntensityY,   // 16  (UI: Displacement Y)
-    AlphaEdgesThreshold, // 17  (alpha channel edge)
-    TextureEdgeMode,     // 18  (image boundary: Transparent / Repeat Edge Pixels)
-    TextureFlipU,        // 19
-    TextureFlipV,        // 20
-    UseGpu,              // 21  (last: global setting)
+    TextureCenterX,      // 3  (anchor for scale/offset, 0..1)
+    TextureCenterY,      // 4
+    TextureScaleU,       // 5   (UI: %, 100 = 1.0)
+    TextureScaleV,       // 6
+    TextureOffsetU,      // 7
+    TextureOffsetV,      // 8
+    UvMapLayer,          // 9
+    UvMapLayerFit,       // 10
+    WrapMode,            // 11
+    UOffset,             // 12
+    VOffset,             // 13
+    DistortMapLayer,     // 14  (UI: Displacement Map)
+    EnableDisplacement,  // 15
+    DistortMapLayerFit,  // 16  (UI: Displacement Map Fit)
+    DistortIntensityX,   // 17  (UI: Displacement X)
+    DistortIntensityY,   // 18  (UI: Displacement Y)
+    AlphaEdgesThreshold, // 19  (alpha channel edge)
+    TextureEdgeMode,     // 20  (image boundary: Transparent / Repeat Edge Pixels)
+    TextureFlipU,        // 21
+    TextureFlipV,        // 22
+    UseGpu,              // 23  (last: global setting)
 }
 
 #[derive(Default)]
@@ -122,27 +124,51 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
         params.add(
-            Params::TextureScaleU,
-            "Texture Scale U",
+            Params::TextureCenterX,
+            "Texture Center X",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.01);
-                d.set_valid_max(10.0);
-                d.set_slider_min(0.25);
-                d.set_slider_max(2.0);
-                d.set_default(1.0);
-                d.set_precision(3);
+                d.set_valid_min(0.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(1.0);
+                d.set_default(0.5);
+                d.set_precision(4);
+            }),
+        )?;
+        params.add(
+            Params::TextureCenterY,
+            "Texture Center Y",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(1.0);
+                d.set_default(0.5);
+                d.set_precision(4);
+            }),
+        )?;
+        params.add(
+            Params::TextureScaleU,
+            "Texture Scale U (%)",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(1.0);
+                d.set_valid_max(1000.0);
+                d.set_slider_min(25.0);
+                d.set_slider_max(200.0);
+                d.set_default(100.0);
+                d.set_precision(2);
             }),
         )?;
         params.add(
             Params::TextureScaleV,
-            "Texture Scale V",
+            "Texture Scale V (%)",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.01);
-                d.set_valid_max(10.0);
-                d.set_slider_min(0.25);
-                d.set_slider_max(2.0);
-                d.set_default(1.0);
-                d.set_precision(3);
+                d.set_valid_min(1.0);
+                d.set_valid_max(1000.0);
+                d.set_slider_min(25.0);
+                d.set_slider_max(200.0);
+                d.set_default(100.0);
+                d.set_precision(2);
             }),
         )?;
         params.add(
@@ -154,7 +180,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-0.5);
                 d.set_slider_max(0.5);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
         params.add(
@@ -166,7 +192,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-0.5);
                 d.set_slider_max(0.5);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
 
@@ -197,7 +223,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
         params.add(
@@ -209,7 +235,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
 
@@ -243,7 +269,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
         params.add(
@@ -255,7 +281,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(-10.0);
                 d.set_slider_max(10.0);
                 d.set_default(0.0);
-                d.set_precision(3);
+                d.set_precision(5);
             }),
         )?;
 
@@ -352,9 +378,9 @@ impl AdobePluginGlobal for Plugin {
                 let ts = in_data.time_step();
                 let tscale = in_data.time_scale();
 
-                // Checkout layer params (indices 1=Texture, 7=UV Map, 12=Displacement) and input (0) as fallback.
+                // Checkout layer params (indices 1=Texture, 9=UV Map, 14=Displacement) and input (0) as fallback.
                 // checkout_id: 0=Texture, 1=UV Map, 2=Displacement, 3=input layer.
-                for (param_index, checkout_id) in [(1, 0), (7, 1), (12, 2), (0, 3)] {
+                for (param_index, checkout_id) in [(1, 0), (9, 1), (14, 2), (0, 3)] {
                     if let Ok(result) =
                         cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale)
                     {
@@ -453,14 +479,25 @@ impl Plugin {
         let _use_gpu = params.get(Params::UseGpu)?.as_checkbox()?.value();
         // GPU path not implemented; _use_gpu reserved for future use.
 
+        let texture_center_x = params
+            .get(Params::TextureCenterX)?
+            .as_float_slider()?
+            .value() as f32;
+        let texture_center_y = params
+            .get(Params::TextureCenterY)?
+            .as_float_slider()?
+            .value() as f32;
+        // Scale: 100% = 1.0 (UI percentage).
         let texture_scale_u = params
             .get(Params::TextureScaleU)?
             .as_float_slider()?
-            .value() as f32;
+            .value() as f32
+            / 100.0;
         let texture_scale_v = params
             .get(Params::TextureScaleV)?
             .as_float_slider()?
-            .value() as f32;
+            .value() as f32
+            / 100.0;
         let texture_offset_u = params
             .get(Params::TextureOffsetU)?
             .as_float_slider()?
@@ -511,7 +548,8 @@ impl Plugin {
             let y = y as usize;
 
             // When no UV Map: use output position so texture is stretched with no distortion.
-            let (u_base, v_base) = match uv_layer {
+            // When UV Map present and pixel is outside UV layer bounds: output transparent (no texture sample).
+            let (u_base, v_base, uv_alpha) = match uv_layer {
                 None => {
                     let u = if out_w > 0 {
                         x as f32 / out_w as f32
@@ -523,7 +561,7 @@ impl Plugin {
                     } else {
                         0.5
                     };
-                    (u, v)
+                    (u, v, 1.0)
                 }
                 Some(uv_layer) => {
                     let (lx_uv, ly_uv, uv_inside) =
@@ -534,9 +572,23 @@ impl Plugin {
                         let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
                         let u = uv_px.red;
                         let v = 1.0 - uv_px.green;
-                        (u, v)
+                        (u, v, uv_px.alpha)
                     } else {
-                        (0.5, 0.5)
+                        // UV layer outside: do not sample texture; output transparent.
+                        let transparent = PixelF32 {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: 0.0,
+                        };
+                        match out_world_type {
+                            ae::aegp::WorldType::U8 => dst.set_from_u8(transparent.to_pixel8()),
+                            ae::aegp::WorldType::U15 => dst.set_from_u16(transparent.to_pixel16()),
+                            ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => {
+                                dst.set_from_f32(transparent);
+                            }
+                        }
+                        return Ok(());
                     }
                 }
             };
@@ -571,9 +623,15 @@ impl Plugin {
             let u_wrapped = wrap_coord(u_final, wrap_mode);
             let v_wrapped = wrap_coord(v_final, wrap_mode);
 
-            // Texture scale and offset after UV (in 0..1 space), then wrap again.
-            let u_scaled = wrap_coord(u_wrapped * texture_scale_u + texture_offset_u, wrap_mode);
-            let v_scaled = wrap_coord(v_wrapped * texture_scale_v + texture_offset_v, wrap_mode);
+            // Texture scale and offset around Texture Center (anchor): translate to center, scale, offset, translate back.
+            let u_scaled = wrap_coord(
+                (u_wrapped - texture_center_x) * texture_scale_u + texture_offset_u + texture_center_x,
+                wrap_mode,
+            );
+            let v_scaled = wrap_coord(
+                (v_wrapped - texture_center_y) * texture_scale_v + texture_offset_v + texture_center_y,
+                wrap_mode,
+            );
 
             // Texture sampling: in Center mode map 0..1 to texture with letterbox.
             let (u_tex, v_tex) = match texture_fit {
@@ -621,8 +679,9 @@ impl Plugin {
                 tex_px.alpha = 0.0;
             }
 
-            // Output premultiplied alpha so the host composites correctly and alpha edge does not show as solid color.
-            let a = tex_px.alpha;
+            // Final alpha = texture alpha × UV map alpha (UV alpha trims the result).
+            let a = tex_px.alpha * uv_alpha;
+            // Output premultiplied alpha so the host composites correctly.
             let out_px = PixelF32 {
                 red: tex_px.red * a,
                 green: tex_px.green * a,
@@ -699,14 +758,24 @@ fn sample_layer_f32(
         };
     }
 
-    // Repeat Edge Pixels: clamp to 0..1 so image boundary extends the edge pixel (like Fast Box Blur).
+    // Transparent: outside 0..1 returns transparent. Repeat Edge Pixels: clamp to 0..1 so edge extends.
     let (u, v) = match texture_edge_mode {
-        TextureEdgeMode::Transparent => (u, v),
+        TextureEdgeMode::Transparent => {
+            if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+                return PixelF32 {
+                    red: 0.0,
+                    green: 0.0,
+                    blue: 0.0,
+                    alpha: 0.0,
+                };
+            }
+            (u, v)
+        }
         TextureEdgeMode::RepeatEdgePixels => (u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
     };
 
-    let fx = (u.clamp(0.0, 1.0) * (width as f32 - 1.0)).max(0.0);
-    let fy = (v.clamp(0.0, 1.0) * (height as f32 - 1.0)).max(0.0);
+    let fx = (u * (width as f32 - 1.0)).max(0.0);
+    let fy = (v * (height as f32 - 1.0)).max(0.0);
 
     let x0 = fx.floor() as isize;
     let y0 = fy.floor() as isize;
