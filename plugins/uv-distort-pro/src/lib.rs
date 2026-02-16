@@ -183,7 +183,7 @@ impl AdobePluginGlobal for Plugin {
                 let input_layer_opt = cb.checkout_layer_pixels(3)?;
                 let out_layer_opt = cb.checkout_output()?;
 
-                if let Some(mut out_layer) = out_layer_opt {
+                if let Some(out_layer) = out_layer_opt {
                     let input_ref = input_layer_opt.as_ref();
                     let tex = tex_layer_opt.as_ref().or(input_ref);
                     let uv = uv_layer_opt.as_ref().or(input_ref);
