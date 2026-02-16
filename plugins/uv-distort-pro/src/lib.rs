@@ -38,8 +38,22 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        // Texture / UV / Distort layers are supplied by the host as input layers (indices 0..=2).
-        // Here we just expose controls for intensity / offset / wrap mode.
+        // Layer parameters (param indices 1, 2, 3). Index 0 is the effect input layer.
+        params.add(
+            Params::TextureLayer,
+            "Texture Layer",
+            LayerDef::setup(|_d| {}),
+        )?;
+        params.add(
+            Params::UvMapLayer,
+            "UV Map Layer",
+            LayerDef::setup(|_d| {}),
+        )?;
+        params.add(
+            Params::DistortMapLayer,
+            "Distort Map Layer",
+            LayerDef::setup(|_d| {}),
+        )?;
 
         // Distort Intensity X
         params.add(
@@ -144,30 +158,27 @@ impl AdobePluginGlobal for Plugin {
 
             ae::Command::SmartPreRender { mut extra } => {
                 let req = extra.output_request();
+                let cb = extra.callbacks();
+                let t = in_data.current_time();
+                let ts = in_data.time_step();
+                let tscale = in_data.time_scale();
 
-                // We at least union the main input (index 0).
-                if let Ok(in_result) = extra.callbacks().checkout_layer(
-                    0,
-                    0,
-                    &req,
-                    in_data.current_time(),
-                    in_data.time_step(),
-                    in_data.time_scale(),
-                ) {
-                    let _ = extra.union_result_rect(in_result.result_rect.into());
-                    let _ = extra.union_max_result_rect(in_result.max_result_rect.into());
-                } else {
-                    return Err(Error::InterruptCancel);
+                // Checkout all layer inputs we use at SmartRender (param indices 1, 2, 3).
+                // checkout_id must be unique per checkout; we use 0, 1, 2.
+                for (param_index, checkout_id) in [(1, 0), (2, 1), (3, 2)] {
+                    if let Ok(result) = cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale) {
+                        let _ = extra.union_result_rect(result.result_rect.into());
+                        let _ = extra.union_max_result_rect(result.max_result_rect.into());
+                    } else {
+                        return Err(Error::InterruptCancel);
+                    }
                 }
             }
 
             ae::Command::SmartRender { extra } => {
                 let cb = extra.callbacks();
 
-                // We expect:
-                //  - index 0: Texture Layer
-                //  - index 1: UV Map Layer
-                //  - index 2: Distort Map Layer
+                // checkout_id 0, 1, 2 (param indices 1=Texture, 2=UV Map, 3=Distort).
                 let tex_layer_opt = cb.checkout_layer_pixels(0)?;
                 let uv_layer_opt = cb.checkout_layer_pixels(1)?;
                 let dist_layer_opt = cb.checkout_layer_pixels(2)?;
