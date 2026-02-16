@@ -159,9 +159,9 @@ impl AdobePluginGlobal for Plugin {
                 let ts = in_data.time_step();
                 let tscale = in_data.time_scale();
 
-                // Checkout all layer inputs we use at SmartRender (param indices 1, 2, 3).
-                // checkout_id must be unique per checkout; we use 0, 1, 2.
-                for (param_index, checkout_id) in [(1, 0), (2, 1), (3, 2)] {
+                // Checkout layer params (indices 1,2,3) and the effect input layer (index 0) as fallback.
+                // checkout_id: 0=Texture, 1=UV Map, 2=Distort, 3=input layer (used when a param is unset).
+                for (param_index, checkout_id) in [(1, 0), (2, 1), (3, 2), (0, 3)] {
                     if let Ok(result) =
                         cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale)
                     {
@@ -176,21 +176,26 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::SmartRender { extra } => {
                 let cb = extra.callbacks();
 
-                // checkout_id 0, 1, 2 (param indices 1=Texture, 2=UV Map, 3=Distort).
+                // checkout_id 0=Texture, 1=UV Map, 2=Distort, 3=effect input layer (fallback).
                 let tex_layer_opt = cb.checkout_layer_pixels(0)?;
                 let uv_layer_opt = cb.checkout_layer_pixels(1)?;
                 let dist_layer_opt = cb.checkout_layer_pixels(2)?;
+                let input_layer_opt = cb.checkout_layer_pixels(3)?;
                 let out_layer_opt = cb.checkout_output()?;
 
-                if let (Some(tex), Some(uv), Some(dist), Some(out_layer)) =
-                    (tex_layer_opt, uv_layer_opt, dist_layer_opt, out_layer_opt)
-                {
-                    self.do_render(in_data, &tex, &uv, &dist, out_data, out_layer, params)?;
+                if let Some(mut out_layer) = out_layer_opt {
+                    let tex = tex_layer_opt.or(input_layer_opt.as_ref());
+                    let uv = uv_layer_opt.or(input_layer_opt.as_ref());
+                    let dist = dist_layer_opt.or(input_layer_opt.as_ref());
+                    if let (Some(tex), Some(uv), Some(dist)) = (tex, uv, dist) {
+                        self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
+                    }
                 }
 
                 cb.checkin_layer_pixels(0)?;
                 cb.checkin_layer_pixels(1)?;
                 cb.checkin_layer_pixels(2)?;
+                cb.checkin_layer_pixels(3)?;
             }
 
             _ => {}
