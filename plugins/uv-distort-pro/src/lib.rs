@@ -166,7 +166,9 @@ impl AdobePluginGlobal for Plugin {
                 // Checkout all layer inputs we use at SmartRender (param indices 1, 2, 3).
                 // checkout_id must be unique per checkout; we use 0, 1, 2.
                 for (param_index, checkout_id) in [(1, 0), (2, 1), (3, 2)] {
-                    if let Ok(result) = cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale) {
+                    if let Ok(result) =
+                        cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale)
+                    {
                         let _ = extra.union_result_rect(result.result_rect.into());
                         let _ = extra.union_max_result_rect(result.max_result_rect.into());
                     } else {
