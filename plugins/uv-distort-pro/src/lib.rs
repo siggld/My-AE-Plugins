@@ -369,8 +369,7 @@ impl Plugin {
             let l = if dist_inside {
                 let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
                 let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
-                let dist_px =
-                    read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
+                let dist_px = read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
                 luminance(dist_px)
             } else {
                 0.5
@@ -408,14 +407,7 @@ impl Plugin {
                     alpha: 0.0,
                 }
             } else {
-                sample_layer_f32(
-                    texture_layer,
-                    tex_world_type,
-                    tex_w,
-                    tex_h,
-                    u_tex,
-                    v_tex,
-                )
+                sample_layer_f32(texture_layer, tex_world_type, tex_w, tex_h, u_tex, v_tex)
             };
 
             // Avoid alpha edge bleed: treat very low alpha as fully transparent.
