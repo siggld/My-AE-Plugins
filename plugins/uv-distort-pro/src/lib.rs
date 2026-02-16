@@ -351,15 +351,7 @@ impl AdobePluginGlobal for Plugin {
                     // Displacement Map is optional: None = constant 0.5 gray (no displacement).
                     let dist = dist_layer_opt.as_ref();
                     if let (Some(tex), Some(uv)) = (tex, uv) {
-                        self.do_render(
-                            in_data,
-                            tex,
-                            uv,
-                            dist,
-                            out_data,
-                            out_layer,
-                            params,
-                        )?;
+                        self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
                     }
                 }
 
@@ -494,12 +486,8 @@ impl Plugin {
                     if dist_inside {
                         let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
                         let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
-                        let dist_px = read_pixel_f32(
-                            distort_layer,
-                            dist_world_type,
-                            x_dist,
-                            y_dist,
-                        );
+                        let dist_px =
+                            read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
                         luminance(dist_px)
                     } else {
                         0.5
