@@ -8,25 +8,25 @@ use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    TextureLayer,       // 1
-    TextureLayerFit,    // 2
-    TextureScaleU,      // 3
-    TextureScaleV,      // 4
-    TextureOffsetU,     // 5
-    TextureOffsetV,     // 6
-    UvMapLayer,         // 7
-    UvMapLayerFit,      // 8
-    WrapMode,           // 9
-    UOffset,            // 10
-    VOffset,            // 11
-    DistortMapLayer,    // 12  (UI: Displacement Map)
-    EnableDisplacement, // 13
-    DistortMapLayerFit, // 14  (UI: Displacement Map Fit)
-    DistortIntensityX,  // 15  (UI: Displacement X)
-    DistortIntensityY,  // 16  (UI: Displacement Y)
+    TextureLayer,        // 1
+    TextureLayerFit,     // 2
+    TextureScaleU,       // 3
+    TextureScaleV,       // 4
+    TextureOffsetU,      // 5
+    TextureOffsetV,      // 6
+    UvMapLayer,          // 7
+    UvMapLayerFit,       // 8
+    WrapMode,            // 9
+    UOffset,             // 10
+    VOffset,             // 11
+    DistortMapLayer,     // 12  (UI: Displacement Map)
+    EnableDisplacement,  // 13
+    DistortMapLayerFit,  // 14  (UI: Displacement Map Fit)
+    DistortIntensityX,   // 15  (UI: Displacement X)
+    DistortIntensityY,   // 16  (UI: Displacement Y)
     AlphaEdgesThreshold, // 17  (alpha channel edge)
-    TextureEdgeMode,    // 18  (image boundary: Transparent / Repeat Edge Pixels)
-    UseGpu,             // 19  (last: global setting)
+    TextureEdgeMode,     // 18  (image boundary: Transparent / Repeat Edge Pixels)
+    UseGpu,              // 19  (last: global setting)
 }
 
 #[derive(Default)]
