@@ -184,9 +184,10 @@ impl AdobePluginGlobal for Plugin {
                 let out_layer_opt = cb.checkout_output()?;
 
                 if let Some(mut out_layer) = out_layer_opt {
-                    let tex = tex_layer_opt.or(input_layer_opt.as_ref());
-                    let uv = uv_layer_opt.or(input_layer_opt.as_ref());
-                    let dist = dist_layer_opt.or(input_layer_opt.as_ref());
+                    let input_ref = input_layer_opt.as_ref();
+                    let tex = tex_layer_opt.as_ref().or(input_ref);
+                    let uv = uv_layer_opt.as_ref().or(input_ref);
+                    let dist = dist_layer_opt.as_ref().or(input_ref);
                     if let (Some(tex), Some(uv), Some(dist)) = (tex, uv, dist) {
                         self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
                     }
