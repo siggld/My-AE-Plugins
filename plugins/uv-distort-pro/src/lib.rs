@@ -640,6 +640,7 @@ fn wrap_coord(v: f32, mode: WrapMode) -> f32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sample_layer_f32(
     layer: &Layer,
     world_type: ae::aegp::WorldType,
