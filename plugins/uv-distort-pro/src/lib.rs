@@ -52,8 +52,8 @@ enum LayerFit {
 /// How to sample at the texture image boundary (like Fast Box Blur "Repeat Edge Pixels").
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TextureEdgeMode {
-    Transparent,        // outside 0..1 = transparent
-    RepeatEdgePixels,  // clamp to 0..1, extend edge pixel
+    Transparent,      // outside 0..1 = transparent
+    RepeatEdgePixels, // clamp to 0..1, extend edge pixel
 }
 
 /// Maps output pixel (ox, oy) to layer coordinates. Returns (layer_x, layer_y) in f32 and whether inside layer bounds.
@@ -428,7 +428,10 @@ impl Plugin {
             _ => TextureEdgeMode::Transparent,
         };
 
-        let enable_displacement = params.get(Params::EnableDisplacement)?.as_checkbox()?.value();
+        let enable_displacement = params
+            .get(Params::EnableDisplacement)?
+            .as_checkbox()?
+            .value();
 
         let _use_gpu = params.get(Params::UseGpu)?.as_checkbox()?.value();
         // GPU path not implemented; _use_gpu reserved for future use.
