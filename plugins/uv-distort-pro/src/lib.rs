@@ -8,14 +8,17 @@ use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    TextureLayer,      // ID: 1
-    UvMapLayer,        // ID: 2
-    DistortMapLayer,   // ID: 3
-    DistortIntensityX, // ID: 4
-    DistortIntensityY, // ID: 5
-    UOffset,           // ID: 6
-    VOffset,           // ID: 7
-    WrapMode,          // ID: 8
+    TextureLayer,       // ID: 1
+    UvMapLayer,         // ID: 2
+    DistortMapLayer,    // ID: 3
+    DistortIntensityX,  // ID: 4
+    DistortIntensityY,  // ID: 5
+    UOffset,            // ID: 6
+    VOffset,            // ID: 7
+    WrapMode,           // ID: 8
+    TextureLayerFit,    // ID: 9
+    UvMapLayerFit,      // ID: 10
+    DistortMapLayerFit, // ID: 11
 }
 
 #[derive(Default)]
@@ -29,6 +32,54 @@ const PLUGIN_DESCRIPTION: &str = "High-quality UV-based distortion mapping.";
 enum WrapMode {
     Clamp,
     Repeat,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LayerFit {
+    Center,
+    Stretch,
+}
+
+/// Maps output pixel (ox, oy) to layer coordinates. Returns (layer_x, layer_y) in f32 and whether inside layer bounds.
+fn output_to_layer_coord(
+    ox: usize,
+    oy: usize,
+    out_w: usize,
+    out_h: usize,
+    layer_w: usize,
+    layer_h: usize,
+    fit: LayerFit,
+) -> (f32, f32, bool) {
+    let ox_f = ox as f32;
+    let oy_f = oy as f32;
+    let out_w_f = out_w as f32;
+    let out_h_f = out_h as f32;
+    let lw_f = layer_w as f32;
+    let lh_f = layer_h as f32;
+
+    let (lx, ly) = match fit {
+        LayerFit::Stretch => {
+            let lx = if out_w > 0 {
+                ox_f * lw_f / out_w_f
+            } else {
+                0.0
+            };
+            let ly = if out_h > 0 {
+                oy_f * lh_f / out_h_f
+            } else {
+                0.0
+            };
+            (lx, ly)
+        }
+        LayerFit::Center => {
+            let cx = out_w_f * 0.5 - lw_f * 0.5;
+            let cy = out_h_f * 0.5 - lh_f * 0.5;
+            (ox_f - cx, oy_f - cy)
+        }
+    };
+
+    let inside = lx >= 0.0 && lx < lw_f && ly >= 0.0 && ly < lh_f;
+    (lx, ly, inside)
 }
 
 impl AdobePluginGlobal for Plugin {
@@ -51,15 +102,15 @@ impl AdobePluginGlobal for Plugin {
             LayerDef::setup(|_d| {}),
         )?;
 
-        // Distort Intensity X
+        // Distort Intensity X (slider ±10, direct input ±100)
         params.add(
             Params::DistortIntensityX,
             "Distort Intensity X",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1.0);
-                d.set_valid_max(1.0);
-                d.set_slider_min(-1.0);
-                d.set_slider_max(1.0);
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
                 d.set_default(0.0);
                 d.set_precision(3);
             }),
@@ -70,10 +121,10 @@ impl AdobePluginGlobal for Plugin {
             Params::DistortIntensityY,
             "Distort Intensity Y",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1.0);
-                d.set_valid_max(1.0);
-                d.set_slider_min(-1.0);
-                d.set_slider_max(1.0);
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
                 d.set_default(0.0);
                 d.set_precision(3);
             }),
@@ -84,10 +135,10 @@ impl AdobePluginGlobal for Plugin {
             Params::UOffset,
             "U Offset",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1.0);
-                d.set_valid_max(1.0);
-                d.set_slider_min(-1.0);
-                d.set_slider_max(1.0);
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
                 d.set_default(0.0);
                 d.set_precision(3);
             }),
@@ -98,10 +149,10 @@ impl AdobePluginGlobal for Plugin {
             Params::VOffset,
             "V Offset",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1.0);
-                d.set_valid_max(1.0);
-                d.set_slider_min(-1.0);
-                d.set_slider_max(1.0);
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
                 d.set_default(0.0);
                 d.set_precision(3);
             }),
@@ -114,6 +165,32 @@ impl AdobePluginGlobal for Plugin {
             PopupDef::setup(|d| {
                 d.set_options(&["Clamp", "Repeat"]);
                 d.set_default(1);
+            }),
+        )?;
+
+        // Layer fit when smaller than comp: 1 = Center, 2 = Stretch
+        params.add(
+            Params::TextureLayerFit,
+            "Texture Layer Fit",
+            PopupDef::setup(|d| {
+                d.set_options(&["Center", "Stretch"]);
+                d.set_default(2);
+            }),
+        )?;
+        params.add(
+            Params::UvMapLayerFit,
+            "UV Map Layer Fit",
+            PopupDef::setup(|d| {
+                d.set_options(&["Center", "Stretch"]);
+                d.set_default(2);
+            }),
+        )?;
+        params.add(
+            Params::DistortMapLayerFit,
+            "Distort Map Layer Fit",
+            PopupDef::setup(|d| {
+                d.set_options(&["Center", "Stretch"]);
+                d.set_default(2);
             }),
         )?;
 
@@ -237,6 +314,22 @@ impl Plugin {
             _ => WrapMode::Clamp,
         };
 
+        let texture_fit = match params.get(Params::TextureLayerFit)?.as_popup()?.value() {
+            1 => LayerFit::Center,
+            2 => LayerFit::Stretch,
+            _ => LayerFit::Stretch,
+        };
+        let uv_fit = match params.get(Params::UvMapLayerFit)?.as_popup()?.value() {
+            1 => LayerFit::Center,
+            2 => LayerFit::Stretch,
+            _ => LayerFit::Stretch,
+        };
+        let distort_fit = match params.get(Params::DistortMapLayerFit)?.as_popup()?.value() {
+            1 => LayerFit::Center,
+            2 => LayerFit::Stretch,
+            _ => LayerFit::Stretch,
+        };
+
         let tex_world_type = texture_layer.world_type();
         let uv_world_type = uv_layer.world_type();
         let dist_world_type = distort_layer.world_type();
@@ -248,25 +341,40 @@ impl Plugin {
         let uv_h = uv_layer.height();
         let dist_w = distort_layer.width();
         let dist_h = distort_layer.height();
+        let out_w = out_layer.width();
+        let out_h = out_layer.height();
 
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let x = x as usize;
             let y = y as usize;
 
-            // Clamp coordinates for UV / Distort maps to their sizes.
-            let x_uv = x.min(uv_w.saturating_sub(1));
-            let y_uv = y.min(uv_h.saturating_sub(1));
-            let x_dist = x.min(dist_w.saturating_sub(1));
-            let y_dist = y.min(dist_h.saturating_sub(1));
+            // Map output (x,y) to UV map layer coords (Center or Stretch).
+            let (lx_uv, ly_uv, uv_inside) =
+                output_to_layer_coord(x, y, out_w, out_h, uv_w, uv_h, uv_fit);
+            let (u_base, v_base) = if uv_inside {
+                let x_uv = (lx_uv as usize).min(uv_w.saturating_sub(1));
+                let y_uv = (ly_uv as usize).min(uv_h.saturating_sub(1));
+                let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
+                // Standard UV: flip V so that top-left in image = top in texture (V=0).
+                let u = uv_px.red;
+                let v = 1.0 - uv_px.green;
+                (u, v)
+            } else {
+                (0.5, 0.5)
+            };
 
-            // Base UV from UV map (R=U, G=V).
-            let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
-            let u_base = uv_px.red;
-            let v_base = uv_px.green;
-
-            // Distort luminance from Distort map.
-            let dist_px = read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
-            let l = luminance(dist_px); // 0..1
+            // Map output (x,y) to Distort map layer coords.
+            let (lx_dist, ly_dist, dist_inside) =
+                output_to_layer_coord(x, y, out_w, out_h, dist_w, dist_h, distort_fit);
+            let l = if dist_inside {
+                let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
+                let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
+                let dist_px =
+                    read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
+                luminance(dist_px)
+            } else {
+                0.5
+            };
 
             // UV distortion formula.
             let u_final = u_base + (l - 0.5) * intensity_x + u_offset;
@@ -276,15 +384,47 @@ impl Plugin {
             let u_wrapped = wrap_coord(u_final, wrap_mode);
             let v_wrapped = wrap_coord(v_final, wrap_mode);
 
-            // Sample texture with bilinear interpolation (high-quality sampling).
-            let tex_px = sample_layer_f32(
-                texture_layer,
-                tex_world_type,
-                tex_w,
-                tex_h,
-                u_wrapped,
-                v_wrapped,
-            );
+            // Texture sampling: in Center mode map 0..1 to texture with letterbox.
+            let (u_tex, v_tex) = match texture_fit {
+                LayerFit::Stretch => (u_wrapped, v_wrapped),
+                LayerFit::Center => {
+                    let out_w_f = out_w as f32;
+                    let out_h_f = out_h as f32;
+                    let tw_f = tex_w as f32;
+                    let th_f = tex_h as f32;
+                    let u_tex = u_wrapped * out_w_f / tw_f - out_w_f / (2.0 * tw_f) + 0.5;
+                    let v_tex = v_wrapped * out_h_f / th_f - out_h_f / (2.0 * th_f) + 0.5;
+                    (u_tex, v_tex)
+                }
+            };
+
+            let mut tex_px = if texture_fit == LayerFit::Center
+                && (u_tex < 0.0 || u_tex > 1.0 || v_tex < 0.0 || v_tex > 1.0)
+            {
+                PixelF32 {
+                    red: 0.0,
+                    green: 0.0,
+                    blue: 0.0,
+                    alpha: 0.0,
+                }
+            } else {
+                sample_layer_f32(
+                    texture_layer,
+                    tex_world_type,
+                    tex_w,
+                    tex_h,
+                    u_tex,
+                    v_tex,
+                )
+            };
+
+            // Avoid alpha edge bleed: treat very low alpha as fully transparent.
+            if tex_px.alpha < 0.003 {
+                tex_px.red = 0.0;
+                tex_px.green = 0.0;
+                tex_px.blue = 0.0;
+                tex_px.alpha = 0.0;
+            }
 
             // Write to output with correct bit depth.
             match out_world_type {
