@@ -26,7 +26,9 @@ enum Params {
     DistortIntensityY,   // 16  (UI: Displacement Y)
     AlphaEdgesThreshold, // 17  (alpha channel edge)
     TextureEdgeMode,     // 18  (image boundary: Transparent / Repeat Edge Pixels)
-    UseGpu,              // 19  (last: global setting)
+    TextureFlipU,        // 19
+    TextureFlipV,        // 20
+    UseGpu,              // 21  (last: global setting)
 }
 
 #[derive(Default)]
@@ -278,6 +280,20 @@ impl AdobePluginGlobal for Plugin {
                 d.set_default(1);
             }),
         )?;
+        params.add(
+            Params::TextureFlipU,
+            "Texture Flip U",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
+        params.add(
+            Params::TextureFlipV,
+            "Texture Flip V",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
 
         // ---- Global (last) ----
         params.add(
@@ -317,11 +333,11 @@ impl AdobePluginGlobal for Plugin {
                 in_layer,
                 out_layer,
             } => {
-                // Fallback: use the same input layer for texture / UV / displacement.
+                // Fallback: same layer for texture; UV = Some so UV map is used (same layer).
                 self.do_render(
                     in_data,
                     &in_layer,
-                    &in_layer,
+                    Some(&in_layer),
                     Some(&in_layer),
                     out_data,
                     out_layer,
@@ -363,10 +379,11 @@ impl AdobePluginGlobal for Plugin {
                 if let Some(out_layer) = out_layer_opt {
                     let input_ref = input_layer_opt.as_ref();
                     let tex = tex_layer_opt.as_ref().or(input_ref);
-                    let uv = uv_layer_opt.as_ref().or(input_ref);
-                    // Displacement Map is optional: None = constant 0.5 gray (no displacement).
+                    // UV Map None = no UV distortion (texture shown stretched to output).
+                    let uv = uv_layer_opt.as_ref();
+                    // Displacement Map None = constant 0.5 gray (no displacement).
                     let dist = dist_layer_opt.as_ref();
-                    if let (Some(tex), Some(uv)) = (tex, uv) {
+                    if let Some(tex) = tex {
                         self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
                     }
                 }
@@ -389,7 +406,7 @@ impl Plugin {
         &self,
         _in_data: InData,
         texture_layer: &Layer,
-        uv_layer: &Layer,
+        uv_layer: Option<&Layer>,
         distort_layer: Option<&Layer>,
         _out_data: OutData,
         mut out_layer: Layer,
@@ -469,14 +486,18 @@ impl Plugin {
             _ => LayerFit::Stretch,
         };
 
+        let texture_flip_u = params.get(Params::TextureFlipU)?.as_checkbox()?.value();
+        let texture_flip_v = params.get(Params::TextureFlipV)?.as_checkbox()?.value();
+
         let tex_world_type = texture_layer.world_type();
-        let uv_world_type = uv_layer.world_type();
         let out_world_type = out_layer.world_type();
 
         let tex_w = texture_layer.width();
         let tex_h = texture_layer.height();
-        let uv_w = uv_layer.width();
-        let uv_h = uv_layer.height();
+        let (uv_w, uv_h, uv_world_type) = match uv_layer {
+            Some(uv) => (uv.width(), uv.height(), uv.world_type()),
+            None => (0, 0, ae::aegp::WorldType::U8),
+        };
         let (dist_w, dist_h, dist_world_type) = match distort_layer {
             Some(d) => (d.width(), d.height(), d.world_type()),
             None => (0, 0, ae::aegp::WorldType::U8),
@@ -489,19 +510,28 @@ impl Plugin {
             let x = x as usize;
             let y = y as usize;
 
-            // Map output (x,y) to UV map layer coords (Center or Stretch).
-            let (lx_uv, ly_uv, uv_inside) =
-                output_to_layer_coord(x, y, out_w, out_h, uv_w, uv_h, uv_fit);
-            let (u_base, v_base) = if uv_inside {
-                let x_uv = (lx_uv as usize).min(uv_w.saturating_sub(1));
-                let y_uv = (ly_uv as usize).min(uv_h.saturating_sub(1));
-                let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
-                // Standard UV: flip V so that top-left in image = top in texture (V=0).
-                let u = uv_px.red;
-                let v = 1.0 - uv_px.green;
-                (u, v)
-            } else {
-                (0.5, 0.5)
+            // When no UV Map: use output position so texture is stretched with no distortion.
+            let (u_base, v_base) = match uv_layer {
+                None => {
+                    let u = if out_w > 0 { x as f32 / out_w as f32 } else { 0.5 };
+                    let v = if out_h > 0 { y as f32 / out_h as f32 } else { 0.5 };
+                    (u, v)
+                }
+                Some(uv_layer) => {
+                    let (lx_uv, ly_uv, uv_inside) =
+                        output_to_layer_coord(x, y, out_w, out_h, uv_w, uv_h, uv_fit);
+                    if uv_inside {
+                        let x_uv = (lx_uv as usize).min(uv_w.saturating_sub(1));
+                        let y_uv = (ly_uv as usize).min(uv_h.saturating_sub(1));
+                        let uv_px =
+                            read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
+                        let u = uv_px.red;
+                        let v = 1.0 - uv_px.green;
+                        (u, v)
+                    } else {
+                        (0.5, 0.5)
+                    }
+                }
             };
 
             // Displacement: when disabled or no layer, use constant 0.5 (no displacement).
@@ -551,6 +581,8 @@ impl Plugin {
                     (u_tex, v_tex)
                 }
             };
+            let u_tex = if texture_flip_u { 1.0 - u_tex } else { u_tex };
+            let v_tex = if texture_flip_v { 1.0 - v_tex } else { v_tex };
 
             let mut tex_px = if texture_fit == LayerFit::Center
                 && (!(0.0..=1.0).contains(&u_tex) || !(0.0..=1.0).contains(&v_tex))
