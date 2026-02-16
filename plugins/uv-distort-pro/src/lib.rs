@@ -625,11 +625,15 @@ impl Plugin {
 
             // Texture scale and offset around Texture Center (anchor): translate to center, scale, offset, translate back.
             let u_scaled = wrap_coord(
-                (u_wrapped - texture_center_x) * texture_scale_u + texture_offset_u + texture_center_x,
+                (u_wrapped - texture_center_x) * texture_scale_u
+                    + texture_offset_u
+                    + texture_center_x,
                 wrap_mode,
             );
             let v_scaled = wrap_coord(
-                (v_wrapped - texture_center_y) * texture_scale_v + texture_offset_v + texture_center_y,
+                (v_wrapped - texture_center_y) * texture_scale_v
+                    + texture_offset_v
+                    + texture_center_y,
                 wrap_mode,
             );
 
