@@ -34,7 +34,7 @@ enum WrapMode {
     Repeat,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum LayerFit {
     Center,
     Stretch,
