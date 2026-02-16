@@ -18,9 +18,9 @@ enum Params {
     TextureOffsetV,      // 8
     UvMapLayer,          // 9
     UvMapLayerFit,       // 10
-    UvMapScale,         // 11  (%, 100 = 1.0)
-    UvMapCenterU,       // 12
-    UvMapCenterV,       // 13
+    UvMapScale,          // 11  (%, 100 = 1.0)
+    UvMapCenterU,        // 12
+    UvMapCenterV,        // 13
     WrapMode,            // 14
     UOffset,             // 15
     VOffset,             // 16
@@ -482,19 +482,10 @@ impl Plugin {
         let u_offset = params.get(Params::UOffset)?.as_float_slider()?.value() as f32;
         let v_offset = params.get(Params::VOffset)?.as_float_slider()?.value() as f32;
 
-        let uv_map_scale = params
-            .get(Params::UvMapScale)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let uv_map_center_u = params
-            .get(Params::UvMapCenterU)?
-            .as_float_slider()?
-            .value() as f32;
-        let uv_map_center_v = params
-            .get(Params::UvMapCenterV)?
-            .as_float_slider()?
-            .value() as f32;
+        let uv_map_scale =
+            params.get(Params::UvMapScale)?.as_float_slider()?.value() as f32 / 100.0;
+        let uv_map_center_u = params.get(Params::UvMapCenterU)?.as_float_slider()?.value() as f32;
+        let uv_map_center_v = params.get(Params::UvMapCenterV)?.as_float_slider()?.value() as f32;
 
         let wrap_mode = match params.get(Params::WrapMode)?.as_popup()?.value() {
             1 => WrapMode::Clamp,
