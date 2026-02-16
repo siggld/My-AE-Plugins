@@ -16,8 +16,6 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
-          components: rustfmt, clippy
           cache: cargo
 
       - name: fmt

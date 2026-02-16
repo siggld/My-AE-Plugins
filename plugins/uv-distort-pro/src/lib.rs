@@ -44,11 +44,7 @@ impl AdobePluginGlobal for Plugin {
             "Texture Layer",
             LayerDef::setup(|_d| {}),
         )?;
-        params.add(
-            Params::UvMapLayer,
-            "UV Map Layer",
-            LayerDef::setup(|_d| {}),
-        )?;
+        params.add(Params::UvMapLayer, "UV Map Layer", LayerDef::setup(|_d| {}))?;
         params.add(
             Params::DistortMapLayer,
             "Distort Map Layer",
