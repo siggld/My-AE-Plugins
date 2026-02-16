@@ -200,6 +200,7 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
+    #[allow(clippy::too_many_arguments)]
     fn do_render(
         &self,
         _in_data: InData,
@@ -235,12 +236,12 @@ impl Plugin {
         let dist_world_type = distort_layer.world_type();
         let out_world_type = out_layer.world_type();
 
-        let tex_w = texture_layer.width() as usize;
-        let tex_h = texture_layer.height() as usize;
-        let uv_w = uv_layer.width() as usize;
-        let uv_h = uv_layer.height() as usize;
-        let dist_w = distort_layer.width() as usize;
-        let dist_h = distort_layer.height() as usize;
+        let tex_w = texture_layer.width();
+        let tex_h = texture_layer.height();
+        let uv_w = uv_layer.width();
+        let uv_h = uv_layer.height();
+        let dist_w = distort_layer.width();
+        let dist_h = distort_layer.height();
 
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let x = x as usize;
