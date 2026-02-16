@@ -111,7 +111,10 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        // ---- Texture Settings (group; PF_ADD_TOPIC not exposed in crate) ----
+        // UI: All float params use precision 2 (0.00). Fit defaults = Center (index 1).
+        // Topic groups (Texture / UV Map / Displacement): PF_Param_TOPIC_START/END need raw
+        // PF_ParamDef array; after_effects params.add() does not expose them.
+        // ---- Texture Settings ----
         params.add(
             Params::TextureLayer,
             "Texture Layer",
@@ -580,21 +583,21 @@ impl Plugin {
             let x = x as usize;
             let y = y as usize;
 
-            // When no UV Map: use output position so texture is stretched with no distortion.
-            // When UV Map present and pixel is outside UV layer bounds: output transparent (no texture sample).
-            let (u_base, v_base, uv_alpha) = match uv_layer {
+            // 3D UV: V=0 bottom, V=1 top. AE has V=0 top so we use v_3d = 1.0 - v_ae when reading.
+            // When no UV Map: use output position (3D convention); when UV Map and outside bounds: transparent.
+            let (u_base, v_base, _) = match uv_layer {
                 None => {
                     let u = if out_w > 0 {
                         x as f32 / out_w as f32
                     } else {
                         0.5
                     };
-                    let v = if out_h > 0 {
-                        y as f32 / out_h as f32
+                    let v_3d = if out_h > 0 {
+                        1.0 - y as f32 / out_h as f32
                     } else {
                         0.5
                     };
-                    (u, v, 1.0)
+                    (u, v_3d, 1.0)
                 }
                 Some(uv_layer) => {
                     let (lx_uv, ly_uv, uv_inside) =
@@ -604,8 +607,8 @@ impl Plugin {
                         let y_uv = (ly_uv as usize).min(uv_h.saturating_sub(1));
                         let uv_px = read_pixel_f32(uv_layer, uv_world_type, x_uv, y_uv);
                         let u = uv_px.red;
-                        let v = 1.0 - uv_px.green;
-                        (u, v, uv_px.alpha)
+                        let v_3d = 1.0 - uv_px.green;
+                        (u, v_3d, uv_px.alpha)
                     } else {
                         // UV layer outside: do not sample texture; output transparent.
                         let transparent = PixelF32 {
@@ -648,17 +651,35 @@ impl Plugin {
                 }
             };
 
-            // UV Map pivot transform: origin move → scale → offset → restore. Then add displacement.
+            // UV Map pivot (3D): origin → scale → offset → restore. Then displacement.
             let u_uv = (u_base - uv_map_center_u) / uv_map_scale - u_offset + uv_map_center_u;
             let v_uv = (v_base - uv_map_center_v) / uv_map_scale - v_offset + uv_map_center_v;
             let u_final = u_uv + (l - 0.5) * intensity_x;
             let v_final = v_uv + (l - 0.5) * intensity_y;
 
-            // Apply wrap mode in normalized 0..1 space.
             let u_wrapped = wrap_coord(u_final, wrap_mode);
             let v_wrapped = wrap_coord(v_final, wrap_mode);
 
-            // Texture pivot transform: origin move → scale (divide) → offset (subtract) → restore.
+            // UV map alpha at transformed coords (0..1): trim by shape; outside 0..1 = 0.
+            let uv_alpha = match uv_layer {
+                None => 1.0,
+                Some(uv_layer) => {
+                    if (0.0..=1.0).contains(&u_wrapped) && (0.0..=1.0).contains(&v_wrapped) {
+                        sample_layer_alpha_at_normalized(
+                            uv_layer,
+                            uv_world_type,
+                            uv_w,
+                            uv_h,
+                            u_wrapped,
+                            v_wrapped,
+                        )
+                    } else {
+                        0.0
+                    }
+                }
+            };
+
+            // Texture pivot (3D): same formula. Then V flip for sampling (3D → AE: v_samp = 1 - v_3d).
             let u_scaled = wrap_coord(
                 (u_wrapped - texture_center_x) / texture_scale_u - texture_offset_u
                     + texture_center_x,
@@ -669,17 +690,18 @@ impl Plugin {
                     + texture_center_y,
                 wrap_mode,
             );
+            let v_for_sampling = 1.0 - v_scaled;
 
-            // Texture sampling: in Center mode map 0..1 to texture with letterbox.
+            // Texture sampling: use (u_scaled, v_for_sampling). Center mode = letterbox.
             let (u_tex, v_tex) = match texture_fit {
-                LayerFit::Stretch => (u_scaled, v_scaled),
+                LayerFit::Stretch => (u_scaled, v_for_sampling),
                 LayerFit::Center => {
                     let out_w_f = out_w as f32;
                     let out_h_f = out_h as f32;
                     let tw_f = tex_w as f32;
                     let th_f = tex_h as f32;
                     let u_tex = u_scaled * out_w_f / tw_f - out_w_f / (2.0 * tw_f) + 0.5;
-                    let v_tex = v_scaled * out_h_f / th_f - out_h_f / (2.0 * th_f) + 0.5;
+                    let v_tex = v_for_sampling * out_h_f / th_f - out_h_f / (2.0 * th_f) + 0.5;
                     (u_tex, v_tex)
                 }
             };
@@ -748,6 +770,38 @@ fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: u
         ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
         ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
     }
+}
+
+/// Sample a layer's alpha at normalized (u, v) in 0..1. (u, v) are in 3D UV (V=0 bottom);
+/// we convert to layer coords (V=0 top) with v_layer = 1 - v for sampling.
+fn sample_layer_alpha_at_normalized(
+    layer: &Layer,
+    world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    u: f32,
+    v_3d: f32,
+) -> f32 {
+    if width == 0 || height == 0 {
+        return 0.0;
+    }
+    let u = u.clamp(0.0, 1.0);
+    let v_3d = v_3d.clamp(0.0, 1.0);
+    let v_layer = 1.0 - v_3d;
+    let fx = u * (width as f32 - 1.0);
+    let fy = v_layer * (height as f32 - 1.0);
+    let x0 = fx.floor() as isize;
+    let y0 = fy.floor() as isize;
+    let x1 = (x0 + 1).min(width as isize - 1);
+    let y1 = (y0 + 1).min(height as isize - 1);
+    let sx = fx - x0 as f32;
+    let sy = fy - y0 as f32;
+    let a00 = read_pixel_f32(layer, world_type, x0 as usize, y0 as usize).alpha;
+    let a10 = read_pixel_f32(layer, world_type, x1 as usize, y0 as usize).alpha;
+    let a01 = read_pixel_f32(layer, world_type, x0 as usize, y1 as usize).alpha;
+    let a11 = read_pixel_f32(layer, world_type, x1 as usize, y1 as usize).alpha;
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    lerp(lerp(a00, a10, sx), lerp(a01, a11, sx), sy)
 }
 
 fn luminance(px: PixelF32) -> f32 {
