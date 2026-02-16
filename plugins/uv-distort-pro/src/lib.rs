@@ -8,23 +8,25 @@ use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    TextureLayer,       // ID: 1
-    UvMapLayer,         // ID: 2
-    DistortMapLayer,    // ID: 3  (UI: Displacement Map)
-    DistortIntensityX,  // ID: 4  (UI: Displacement X)
-    DistortIntensityY,  // ID: 5  (UI: Displacement Y)
-    UOffset,            // ID: 6
-    VOffset,            // ID: 7
-    WrapMode,           // ID: 8
-    TextureLayerFit,    // ID: 9
-    UvMapLayerFit,      // ID: 10
-    DistortMapLayerFit, // ID: 11 (UI: Displacement Map Fit)
-    EdgesThreshold,     // ID: 12
-    UseGpu,             // ID: 13
-    TextureScaleU,      // ID: 14
-    TextureScaleV,      // ID: 15
-    TextureOffsetU,     // ID: 16
-    TextureOffsetV,     // ID: 17
+    TextureLayer,       // 1
+    TextureLayerFit,    // 2
+    TextureScaleU,      // 3
+    TextureScaleV,      // 4
+    TextureOffsetU,     // 5
+    TextureOffsetV,     // 6
+    UvMapLayer,         // 7
+    UvMapLayerFit,      // 8
+    WrapMode,           // 9
+    UOffset,            // 10
+    VOffset,            // 11
+    DistortMapLayer,    // 12  (UI: Displacement Map)
+    EnableDisplacement, // 13
+    DistortMapLayerFit, // 14  (UI: Displacement Map Fit)
+    DistortIntensityX,  // 15  (UI: Displacement X)
+    DistortIntensityY,  // 16  (UI: Displacement Y)
+    AlphaEdgesThreshold, // 17  (alpha channel edge)
+    TextureEdgeMode,    // 18  (image boundary: Transparent / Repeat Edge Pixels)
+    UseGpu,             // 19  (last: global setting)
 }
 
 #[derive(Default)]
@@ -45,6 +47,13 @@ enum WrapMode {
 enum LayerFit {
     Center,
     Stretch,
+}
+
+/// How to sample at the texture image boundary (like Fast Box Blur "Repeat Edge Pixels").
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TextureEdgeMode {
+    Transparent,        // outside 0..1 = transparent
+    RepeatEdgePixels,  // clamp to 0..1, extend edge pixel
 }
 
 /// Maps output pixel (ox, oy) to layer coordinates. Returns (layer_x, layer_y) in f32 and whether inside layer bounds.
@@ -96,109 +105,20 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        // Layer parameters (param indices 1, 2, 3). Index 0 is the effect input layer.
+        // ---- Texture Layer group (index 1 = Texture Layer) ----
         params.add(
             Params::TextureLayer,
             "Texture Layer",
             LayerDef::setup(|_d| {}),
         )?;
-        params.add(Params::UvMapLayer, "UV Map Layer", LayerDef::setup(|_d| {}))?;
         params.add(
-            Params::DistortMapLayer,
-            "Displacement Map",
-            LayerDef::setup(|_d| {}),
-        )?;
-
-        // Displacement X (slider ±10, direct input ±100)
-        params.add(
-            Params::DistortIntensityX,
-            "Displacement X",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-10.0);
-                d.set_slider_max(10.0);
-                d.set_default(0.0);
-                d.set_precision(3);
-            }),
-        )?;
-
-        // Displacement Y
-        params.add(
-            Params::DistortIntensityY,
-            "Displacement Y",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-10.0);
-                d.set_slider_max(10.0);
-                d.set_default(0.0);
-                d.set_precision(3);
-            }),
-        )?;
-
-        // U Offset
-        params.add(
-            Params::UOffset,
-            "U Offset",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-10.0);
-                d.set_slider_max(10.0);
-                d.set_default(0.0);
-                d.set_precision(3);
-            }),
-        )?;
-
-        // V Offset
-        params.add(
-            Params::VOffset,
-            "V Offset",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-10.0);
-                d.set_slider_max(10.0);
-                d.set_default(0.0);
-                d.set_precision(3);
-            }),
-        )?;
-
-        // Wrap Mode: 1 = Clamp, 2 = Repeat, 3 = Alternate
-        params.add(
-            Params::WrapMode,
-            "Wrap Mode",
+            Params::TextureLayerFit,
+            "Texture Layer Fit",
             PopupDef::setup(|d| {
-                d.set_options(&["Clamp", "Repeat", "Alternate"]);
-                d.set_default(1);
+                d.set_options(&["Center", "Stretch"]);
+                d.set_default(2);
             }),
         )?;
-
-        // Edges Threshold (%): alpha below this is treated as transparent (reduces edge lines).
-        params.add(
-            Params::EdgesThreshold,
-            "Edges Threshold (%)",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(20.0);
-                d.set_default(1.0);
-                d.set_precision(2);
-            }),
-        )?;
-
-        // Use GPU (checkbox; GPU path not implemented, stored for future use).
-        params.add(
-            Params::UseGpu,
-            "Use GPU",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-        )?;
-
-        // Texture scale/offset after UV (applied in 0..1 space before sampling).
         params.add(
             Params::TextureScaleU,
             "Texture Scale U",
@@ -248,15 +168,8 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // Layer fit when smaller than comp: 1 = Center, 2 = Stretch
-        params.add(
-            Params::TextureLayerFit,
-            "Texture Layer Fit",
-            PopupDef::setup(|d| {
-                d.set_options(&["Center", "Stretch"]);
-                d.set_default(2);
-            }),
-        )?;
+        // ---- UV Map Layer group (index 7 = UV Map Layer) ----
+        params.add(Params::UvMapLayer, "UV Map Layer", LayerDef::setup(|_d| {}))?;
         params.add(
             Params::UvMapLayerFit,
             "UV Map Layer Fit",
@@ -266,11 +179,112 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
         params.add(
+            Params::WrapMode,
+            "Wrap Mode",
+            PopupDef::setup(|d| {
+                d.set_options(&["Clamp", "Repeat", "Alternate"]);
+                d.set_default(1);
+            }),
+        )?;
+        params.add(
+            Params::UOffset,
+            "U Offset",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
+                d.set_default(0.0);
+                d.set_precision(3);
+            }),
+        )?;
+        params.add(
+            Params::VOffset,
+            "V Offset",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
+                d.set_default(0.0);
+                d.set_precision(3);
+            }),
+        )?;
+
+        // ---- Displacement Map group (index 12 = Displacement Map) ----
+        params.add(
+            Params::DistortMapLayer,
+            "Displacement Map",
+            LayerDef::setup(|_d| {}),
+        )?;
+        params.add(
+            Params::EnableDisplacement,
+            "Enable Displacement",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
+        params.add(
             Params::DistortMapLayerFit,
             "Displacement Map Fit",
             PopupDef::setup(|d| {
                 d.set_options(&["Center", "Stretch"]);
                 d.set_default(2);
+            }),
+        )?;
+        params.add(
+            Params::DistortIntensityX,
+            "Displacement X",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
+                d.set_default(0.0);
+                d.set_precision(3);
+            }),
+        )?;
+        params.add(
+            Params::DistortIntensityY,
+            "Displacement Y",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-10.0);
+                d.set_slider_max(10.0);
+                d.set_default(0.0);
+                d.set_precision(3);
+            }),
+        )?;
+
+        // ---- Edge / boundary (alpha edge = separate from image edge) ----
+        params.add(
+            Params::AlphaEdgesThreshold,
+            "Alpha Edges Threshold (%)",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(20.0);
+                d.set_default(1.0);
+                d.set_precision(2);
+            }),
+        )?;
+        params.add(
+            Params::TextureEdgeMode,
+            "Texture Edge",
+            PopupDef::setup(|d| {
+                d.set_options(&["Transparent", "Repeat Edge Pixels"]);
+                d.set_default(1);
+            }),
+        )?;
+
+        // ---- Global (last) ----
+        params.add(
+            Params::UseGpu,
+            "Use GPU",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
             }),
         )?;
 
@@ -322,9 +336,9 @@ impl AdobePluginGlobal for Plugin {
                 let ts = in_data.time_step();
                 let tscale = in_data.time_scale();
 
-                // Checkout layer params (indices 1,2,3) and the effect input layer (index 0) as fallback.
-                // checkout_id: 0=Texture, 1=UV Map, 2=Distort, 3=input layer (used when a param is unset).
-                for (param_index, checkout_id) in [(1, 0), (2, 1), (3, 2), (0, 3)] {
+                // Checkout layer params (indices 1=Texture, 7=UV Map, 12=Displacement) and input (0) as fallback.
+                // checkout_id: 0=Texture, 1=UV Map, 2=Displacement, 3=input layer.
+                for (param_index, checkout_id) in [(1, 0), (7, 1), (12, 2), (0, 3)] {
                     if let Ok(result) =
                         cb.checkout_layer(param_index, checkout_id, &req, t, ts, tscale)
                     {
@@ -402,11 +416,19 @@ impl Plugin {
             _ => WrapMode::Clamp,
         };
 
-        let edges_threshold_pct = params
-            .get(Params::EdgesThreshold)?
+        let alpha_edges_threshold_pct = params
+            .get(Params::AlphaEdgesThreshold)?
             .as_float_slider()?
             .value() as f32;
-        let edges_threshold = (edges_threshold_pct / 100.0).clamp(0.0, 1.0);
+        let alpha_edges_threshold = (alpha_edges_threshold_pct / 100.0).clamp(0.0, 1.0);
+
+        let texture_edge_mode = match params.get(Params::TextureEdgeMode)?.as_popup()?.value() {
+            1 => TextureEdgeMode::Transparent,
+            2 => TextureEdgeMode::RepeatEdgePixels,
+            _ => TextureEdgeMode::Transparent,
+        };
+
+        let enable_displacement = params.get(Params::EnableDisplacement)?.as_checkbox()?.value();
 
         let _use_gpu = params.get(Params::UseGpu)?.as_checkbox()?.value();
         // GPU path not implemented; _use_gpu reserved for future use.
@@ -479,20 +501,24 @@ impl Plugin {
                 (0.5, 0.5)
             };
 
-            // Displacement: when no layer, use constant 0.5 (no displacement).
-            let l = match distort_layer {
-                None => 0.5,
-                Some(distort_layer) => {
-                    let (lx_dist, ly_dist, dist_inside) =
-                        output_to_layer_coord(x, y, out_w, out_h, dist_w, dist_h, distort_fit);
-                    if dist_inside {
-                        let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
-                        let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
-                        let dist_px =
-                            read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
-                        luminance(dist_px)
-                    } else {
-                        0.5
+            // Displacement: when disabled or no layer, use constant 0.5 (no displacement).
+            let l = if !enable_displacement {
+                0.5
+            } else {
+                match distort_layer {
+                    None => 0.5,
+                    Some(distort_layer) => {
+                        let (lx_dist, ly_dist, dist_inside) =
+                            output_to_layer_coord(x, y, out_w, out_h, dist_w, dist_h, distort_fit);
+                        if dist_inside {
+                            let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
+                            let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
+                            let dist_px =
+                                read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
+                            luminance(dist_px)
+                        } else {
+                            0.5
+                        }
                     }
                 }
             };
@@ -540,24 +566,34 @@ impl Plugin {
                     tex_h,
                     u_tex,
                     v_tex,
-                    edges_threshold,
+                    alpha_edges_threshold,
+                    texture_edge_mode,
                 )
             };
 
-            // Edges Threshold: alpha below this is fully transparent (reduces edge lines).
-            if tex_px.alpha < edges_threshold {
+            // Alpha Edges Threshold: alpha below this is fully transparent (reduces alpha edge lines).
+            if tex_px.alpha < alpha_edges_threshold {
                 tex_px.red = 0.0;
                 tex_px.green = 0.0;
                 tex_px.blue = 0.0;
                 tex_px.alpha = 0.0;
             }
 
+            // Output premultiplied alpha so the host composites correctly and alpha edge does not show as solid color.
+            let a = tex_px.alpha;
+            let out_px = PixelF32 {
+                red: tex_px.red * a,
+                green: tex_px.green * a,
+                blue: tex_px.blue * a,
+                alpha: a,
+            };
+
             // Write to output with correct bit depth.
             match out_world_type {
-                ae::aegp::WorldType::U8 => dst.set_from_u8(tex_px.to_pixel8()),
-                ae::aegp::WorldType::U15 => dst.set_from_u16(tex_px.to_pixel16()),
+                ae::aegp::WorldType::U8 => dst.set_from_u8(out_px.to_pixel8()),
+                ae::aegp::WorldType::U15 => dst.set_from_u16(out_px.to_pixel16()),
                 ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => {
-                    dst.set_from_f32(tex_px);
+                    dst.set_from_f32(out_px);
                 }
             }
 
@@ -608,7 +644,8 @@ fn sample_layer_f32(
     height: usize,
     u: f32,
     v: f32,
-    edges_threshold: f32,
+    alpha_edges_threshold: f32,
+    texture_edge_mode: TextureEdgeMode,
 ) -> PixelF32 {
     if width == 0 || height == 0 {
         return PixelF32 {
@@ -618,6 +655,12 @@ fn sample_layer_f32(
             alpha: 0.0,
         };
     }
+
+    // Repeat Edge Pixels: clamp to 0..1 so image boundary extends the edge pixel (like Fast Box Blur).
+    let (u, v) = match texture_edge_mode {
+        TextureEdgeMode::Transparent => (u, v),
+        TextureEdgeMode::RepeatEdgePixels => (u.clamp(0.0, 1.0), v.clamp(0.0, 1.0)),
+    };
 
     let fx = (u.clamp(0.0, 1.0) * (width as f32 - 1.0)).max(0.0);
     let fy = (v.clamp(0.0, 1.0) * (height as f32 - 1.0)).max(0.0);
@@ -635,9 +678,9 @@ fn sample_layer_f32(
     let c01 = read_pixel_f32(layer, world_type, x0 as usize, y1 as usize);
     let c11 = read_pixel_f32(layer, world_type, x1 as usize, y1 as usize);
 
-    // If any of the 4 samples has alpha below threshold (edge), force transparent to reduce diagonal lines.
+    // If any of the 4 samples has alpha below threshold (alpha edge), force transparent to reduce diagonal lines.
     let min_alpha = c00.alpha.min(c10.alpha).min(c01.alpha).min(c11.alpha);
-    if min_alpha < edges_threshold {
+    if min_alpha < alpha_edges_threshold {
         return PixelF32 {
             red: 0.0,
             green: 0.0,
