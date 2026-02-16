@@ -10,15 +10,21 @@ use utils::ToPixel;
 enum Params {
     TextureLayer,       // ID: 1
     UvMapLayer,         // ID: 2
-    DistortMapLayer,    // ID: 3
-    DistortIntensityX,  // ID: 4
-    DistortIntensityY,  // ID: 5
+    DistortMapLayer,    // ID: 3  (UI: Displacement Map)
+    DistortIntensityX,  // ID: 4  (UI: Displacement X)
+    DistortIntensityY,  // ID: 5  (UI: Displacement Y)
     UOffset,            // ID: 6
     VOffset,            // ID: 7
     WrapMode,           // ID: 8
     TextureLayerFit,    // ID: 9
     UvMapLayerFit,      // ID: 10
-    DistortMapLayerFit, // ID: 11
+    DistortMapLayerFit, // ID: 11 (UI: Displacement Map Fit)
+    EdgesThreshold,     // ID: 12
+    UseGpu,             // ID: 13
+    TextureScaleU,      // ID: 14
+    TextureScaleV,      // ID: 15
+    TextureOffsetU,     // ID: 16
+    TextureOffsetV,     // ID: 17
 }
 
 #[derive(Default)]
@@ -32,6 +38,7 @@ const PLUGIN_DESCRIPTION: &str = "High-quality UV-based distortion mapping.";
 enum WrapMode {
     Clamp,
     Repeat,
+    Alternate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -98,14 +105,14 @@ impl AdobePluginGlobal for Plugin {
         params.add(Params::UvMapLayer, "UV Map Layer", LayerDef::setup(|_d| {}))?;
         params.add(
             Params::DistortMapLayer,
-            "Distort Map Layer",
+            "Displacement Map",
             LayerDef::setup(|_d| {}),
         )?;
 
-        // Distort Intensity X (slider ±10, direct input ±100)
+        // Displacement X (slider ±10, direct input ±100)
         params.add(
             Params::DistortIntensityX,
-            "Distort Intensity X",
+            "Displacement X",
             FloatSliderDef::setup(|d| {
                 d.set_valid_min(-100.0);
                 d.set_valid_max(100.0);
@@ -116,10 +123,10 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // Distort Intensity Y
+        // Displacement Y
         params.add(
             Params::DistortIntensityY,
-            "Distort Intensity Y",
+            "Displacement Y",
             FloatSliderDef::setup(|d| {
                 d.set_valid_min(-100.0);
                 d.set_valid_max(100.0);
@@ -158,13 +165,84 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // Wrap Mode: 1 = Clamp, 2 = Repeat
+        // Wrap Mode: 1 = Clamp, 2 = Repeat, 3 = Alternate
         params.add(
             Params::WrapMode,
             "Wrap Mode",
             PopupDef::setup(|d| {
-                d.set_options(&["Clamp", "Repeat"]);
+                d.set_options(&["Clamp", "Repeat", "Alternate"]);
                 d.set_default(1);
+            }),
+        )?;
+
+        // Edges Threshold (%): alpha below this is treated as transparent (reduces edge lines).
+        params.add(
+            Params::EdgesThreshold,
+            "Edges Threshold (%)",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(20.0);
+                d.set_default(1.0);
+                d.set_precision(2);
+            }),
+        )?;
+
+        // Use GPU (checkbox; GPU path not implemented, stored for future use).
+        params.add(
+            Params::UseGpu,
+            "Use GPU",
+            CheckBoxDef::setup(|d| d.set_default(false)),
+        )?;
+
+        // Texture scale/offset after UV (applied in 0..1 space before sampling).
+        params.add(
+            Params::TextureScaleU,
+            "Texture Scale U",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.01);
+                d.set_valid_max(10.0);
+                d.set_slider_min(0.25);
+                d.set_slider_max(2.0);
+                d.set_default(1.0);
+                d.set_precision(3);
+            }),
+        )?;
+        params.add(
+            Params::TextureScaleV,
+            "Texture Scale V",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.01);
+                d.set_valid_max(10.0);
+                d.set_slider_min(0.25);
+                d.set_slider_max(2.0);
+                d.set_default(1.0);
+                d.set_precision(3);
+            }),
+        )?;
+        params.add(
+            Params::TextureOffsetU,
+            "Texture Offset U",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-1.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(-0.5);
+                d.set_slider_max(0.5);
+                d.set_default(0.0);
+                d.set_precision(3);
+            }),
+        )?;
+        params.add(
+            Params::TextureOffsetV,
+            "Texture Offset V",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-1.0);
+                d.set_valid_max(1.0);
+                d.set_slider_min(-0.5);
+                d.set_slider_max(0.5);
+                d.set_default(0.0);
+                d.set_precision(3);
             }),
         )?;
 
@@ -187,7 +265,7 @@ impl AdobePluginGlobal for Plugin {
         )?;
         params.add(
             Params::DistortMapLayerFit,
-            "Distort Map Layer Fit",
+            "Displacement Map Fit",
             PopupDef::setup(|d| {
                 d.set_options(&["Center", "Stretch"]);
                 d.set_default(2);
@@ -223,9 +301,15 @@ impl AdobePluginGlobal for Plugin {
                 in_layer,
                 out_layer,
             } => {
-                // Fallback: use the same input layer for texture / UV / distort.
+                // Fallback: use the same input layer for texture / UV / displacement.
                 self.do_render(
-                    in_data, &in_layer, &in_layer, &in_layer, out_data, out_layer, params,
+                    in_data,
+                    &in_layer,
+                    &in_layer,
+                    Some(&in_layer),
+                    out_data,
+                    out_layer,
+                    params,
                 )?;
             }
 
@@ -264,9 +348,18 @@ impl AdobePluginGlobal for Plugin {
                     let input_ref = input_layer_opt.as_ref();
                     let tex = tex_layer_opt.as_ref().or(input_ref);
                     let uv = uv_layer_opt.as_ref().or(input_ref);
-                    let dist = dist_layer_opt.as_ref().or(input_ref);
-                    if let (Some(tex), Some(uv), Some(dist)) = (tex, uv, dist) {
-                        self.do_render(in_data, tex, uv, dist, out_data, out_layer, params)?;
+                    // Displacement Map is optional: None = constant 0.5 gray (no displacement).
+                    let dist = dist_layer_opt.as_ref();
+                    if let (Some(tex), Some(uv)) = (tex, uv) {
+                        self.do_render(
+                            in_data,
+                            tex,
+                            uv,
+                            dist,
+                            out_data,
+                            out_layer,
+                            params,
+                        )?;
                     }
                 }
 
@@ -289,7 +382,7 @@ impl Plugin {
         _in_data: InData,
         texture_layer: &Layer,
         uv_layer: &Layer,
-        distort_layer: &Layer,
+        distort_layer: Option<&Layer>,
         _out_data: OutData,
         mut out_layer: Layer,
         params: &mut Parameters<Params>,
@@ -311,8 +404,35 @@ impl Plugin {
         let wrap_mode = match params.get(Params::WrapMode)?.as_popup()?.value() {
             1 => WrapMode::Clamp,
             2 => WrapMode::Repeat,
+            3 => WrapMode::Alternate,
             _ => WrapMode::Clamp,
         };
+
+        let edges_threshold_pct = params
+            .get(Params::EdgesThreshold)?
+            .as_float_slider()?
+            .value() as f32;
+        let edges_threshold = (edges_threshold_pct / 100.0).clamp(0.0, 1.0);
+
+        let _use_gpu = params.get(Params::UseGpu)?.as_checkbox()?.value();
+        // GPU path not implemented; _use_gpu reserved for future use.
+
+        let texture_scale_u = params
+            .get(Params::TextureScaleU)?
+            .as_float_slider()?
+            .value() as f32;
+        let texture_scale_v = params
+            .get(Params::TextureScaleV)?
+            .as_float_slider()?
+            .value() as f32;
+        let texture_offset_u = params
+            .get(Params::TextureOffsetU)?
+            .as_float_slider()?
+            .value() as f32;
+        let texture_offset_v = params
+            .get(Params::TextureOffsetV)?
+            .as_float_slider()?
+            .value() as f32;
 
         let texture_fit = match params.get(Params::TextureLayerFit)?.as_popup()?.value() {
             1 => LayerFit::Center,
@@ -332,15 +452,17 @@ impl Plugin {
 
         let tex_world_type = texture_layer.world_type();
         let uv_world_type = uv_layer.world_type();
-        let dist_world_type = distort_layer.world_type();
         let out_world_type = out_layer.world_type();
 
         let tex_w = texture_layer.width();
         let tex_h = texture_layer.height();
         let uv_w = uv_layer.width();
         let uv_h = uv_layer.height();
-        let dist_w = distort_layer.width();
-        let dist_h = distort_layer.height();
+        let (dist_w, dist_h, dist_world_type) = match distort_layer {
+            Some(d) => (d.width(), d.height(), d.world_type()),
+            None => (0, 0, ae::aegp::WorldType::U8),
+        };
+
         let out_w = out_layer.width();
         let out_h = out_layer.height();
 
@@ -363,16 +485,26 @@ impl Plugin {
                 (0.5, 0.5)
             };
 
-            // Map output (x,y) to Distort map layer coords.
-            let (lx_dist, ly_dist, dist_inside) =
-                output_to_layer_coord(x, y, out_w, out_h, dist_w, dist_h, distort_fit);
-            let l = if dist_inside {
-                let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
-                let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
-                let dist_px = read_pixel_f32(distort_layer, dist_world_type, x_dist, y_dist);
-                luminance(dist_px)
-            } else {
-                0.5
+            // Displacement: when no layer, use constant 0.5 (no displacement).
+            let l = match distort_layer {
+                None => 0.5,
+                Some(distort_layer) => {
+                    let (lx_dist, ly_dist, dist_inside) =
+                        output_to_layer_coord(x, y, out_w, out_h, dist_w, dist_h, distort_fit);
+                    if dist_inside {
+                        let x_dist = (lx_dist as usize).min(dist_w.saturating_sub(1));
+                        let y_dist = (ly_dist as usize).min(dist_h.saturating_sub(1));
+                        let dist_px = read_pixel_f32(
+                            distort_layer,
+                            dist_world_type,
+                            x_dist,
+                            y_dist,
+                        );
+                        luminance(dist_px)
+                    } else {
+                        0.5
+                    }
+                }
             };
 
             // UV distortion formula.
@@ -383,16 +515,20 @@ impl Plugin {
             let u_wrapped = wrap_coord(u_final, wrap_mode);
             let v_wrapped = wrap_coord(v_final, wrap_mode);
 
+            // Texture scale and offset after UV (in 0..1 space), then wrap again.
+            let u_scaled = wrap_coord(u_wrapped * texture_scale_u + texture_offset_u, wrap_mode);
+            let v_scaled = wrap_coord(v_wrapped * texture_scale_v + texture_offset_v, wrap_mode);
+
             // Texture sampling: in Center mode map 0..1 to texture with letterbox.
             let (u_tex, v_tex) = match texture_fit {
-                LayerFit::Stretch => (u_wrapped, v_wrapped),
+                LayerFit::Stretch => (u_scaled, v_scaled),
                 LayerFit::Center => {
                     let out_w_f = out_w as f32;
                     let out_h_f = out_h as f32;
                     let tw_f = tex_w as f32;
                     let th_f = tex_h as f32;
-                    let u_tex = u_wrapped * out_w_f / tw_f - out_w_f / (2.0 * tw_f) + 0.5;
-                    let v_tex = v_wrapped * out_h_f / th_f - out_h_f / (2.0 * th_f) + 0.5;
+                    let u_tex = u_scaled * out_w_f / tw_f - out_w_f / (2.0 * tw_f) + 0.5;
+                    let v_tex = v_scaled * out_h_f / th_f - out_h_f / (2.0 * th_f) + 0.5;
                     (u_tex, v_tex)
                 }
             };
@@ -407,11 +543,19 @@ impl Plugin {
                     alpha: 0.0,
                 }
             } else {
-                sample_layer_f32(texture_layer, tex_world_type, tex_w, tex_h, u_tex, v_tex)
+                sample_layer_f32(
+                    texture_layer,
+                    tex_world_type,
+                    tex_w,
+                    tex_h,
+                    u_tex,
+                    v_tex,
+                    edges_threshold,
+                )
             };
 
-            // Avoid alpha edge bleed: treat very low alpha as fully transparent.
-            if tex_px.alpha < 0.003 {
+            // Edges Threshold: alpha below this is fully transparent (reduces edge lines).
+            if tex_px.alpha < edges_threshold {
                 tex_px.red = 0.0;
                 tex_px.green = 0.0;
                 tex_px.blue = 0.0;
@@ -454,6 +598,16 @@ fn wrap_coord(v: f32, mode: WrapMode) -> f32 {
             let r = v.rem_euclid(1.0);
             if r < 0.0 { r + 1.0 } else { r }
         }
+        WrapMode::Alternate => {
+            let r = v.rem_euclid(1.0);
+            let r = if r < 0.0 { r + 1.0 } else { r };
+            let period = (v / 1.0).floor() as i32;
+            if period.rem_euclid(2) == 1 {
+                1.0 - r
+            } else {
+                r
+            }
+        }
     }
 }
 
@@ -464,6 +618,7 @@ fn sample_layer_f32(
     height: usize,
     u: f32,
     v: f32,
+    edges_threshold: f32,
 ) -> PixelF32 {
     if width == 0 || height == 0 {
         return PixelF32 {
@@ -489,6 +644,17 @@ fn sample_layer_f32(
     let c10 = read_pixel_f32(layer, world_type, x1 as usize, y0 as usize);
     let c01 = read_pixel_f32(layer, world_type, x0 as usize, y1 as usize);
     let c11 = read_pixel_f32(layer, world_type, x1 as usize, y1 as usize);
+
+    // If any of the 4 samples has alpha below threshold (edge), force transparent to reduce diagonal lines.
+    let min_alpha = c00.alpha.min(c10.alpha).min(c01.alpha).min(c11.alpha);
+    if min_alpha < edges_threshold {
+        return PixelF32 {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        };
+    }
 
     // Bilinear interpolation.
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
