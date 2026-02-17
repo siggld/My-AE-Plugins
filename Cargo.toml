@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["plugins/red-noise", "plugins/uv-distort-pro"]
+members = ["plugins/red-noise", "plugins/uv-distort-pro", "plugins/island-id-color"]
 
 [workspace.package]
 edition = "2024"

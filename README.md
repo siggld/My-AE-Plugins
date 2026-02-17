@@ -33,6 +33,8 @@ template.
   - 色領域の輪郭から距離画像を生成します / Generates distance images from the contours of colored regions
 - AOD_ImageCalculate
   - 1つまたは2つのレイヤーにBlender風の数式演算を適用します / Applies Blender-style math operations to one or two input layers.
+- AOD_IslandIdColor
+  - 色領域をアイランドとしてトラッキングし、アイランドごとにグラデーションや仮色を適用します / Tracks colored regions as islands and applies per-island gradients or temp colors.
 - AOD_MobiusTransform
   - レイヤーにメビウス変換を適用します / Applies Mobius transformation to layers
 - AOD_NormalGenerate
