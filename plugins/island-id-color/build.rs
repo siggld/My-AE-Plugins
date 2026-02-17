@@ -59,6 +59,7 @@ fn main() {
             | OutFlags2::SupportsGetFlattenedSequenceData
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
+            | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
         Property::AE_Effect_Match_Name("IslandIdColor"),
