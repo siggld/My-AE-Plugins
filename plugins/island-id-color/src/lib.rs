@@ -407,7 +407,7 @@ impl AdobePluginGlobal for Plugin {
         params.add(
             Params::InvertExtraction,
             "Invert Extraction",
-            CheckBoxDef::setup(|d| d.set_default(false)),
+            CheckBoxDef::setup(|d| { d.set_default(false); }),
         )?;
         params.add(
             Params::ExtractionCount,
@@ -462,11 +462,11 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         // ----- 2. Island Tracking & Temp Colors -----
-        params.add(Params::TrackingPath, "Tracking Path", PathDef::setup(0, 0))?;
+        params.add(Params::TrackingPath, "Tracking Path", PathDef::setup(|_| {}))?;
         params.add(
             Params::ShowTempColors,
             "Show Temp Colors",
-            CheckBoxDef::setup(|d| d.set_default(true)),
+            CheckBoxDef::setup(|d| { d.set_default(true); }),
         )?;
         params.add(
             Params::MergeIslandCount,
@@ -702,6 +702,7 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::GlobalSetup => {
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
+                out_data.set_out_flag2(OutFlags2::SupportsGetFlattenedSequenceData, true);
                 // When using GROUP_START params: set ParamGroupStartCollapsedFlag so twirly starts collapsed (AE_Rust_Knowledge).
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
             }
