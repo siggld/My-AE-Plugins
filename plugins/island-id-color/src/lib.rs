@@ -1,10 +1,9 @@
-#![allow(clippy::drop_non_drop, clippy::question_mark)]
+#![allow(clippy::drop_non_drop, clippy::question_mark, dead_code)]
 
 use after_effects as ae;
 use std::env;
 
 use ae::pf::*;
-use utils::ToPixel;
 
 // ---------------------------------------------------------------------------
 // Output (always visible)
@@ -1050,7 +1049,7 @@ impl Plugin {
         _in_data: InData,
         _in_layer: Layer,
         _out_data: OutData,
-        mut out_layer: Layer,
+        out_layer: Layer,
         _params: &mut Parameters<Params>,
     ) -> Result<(), Error> {
         let _progress_final = out_layer.height() as i32;
