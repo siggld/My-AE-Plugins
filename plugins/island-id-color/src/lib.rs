@@ -8,7 +8,6 @@ use utils::ToPixel;
 
 // ---------------------------------------------------------------------------
 // Output (always visible)
-
 // ---------------------------------------------------------------------------
 const EXTRACTION_SETS: usize = 8;
 const MERGE_ISLAND_SETS: usize = 32;
