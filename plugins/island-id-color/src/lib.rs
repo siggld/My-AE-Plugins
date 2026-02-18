@@ -443,7 +443,7 @@ fn set_param_visibility(
         expected,
     )?;
     let raw = param_def.as_mut();
-    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags as i32);
+    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
     if visible {
         flags.remove(ae::ParamUIFlags::INVISIBLE);
     } else {
