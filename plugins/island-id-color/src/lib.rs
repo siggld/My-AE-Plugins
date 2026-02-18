@@ -1624,9 +1624,9 @@ impl Plugin {
                 }
                 1 => {
                     // Extraction: match any target within range, then invert if requested
-                    let extracted = extraction_targets.iter().any(|(target, range)| {
-                        color_distance_f32(&px, target) <= *range
-                    });
+                    let extracted = extraction_targets
+                        .iter()
+                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
                     let show = extracted != invert_extraction;
                     if show {
                         PixelF32 {
