@@ -784,19 +784,19 @@ fn update_params_ui_visibility(
     in_data: InData,
     params: &mut ae::Parameters<Params>,
 ) -> Result<(), ae::Error> {
-    // ExtractionCount: popup "1".."8" -> value 0..7, visible count = value + 1
+    // ExtractionCount: 1-based value 1..8 = visible count 1..8
     let extraction_count: usize = params
         .get(Params::ExtractionCount)
         .ok()
-        .and_then(|p| p.as_popup().ok().map(|pd| (pd.value() + 1) as usize))
+        .and_then(|p| p.as_popup().ok().map(|pd| pd.value() as usize))
         .unwrap_or(1)
-        .min(EXTRACTION_SETS);
+        .clamp(1, EXTRACTION_SETS);
     for i in 0..EXTRACTION_SETS {
         let visible = i < extraction_count;
         set_param_visibility(in_data, params, EXTRACTION_TARGET_COLORS[i], visible)?;
         set_param_visibility(in_data, params, EXTRACTION_COLOR_RANGES[i], visible)?;
     }
-    // MergeIslandCount: popup "4","8","16","32" -> value 0..3, count = [4,8,16,32][value]
+    // MergeIslandCount: 1-based value 1..4 -> count = [4,8,16,32][value-1]
     const MERGE_COUNTS: [usize; 4] = [4, 8, 16, 32];
     let merge_count: usize = params
         .get(Params::MergeIslandCount)
@@ -804,7 +804,10 @@ fn update_params_ui_visibility(
         .and_then(|p| {
             p.as_popup()
                 .ok()
-                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+                .map(|pd| {
+                    let v = (pd.value() as usize).saturating_sub(1);
+                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
+                })
         })
         .unwrap_or(4);
     for i in 0..MERGE_ISLAND_SETS {
@@ -812,14 +815,17 @@ fn update_params_ui_visibility(
         set_param_visibility(in_data, params, MERGE_SOURCE_TEMP[i], visible)?;
         set_param_visibility(in_data, params, MERGE_TARGET_TEMP[i], visible)?;
     }
-    // GradientSettingsCount: same as MergeIslandCount
+    // GradientSettingsCount: 1-based value 1..4 -> same as MergeIslandCount
     let gradient_count: usize = params
         .get(Params::GradientSettingsCount)
         .ok()
         .and_then(|p| {
             p.as_popup()
                 .ok()
-                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+                .map(|pd| {
+                    let v = (pd.value() as usize).saturating_sub(1);
+                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
+                })
         })
         .unwrap_or(4);
     for i in 0..GRADIENT_SETS {
@@ -832,14 +838,17 @@ fn update_params_ui_visibility(
         set_param_visibility(in_data, params, GRADIENT_OFFSET[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_NOISE_AMOUNT[i], visible)?;
     }
-    // InvertGradCount: same as MergeIslandCount
+    // InvertGradCount: 1-based value 1..4 -> same as MergeIslandCount
     let invert_count: usize = params
         .get(Params::InvertGradCount)
         .ok()
         .and_then(|p| {
             p.as_popup()
                 .ok()
-                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+                .map(|pd| {
+                    let v = (pd.value() as usize).saturating_sub(1);
+                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
+                })
         })
         .unwrap_or(4);
     for (i, &param) in INVERT_TEMP_COLORS.iter().enumerate() {
@@ -904,13 +913,22 @@ impl AdobePluginGlobal for Plugin {
                     (Params::TargetColor6, Params::ColorRange6),
                     (Params::TargetColor7, Params::ColorRange7),
                 ];
+                const EXTRACTION_INITIAL_COUNT: usize = 1; // ExtractionCount default = 1 (1-based)
                 for (i, (tc, cr)) in target_color_range.iter().enumerate() {
-                    params.add(
+                    let initially_hidden = i >= EXTRACTION_INITIAL_COUNT;
+                    let ui_flags = if initially_hidden {
+                        ParamUIFlags::INVISIBLE
+                    } else {
+                        ParamUIFlags::NONE
+                    };
+                    params.add_with_flags(
                         *tc,
                         &format!("Target Color {}", i + 1),
                         ColorDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        ui_flags,
                     )?;
-                    params.add(
+                    params.add_with_flags(
                         *cr,
                         &format!("Color Range {}", i + 1),
                         FloatSliderDef::setup(|d| {
@@ -918,9 +936,15 @@ impl AdobePluginGlobal for Plugin {
                             d.set_valid_max(100.0);
                             d.set_slider_min(0.0);
                             d.set_slider_max(50.0);
-                            d.set_default(10.0);
+                            d.set_default(0.0);
                             d.set_precision(1);
                         }),
+                        ParamFlag::START_COLLAPSED,
+                        if initially_hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
                     )?;
                 }
 
@@ -964,86 +988,102 @@ impl AdobePluginGlobal for Plugin {
                     "Merge Island Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["4", "8", "16", "32"]);
-                        d.set_default(2); // 8
+                        d.set_default(2); // 8 (1-based index 2)
                     }),
                 )?;
 
+                const MERGE_INITIAL_COUNT: usize = 8; // default option "8"
                 for i in 0..MERGE_ISLAND_SETS {
-                    params.add(
-                        match i {
-                            0 => Params::SourceTempColor0,
-                            1 => Params::SourceTempColor1,
-                            2 => Params::SourceTempColor2,
-                            3 => Params::SourceTempColor3,
-                            4 => Params::SourceTempColor4,
-                            5 => Params::SourceTempColor5,
-                            6 => Params::SourceTempColor6,
-                            7 => Params::SourceTempColor7,
-                            8 => Params::SourceTempColor8,
-                            9 => Params::SourceTempColor9,
-                            10 => Params::SourceTempColor10,
-                            11 => Params::SourceTempColor11,
-                            12 => Params::SourceTempColor12,
-                            13 => Params::SourceTempColor13,
-                            14 => Params::SourceTempColor14,
-                            15 => Params::SourceTempColor15,
-                            16 => Params::SourceTempColor16,
-                            17 => Params::SourceTempColor17,
-                            18 => Params::SourceTempColor18,
-                            19 => Params::SourceTempColor19,
-                            20 => Params::SourceTempColor20,
-                            21 => Params::SourceTempColor21,
-                            22 => Params::SourceTempColor22,
-                            23 => Params::SourceTempColor23,
-                            24 => Params::SourceTempColor24,
-                            25 => Params::SourceTempColor25,
-                            26 => Params::SourceTempColor26,
-                            27 => Params::SourceTempColor27,
-                            28 => Params::SourceTempColor28,
-                            29 => Params::SourceTempColor29,
-                            30 => Params::SourceTempColor30,
-                            _ => Params::SourceTempColor31,
-                        },
+                    let merge_ui = if i >= MERGE_INITIAL_COUNT {
+                        ParamUIFlags::INVISIBLE
+                    } else {
+                        ParamUIFlags::NONE
+                    };
+                    let src = match i {
+                        0 => Params::SourceTempColor0,
+                        1 => Params::SourceTempColor1,
+                        2 => Params::SourceTempColor2,
+                        3 => Params::SourceTempColor3,
+                        4 => Params::SourceTempColor4,
+                        5 => Params::SourceTempColor5,
+                        6 => Params::SourceTempColor6,
+                        7 => Params::SourceTempColor7,
+                        8 => Params::SourceTempColor8,
+                        9 => Params::SourceTempColor9,
+                        10 => Params::SourceTempColor10,
+                        11 => Params::SourceTempColor11,
+                        12 => Params::SourceTempColor12,
+                        13 => Params::SourceTempColor13,
+                        14 => Params::SourceTempColor14,
+                        15 => Params::SourceTempColor15,
+                        16 => Params::SourceTempColor16,
+                        17 => Params::SourceTempColor17,
+                        18 => Params::SourceTempColor18,
+                        19 => Params::SourceTempColor19,
+                        20 => Params::SourceTempColor20,
+                        21 => Params::SourceTempColor21,
+                        22 => Params::SourceTempColor22,
+                        23 => Params::SourceTempColor23,
+                        24 => Params::SourceTempColor24,
+                        25 => Params::SourceTempColor25,
+                        26 => Params::SourceTempColor26,
+                        27 => Params::SourceTempColor27,
+                        28 => Params::SourceTempColor28,
+                        29 => Params::SourceTempColor29,
+                        30 => Params::SourceTempColor30,
+                        _ => Params::SourceTempColor31,
+                    };
+                    let tgt = match i {
+                        0 => Params::TargetTempColor0,
+                        1 => Params::TargetTempColor1,
+                        2 => Params::TargetTempColor2,
+                        3 => Params::TargetTempColor3,
+                        4 => Params::TargetTempColor4,
+                        5 => Params::TargetTempColor5,
+                        6 => Params::TargetTempColor6,
+                        7 => Params::TargetTempColor7,
+                        8 => Params::TargetTempColor8,
+                        9 => Params::TargetTempColor9,
+                        10 => Params::TargetTempColor10,
+                        11 => Params::TargetTempColor11,
+                        12 => Params::TargetTempColor12,
+                        13 => Params::TargetTempColor13,
+                        14 => Params::TargetTempColor14,
+                        15 => Params::TargetTempColor15,
+                        16 => Params::TargetTempColor16,
+                        17 => Params::TargetTempColor17,
+                        18 => Params::TargetTempColor18,
+                        19 => Params::TargetTempColor19,
+                        20 => Params::TargetTempColor20,
+                        21 => Params::TargetTempColor21,
+                        22 => Params::TargetTempColor22,
+                        23 => Params::TargetTempColor23,
+                        24 => Params::TargetTempColor24,
+                        25 => Params::TargetTempColor25,
+                        26 => Params::TargetTempColor26,
+                        27 => Params::TargetTempColor27,
+                        28 => Params::TargetTempColor28,
+                        29 => Params::TargetTempColor29,
+                        30 => Params::TargetTempColor30,
+                        _ => Params::TargetTempColor31,
+                    };
+                    params.add_with_flags(
+                        src,
                         &format!("Source Temp Color {}", i + 1),
                         ColorDef::setup(|_d| {}),
-                    )?;
-                    params.add(
-                        match i {
-                            0 => Params::TargetTempColor0,
-                            1 => Params::TargetTempColor1,
-                            2 => Params::TargetTempColor2,
-                            3 => Params::TargetTempColor3,
-                            4 => Params::TargetTempColor4,
-                            5 => Params::TargetTempColor5,
-                            6 => Params::TargetTempColor6,
-                            7 => Params::TargetTempColor7,
-                            8 => Params::TargetTempColor8,
-                            9 => Params::TargetTempColor9,
-                            10 => Params::TargetTempColor10,
-                            11 => Params::TargetTempColor11,
-                            12 => Params::TargetTempColor12,
-                            13 => Params::TargetTempColor13,
-                            14 => Params::TargetTempColor14,
-                            15 => Params::TargetTempColor15,
-                            16 => Params::TargetTempColor16,
-                            17 => Params::TargetTempColor17,
-                            18 => Params::TargetTempColor18,
-                            19 => Params::TargetTempColor19,
-                            20 => Params::TargetTempColor20,
-                            21 => Params::TargetTempColor21,
-                            22 => Params::TargetTempColor22,
-                            23 => Params::TargetTempColor23,
-                            24 => Params::TargetTempColor24,
-                            25 => Params::TargetTempColor25,
-                            26 => Params::TargetTempColor26,
-                            27 => Params::TargetTempColor27,
-                            28 => Params::TargetTempColor28,
-                            29 => Params::TargetTempColor29,
-                            30 => Params::TargetTempColor30,
-                            _ => Params::TargetTempColor31,
+                        ParamFlag::empty(),
+                        if i >= MERGE_INITIAL_COUNT {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
                         },
+                    )?;
+                    params.add_with_flags(
+                        tgt,
                         &format!("Target Temp Color {}", i + 1),
                         ColorDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        merge_ui,
                     )?;
                 }
                 Ok(())
@@ -1356,30 +1396,51 @@ impl AdobePluginGlobal for Plugin {
                         Params::NoiseAmount31,
                     ),
                 ];
+                const GRADIENT_INITIAL_COUNT: usize = 8; // GradientSettingsCount default = 8
                 for (idx, (grad_type, start_c, end_c, angle, bias, offset, noise)) in
                     grad_params.iter().enumerate()
                 {
                     let n = idx + 1;
-                    params.add(
+                    let grad_hidden = idx >= GRADIENT_INITIAL_COUNT;
+                    let g_ui = || {
+                        if grad_hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        }
+                    };
+                    params.add_with_flags(
                         *grad_type,
                         &format!("Grad Type {}", n),
                         PopupDef::setup(|d| {
                             d.set_options(&["Linear", "Radial"]);
                             d.set_default(1);
                         }),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
-                    params.add(
+                    params.add_with_flags(
                         *start_c,
                         &format!("Start Color {}", n),
                         ColorDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
-                    params.add(
+                    params.add_with_flags(
                         *end_c,
                         &format!("End Color {}", n),
                         ColorDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
-                    params.add(*angle, &format!("Angle {}", n), AngleDef::setup(|_d| {}))?;
-                    params.add(
+                    params.add_with_flags(
+                        *angle,
+                        &format!("Angle {}", n),
+                        AngleDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        g_ui(),
+                    )?;
+                    params.add_with_flags(
                         *bias,
                         &format!("Bias {}", n),
                         FloatSliderDef::setup(|d| {
@@ -1390,8 +1451,10 @@ impl AdobePluginGlobal for Plugin {
                             d.set_default(50.0);
                             d.set_precision(1);
                         }),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
-                    params.add(
+                    params.add_with_flags(
                         *offset,
                         &format!("Offset {}", n),
                         FloatSliderDef::setup(|d| {
@@ -1402,8 +1465,10 @@ impl AdobePluginGlobal for Plugin {
                             d.set_default(0.0);
                             d.set_precision(1);
                         }),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
-                    params.add(
+                    params.add_with_flags(
                         *noise,
                         &format!("Noise Amount {}", n),
                         FloatSliderDef::setup(|d| {
@@ -1414,6 +1479,8 @@ impl AdobePluginGlobal for Plugin {
                             d.set_default(0.0);
                             d.set_precision(1);
                         }),
+                        ParamFlag::empty(),
+                        g_ui(),
                     )?;
                 }
 
@@ -1460,11 +1527,18 @@ impl AdobePluginGlobal for Plugin {
                     Params::InvertTempColor30,
                     Params::InvertTempColor31,
                 ];
+                const INVERT_INITIAL_COUNT: usize = 8; // InvertGradCount default = 8
                 for (i, &p) in invert_colors.iter().enumerate() {
-                    params.add(
+                    params.add_with_flags(
                         p,
                         &format!("Invert Temp Color {}", i + 1),
                         ColorDef::setup(|_d| {}),
+                        ParamFlag::empty(),
+                        if i >= INVERT_INITIAL_COUNT {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
                     )?;
                 }
                 Ok(())
@@ -1575,23 +1649,24 @@ impl Plugin {
         let in_world_type = in_layer.world_type();
         let out_world_type = out_layer.world_type();
 
-        // 1. Parameter retrieval
+        // 1. Parameter retrieval (AE Popup value() is 1-based)
         let output_mode: i32 = params
             .get(Params::OutputMode)
             .ok()
             .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
-            .unwrap_or(0);
+            .unwrap_or(1);
         let invert_extraction: bool = params
             .get(Params::InvertExtraction)
             .ok()
             .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
             .unwrap_or(false);
+        // ExtractionCount: 1-based value 1..8 = effective count 1..8
         let extraction_count: usize = params
             .get(Params::ExtractionCount)
             .ok()
-            .and_then(|p| p.as_popup().ok().map(|pd| (pd.value() + 1) as usize))
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value() as usize))
             .unwrap_or(1)
-            .min(EXTRACTION_SETS);
+            .clamp(1, EXTRACTION_SETS);
 
         let mut extraction_targets: Vec<(PixelF32, f32)> = Vec::with_capacity(extraction_count);
         for i in 0..extraction_count {
@@ -1617,12 +1692,13 @@ impl Plugin {
             let y = y as usize;
             let px = read_pixel_f32(&in_layer, in_world_type, x, y);
 
+            // OutputMode: 1=Original, 2=Extraction, 3=TempColor, 4=FinalGradient (1-based)
             let out_px = match output_mode {
-                0 => {
+                1 => {
                     // Original: pass through
                     px
                 }
-                1 => {
+                2 => {
                     // Extraction: match any target within range, then invert if requested
                     let extracted = extraction_targets
                         .iter()
@@ -1644,7 +1720,7 @@ impl Plugin {
                         }
                     }
                 }
-                2 | 3 => {
+                3 | 4 => {
                     // Temp Color / Final Gradient: placeholder — pass through
                     px
                 }
