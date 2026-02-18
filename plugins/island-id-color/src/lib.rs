@@ -658,150 +658,121 @@ fn popup_to_count(params: &ae::Parameters<Params>, key: Params) -> usize {
     }
 }
 
-fn set_param_visibility(
-    in_data: InData,
-    params: &ae::Parameters<Params>,
-    param_type: Params,
-    visible: bool,
-) -> Result<(), ae::Error> {
-    let index = match params.map.get(&param_type) {
-        Some(info) => info.index as i32,
-        None => return Ok(()),
-    };
-    let expected = params.raw_param_type(param_type);
-    let mut param_def = ae::ParamDef::checkout(
-        in_data,
-        index,
-        in_data.current_time(),
-        in_data.time_step(),
-        in_data.time_scale(),
-        expected,
-    )?;
-    let raw = param_def.as_mut();
-    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
-    if visible {
-        flags.remove(ae::ParamUIFlags::INVISIBLE);
-    } else {
-        flags.insert(ae::ParamUIFlags::INVISIBLE);
-    }
-    raw.ui_flags = flags.bits() as _;
-    param_def.update_param_ui()?;
-    Ok(())
-}
-
-fn set_param_visibility_collapsed(
-    in_data: InData,
-    params: &ae::Parameters<Params>,
-    param_type: Params,
-    visible: bool,
-) -> Result<(), ae::Error> {
-    let index = match params.map.get(&param_type) {
-        Some(info) => info.index as i32,
-        None => return Ok(()),
-    };
-    let expected = params.raw_param_type(param_type);
-    let mut param_def = ae::ParamDef::checkout(
-        in_data,
-        index,
-        in_data.current_time(),
-        in_data.time_step(),
-        in_data.time_scale(),
-        expected,
-    )?;
-    let raw = param_def.as_mut();
-    let mut ui_flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
-    if visible {
-        ui_flags.remove(ae::ParamUIFlags::INVISIBLE);
-    } else {
-        ui_flags.insert(ae::ParamUIFlags::INVISIBLE);
-    }
-    raw.ui_flags = ui_flags.bits() as _;
-    let mut flags = ae::ParamFlag::from_bits_truncate(raw.flags);
-    flags.insert(ae::ParamFlag::START_COLLAPSED);
-    raw.flags = flags.bits() as _;
-    param_def.update_param_ui()?;
-    Ok(())
-}
-
-fn set_param_disabled(
-    in_data: InData,
-    params: &ae::Parameters<Params>,
-    param_type: Params,
-    disabled: bool,
-) -> Result<(), ae::Error> {
-    let index = match params.map.get(&param_type) {
-        Some(info) => info.index as i32,
-        None => return Ok(()),
-    };
-    let expected = params.raw_param_type(param_type);
-    let mut param_def = ae::ParamDef::checkout(
-        in_data,
-        index,
-        in_data.current_time(),
-        in_data.time_step(),
-        in_data.time_scale(),
-        expected,
-    )?;
-    let raw = param_def.as_mut();
-    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
-    if disabled {
-        flags.insert(ae::ParamUIFlags::DISABLED);
-    } else {
-        flags.remove(ae::ParamUIFlags::DISABLED);
-    }
-    raw.ui_flags = flags.bits() as _;
-    param_def.update_param_ui()?;
-    Ok(())
-}
-
-fn update_params_ui_visibility(
-    in_data: InData,
-    params: &mut ae::Parameters<Params>,
-) -> Result<(), ae::Error> {
+fn update_params_ui_visibility(params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
     let ext_count = popup_to_count(params, Params::ExtractionCount);
+    let merge_count = popup_to_count(params, Params::MergeIslandCount);
+    let grad_count = popup_to_count(params, Params::GradientSettingsCount);
+
+    // Read enable states BEFORE cloning (AE's original array is read-only for writes,
+    // so we clone to get a writable copy; reads must happen from the original first)
+    let merge_enabled: [bool; MERGE_ISLAND_SETS] = {
+        let mut arr = [true; MERGE_ISLAND_SETS];
+        for i in 0..MERGE_ISLAND_SETS {
+            if i < merge_count {
+                arr[i] = params
+                    .get(MERGE_ENABLE[i])
+                    .ok()
+                    .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                    .unwrap_or(true);
+            }
+        }
+        arr
+    };
+    let grad_enabled: [bool; GRADIENT_SETS] = {
+        let mut arr = [true; GRADIENT_SETS];
+        for i in 0..GRADIENT_SETS {
+            if i < grad_count {
+                arr[i] = params
+                    .get(GRADIENT_ENABLE[i])
+                    .ok()
+                    .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                    .unwrap_or(true);
+            }
+        }
+        arr
+    };
+
+    // Clone params to get a writable copy for UI flag mutations
+    let mut p = params.cloned();
+
+    // --- Color Extraction ---
     for i in 0..EXTRACTION_SETS {
         let vis = i < ext_count;
-        set_param_visibility(in_data, params, EXTRACTION_TARGET_COLORS[i], vis)?;
-        set_param_visibility_collapsed(in_data, params, EXTRACTION_COLOR_RANGES[i], vis)?;
+        {
+            let mut pd = p.get_mut(EXTRACTION_TARGET_COLORS[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(EXTRACTION_COLOR_RANGES[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
     }
 
-    let merge_count = popup_to_count(params, Params::MergeIslandCount);
+    // --- Merge Island ---
     for i in 0..MERGE_ISLAND_SETS {
         let vis = i < merge_count;
-        set_param_visibility(in_data, params, MERGE_ENABLE[i], vis)?;
-        set_param_visibility(in_data, params, MERGE_SOURCE_TEMP[i], vis)?;
-        set_param_visibility(in_data, params, MERGE_TARGET_TEMP[i], vis)?;
-        if vis {
-            let enabled = params
-                .get(MERGE_ENABLE[i])
-                .ok()
-                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                .unwrap_or(true);
-            let disabled = !enabled;
-            set_param_disabled(in_data, params, MERGE_SOURCE_TEMP[i], disabled)?;
-            set_param_disabled(in_data, params, MERGE_TARGET_TEMP[i], disabled)?;
+        let sub_disabled = !merge_enabled[i];
+        {
+            let mut pd = p.get_mut(MERGE_ENABLE[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(MERGE_SOURCE_TEMP[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            if vis {
+                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+            }
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(MERGE_TARGET_TEMP[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            if vis {
+                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+            }
+            pd.update_param_ui()?;
         }
     }
 
-    let grad_count = popup_to_count(params, Params::GradientSettingsCount);
+    // --- Gradient Render ---
     for i in 0..GRADIENT_SETS {
         let vis = i < grad_count;
-        set_param_visibility(in_data, params, GRADIENT_ENABLE[i], vis)?;
-        set_param_visibility(in_data, params, GRADIENT_START_COLOR[i], vis)?;
-        set_param_visibility(in_data, params, GRADIENT_END_COLOR[i], vis)?;
-        set_param_visibility(in_data, params, GRADIENT_INVERT[i], vis)?;
-        if vis {
-            let enabled = params
-                .get(GRADIENT_ENABLE[i])
-                .ok()
-                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                .unwrap_or(true);
-            let disabled = !enabled;
-            set_param_disabled(in_data, params, GRADIENT_START_COLOR[i], disabled)?;
-            set_param_disabled(in_data, params, GRADIENT_END_COLOR[i], disabled)?;
-            set_param_disabled(in_data, params, GRADIENT_INVERT[i], disabled)?;
+        let sub_disabled = !grad_enabled[i];
+        {
+            let mut pd = p.get_mut(GRADIENT_ENABLE[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(GRADIENT_START_COLOR[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            if vis {
+                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+            }
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(GRADIENT_END_COLOR[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            if vis {
+                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+            }
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(GRADIENT_INVERT[i])?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+            if vis {
+                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+            }
+            pd.update_param_ui()?;
         }
     }
+
     Ok(())
 }
 
@@ -1128,7 +1099,7 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
             }
             ae::Command::UpdateParamsUi => {
-                update_params_ui_visibility(in_data, params)?;
+                update_params_ui_visibility(params)?;
             }
             ae::Command::Render {
                 in_layer,
