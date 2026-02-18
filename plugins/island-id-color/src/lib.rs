@@ -9,7 +9,6 @@ use utils::ToPixel;
 const EXTRACTION_SETS: usize = 32;
 const MERGE_ISLAND_SETS: usize = 32;
 const GRADIENT_SETS: usize = 32;
-const COUNTS: [usize; 4] = [4, 8, 16, 32];
 const INITIAL_EXTRACTION: usize = 4;
 const INITIAL_MERGE: usize = 8;
 const INITIAL_GRADIENT: usize = 8;
@@ -198,6 +197,7 @@ enum Params {
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
+    GradientSeparator,
     EnableGradientColor0,
     StartColor0,
     EndColor0,
@@ -646,16 +646,17 @@ const GRADIENT_INVERT: [Params; GRADIENT_SETS] = [
 ];
 
 fn popup_to_count(params: &ae::Parameters<Params>, key: Params) -> usize {
-    params
+    let val = params
         .get(key)
         .ok()
-        .and_then(|p| {
-            p.as_popup().ok().map(|pd| {
-                let idx = (pd.value() as usize).saturating_sub(1);
-                COUNTS.get(idx).copied().unwrap_or(COUNTS[0])
-            })
-        })
-        .unwrap_or(COUNTS[0])
+        .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+        .unwrap_or(1);
+    match val {
+        1 => 4,
+        2 => 8,
+        3 => 16,
+        _ => 32,
+    }
 }
 
 fn set_param_visibility(
@@ -799,6 +800,18 @@ impl AdobePluginGlobal for Plugin {
             true,
             |params| {
                 params.add(
+                    Params::ChokeSpread,
+                    "Choke / Spread",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(-100.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(-20.0);
+                        d.set_slider_max(20.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
                     Params::InvertExtraction,
                     "Invert Extraction",
                     CheckBoxDef::setup(|d| {
@@ -851,18 +864,6 @@ impl AdobePluginGlobal for Plugin {
                     )?;
                 }
 
-                params.add(
-                    Params::ChokeSpread,
-                    "Choke / Spread",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(-100.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(-20.0);
-                        d.set_slider_max(20.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
                 Ok(())
             },
         )?;
@@ -945,16 +946,6 @@ impl AdobePluginGlobal for Plugin {
             "Gradient Render",
             true,
             |params| {
-                params.add_with_flags(
-                    Params::GradientSettingsCount,
-                    "Gradient Settings Count",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["4", "8", "16", "32"]);
-                        d.set_default(2);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
                 params.add(
                     Params::MasterGradType,
                     "Master Grad Type",
@@ -999,6 +990,25 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(0.0);
                         d.set_precision(1);
                     }),
+                )?;
+                params.add_with_flags(
+                    Params::GradientSeparator,
+                    "--------------------",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::DISABLED,
+                )?;
+                params.add_with_flags(
+                    Params::GradientSettingsCount,
+                    "Gradient Settings Count",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["4", "8", "16", "32"]);
+                        d.set_default(2);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
                 )?;
 
                 let white = ae::Pixel8 {
