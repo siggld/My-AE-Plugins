@@ -1666,9 +1666,11 @@ impl Plugin {
         let width = in_layer.width();
         let height = in_layer.height();
 
-        // Tracking Color Range 値の収集（将来の Tracking 処理で使用）
+        // Tracking ターゲットの収集（スロットインデックス付き）
+        // 要素: (slot_index, src_color, tgt_color, range)
         let merge_count = popup_to_count(params, Params::MergeIslandCount).min(MERGE_ISLAND_SETS);
-        let mut tracking_targets: Vec<(PixelF32, PixelF32, f32)> = Vec::with_capacity(merge_count);
+        let mut tracking_targets: Vec<(usize, PixelF32, PixelF32, f32)> =
+            Vec::with_capacity(merge_count);
         for i in 0..merge_count {
             let enabled = params
                 .get(MERGE_ENABLE[i])
@@ -1691,20 +1693,21 @@ impl Plugin {
                 .ok()
                 .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
                 .unwrap_or(5.0) as f32;
-            let range_f32 = (range_val / 100.0).clamp(0.0, 1.0);
+            // スポイト時の色空間変換誤差を吸収する最小 epsilon を設ける
+            let range_f32 = (range_val / 100.0).clamp(0.0, 1.0).max(1e-3_f32);
             if let (Some(src), Some(tgt)) = (src_color, tgt_color) {
                 tracking_targets.push((
+                    i,
                     target_color_to_f32(&src),
                     target_color_to_f32(&tgt),
                     range_f32,
                 ));
             }
         }
-        let _ = tracking_targets; // 将来の Tracking 処理で使用予定
 
         // Temp Color モードの場合のみ CCL を実行
         let island_labels: Option<Vec<u32>> = if output_mode == 3 {
-            // 全ピクセルを走査して2値マスクを構築
+            // ─── Step1: 2値マスクを構築 ─────────────────────────────
             let mut mask = vec![false; width * height];
             for y in 0..height {
                 for x in 0..width {
@@ -1715,7 +1718,66 @@ impl Plugin {
                     mask[y * width + x] = extracted != invert_extraction;
                 }
             }
-            Some(compute_ccl(&mask, width, height))
+
+            // ─── Step2: CCL（仮ラベル） ─────────────────────────────
+            let raw_labels = compute_ccl(&mask, width, height);
+
+            // ─── Step3: Source Temp Color によるアンカーベース ID マッピング ──
+            // ccl_label → user_id (slot_index + 1 で 1〜32 の範囲。0 は背景予約)
+            let mut label_to_user_id: std::collections::HashMap<u32, u32> =
+                std::collections::HashMap::new();
+            if !tracking_targets.is_empty() {
+                for y in 0..height {
+                    for x in 0..width {
+                        let lbl = raw_labels[y * width + x];
+                        if lbl == 0 || label_to_user_id.contains_key(&lbl) {
+                            continue;
+                        }
+                        let px = read_pixel_f32(&in_layer, in_world_type, x, y);
+                        for (slot_idx, src_color, _, range) in &tracking_targets {
+                            if color_distance_f32(&px, src_color) <= *range {
+                                // user_id は 1-based (スロット 0 → ID 1)
+                                label_to_user_id.insert(lbl, (*slot_idx as u32) + 1);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ─── Step4: 最終ラベル配列を構築 ───────────────────────
+            // user_id 1〜32   : ユーザー指定スロットに紐づいた島（安定色）
+            // user_id 33+     : 自動割り当て（その他のノイズ・未追跡島）
+            let mut next_untracked = (MERGE_ISLAND_SETS as u32) + 1; // 33
+            let mut untracked_remap: std::collections::HashMap<u32, u32> =
+                std::collections::HashMap::new();
+
+            let remapped: Vec<u32> = raw_labels
+                .iter()
+                .map(|&lbl| {
+                    if lbl == 0 {
+                        0
+                    } else if let Some(&uid) = label_to_user_id.get(&lbl) {
+                        uid
+                    } else {
+                        *untracked_remap.entry(lbl).or_insert_with(|| {
+                            let id = next_untracked;
+                            next_untracked += 1;
+                            id
+                        })
+                    }
+                })
+                .collect();
+
+            // ─── 将来の Target 置換に向けたマッピング構造を準備 ────
+            // user_id → Target Temp Color。
+            // 現時点は未使用だが、OutputMode "Final Gradient" 等で活用予定。
+            let _island_to_target: std::collections::HashMap<u32, PixelF32> = tracking_targets
+                .iter()
+                .map(|(slot_idx, _, tgt_color, _)| ((*slot_idx as u32) + 1, *tgt_color))
+                .collect();
+
+            Some(remapped)
         } else {
             None
         };
