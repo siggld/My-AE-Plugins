@@ -6,9 +6,6 @@ use std::env;
 use ae::pf::*;
 use utils::ToPixel;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 const EXTRACTION_SETS: usize = 32;
 const MERGE_ISLAND_SETS: usize = 32;
 const GRADIENT_SETS: usize = 32;
@@ -19,10 +16,8 @@ const INITIAL_GRADIENT: usize = 8;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    // 0. Output Settings
     OutputMode,
 
-    // 1. Color Extraction group
     ColorExtGroupStart,
     ColorExtGroupEnd,
     InvertExtraction,
@@ -93,175 +88,108 @@ enum Params {
     ColorRange31,
     ChokeSpread,
 
-    // 2. Island Tracking & Temp Colors group
     IslandTrackGroupStart,
     IslandTrackGroupEnd,
     TrackingPath,
     ShowTempColors,
     MergeIslandCount,
-    // per‑index: MergeGroupStart, EnableMerge, SourceTempColor, TargetTempColor, MergeGroupEnd
-    MergeGroupStart0,
     EnableMerge0,
     SourceTempColor0,
     TargetTempColor0,
-    MergeGroupEnd0,
-    MergeGroupStart1,
     EnableMerge1,
     SourceTempColor1,
     TargetTempColor1,
-    MergeGroupEnd1,
-    MergeGroupStart2,
     EnableMerge2,
     SourceTempColor2,
     TargetTempColor2,
-    MergeGroupEnd2,
-    MergeGroupStart3,
     EnableMerge3,
     SourceTempColor3,
     TargetTempColor3,
-    MergeGroupEnd3,
-    MergeGroupStart4,
     EnableMerge4,
     SourceTempColor4,
     TargetTempColor4,
-    MergeGroupEnd4,
-    MergeGroupStart5,
     EnableMerge5,
     SourceTempColor5,
     TargetTempColor5,
-    MergeGroupEnd5,
-    MergeGroupStart6,
     EnableMerge6,
     SourceTempColor6,
     TargetTempColor6,
-    MergeGroupEnd6,
-    MergeGroupStart7,
     EnableMerge7,
     SourceTempColor7,
     TargetTempColor7,
-    MergeGroupEnd7,
-    MergeGroupStart8,
     EnableMerge8,
     SourceTempColor8,
     TargetTempColor8,
-    MergeGroupEnd8,
-    MergeGroupStart9,
     EnableMerge9,
     SourceTempColor9,
     TargetTempColor9,
-    MergeGroupEnd9,
-    MergeGroupStart10,
     EnableMerge10,
     SourceTempColor10,
     TargetTempColor10,
-    MergeGroupEnd10,
-    MergeGroupStart11,
     EnableMerge11,
     SourceTempColor11,
     TargetTempColor11,
-    MergeGroupEnd11,
-    MergeGroupStart12,
     EnableMerge12,
     SourceTempColor12,
     TargetTempColor12,
-    MergeGroupEnd12,
-    MergeGroupStart13,
     EnableMerge13,
     SourceTempColor13,
     TargetTempColor13,
-    MergeGroupEnd13,
-    MergeGroupStart14,
     EnableMerge14,
     SourceTempColor14,
     TargetTempColor14,
-    MergeGroupEnd14,
-    MergeGroupStart15,
     EnableMerge15,
     SourceTempColor15,
     TargetTempColor15,
-    MergeGroupEnd15,
-    MergeGroupStart16,
     EnableMerge16,
     SourceTempColor16,
     TargetTempColor16,
-    MergeGroupEnd16,
-    MergeGroupStart17,
     EnableMerge17,
     SourceTempColor17,
     TargetTempColor17,
-    MergeGroupEnd17,
-    MergeGroupStart18,
     EnableMerge18,
     SourceTempColor18,
     TargetTempColor18,
-    MergeGroupEnd18,
-    MergeGroupStart19,
     EnableMerge19,
     SourceTempColor19,
     TargetTempColor19,
-    MergeGroupEnd19,
-    MergeGroupStart20,
     EnableMerge20,
     SourceTempColor20,
     TargetTempColor20,
-    MergeGroupEnd20,
-    MergeGroupStart21,
     EnableMerge21,
     SourceTempColor21,
     TargetTempColor21,
-    MergeGroupEnd21,
-    MergeGroupStart22,
     EnableMerge22,
     SourceTempColor22,
     TargetTempColor22,
-    MergeGroupEnd22,
-    MergeGroupStart23,
     EnableMerge23,
     SourceTempColor23,
     TargetTempColor23,
-    MergeGroupEnd23,
-    MergeGroupStart24,
     EnableMerge24,
     SourceTempColor24,
     TargetTempColor24,
-    MergeGroupEnd24,
-    MergeGroupStart25,
     EnableMerge25,
     SourceTempColor25,
     TargetTempColor25,
-    MergeGroupEnd25,
-    MergeGroupStart26,
     EnableMerge26,
     SourceTempColor26,
     TargetTempColor26,
-    MergeGroupEnd26,
-    MergeGroupStart27,
     EnableMerge27,
     SourceTempColor27,
     TargetTempColor27,
-    MergeGroupEnd27,
-    MergeGroupStart28,
     EnableMerge28,
     SourceTempColor28,
     TargetTempColor28,
-    MergeGroupEnd28,
-    MergeGroupStart29,
     EnableMerge29,
     SourceTempColor29,
     TargetTempColor29,
-    MergeGroupEnd29,
-    MergeGroupStart30,
     EnableMerge30,
     SourceTempColor30,
     TargetTempColor30,
-    MergeGroupEnd30,
-    MergeGroupStart31,
     EnableMerge31,
     SourceTempColor31,
     TargetTempColor31,
-    MergeGroupEnd31,
 
-    // 3. Gradient Render group
     GradientGroupStart,
     GradientGroupEnd,
     GradientSettingsCount,
@@ -270,167 +198,134 @@ enum Params {
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
-    // per-index: GradColorGroupStart, StartColor, EndColor, InvertGradient, GradColorGroupEnd
-    GradColorGroupStart0,
+    EnableGradientColor0,
     StartColor0,
     EndColor0,
     InvertGradient0,
-    GradColorGroupEnd0,
-    GradColorGroupStart1,
+    EnableGradientColor1,
     StartColor1,
     EndColor1,
     InvertGradient1,
-    GradColorGroupEnd1,
-    GradColorGroupStart2,
+    EnableGradientColor2,
     StartColor2,
     EndColor2,
     InvertGradient2,
-    GradColorGroupEnd2,
-    GradColorGroupStart3,
+    EnableGradientColor3,
     StartColor3,
     EndColor3,
     InvertGradient3,
-    GradColorGroupEnd3,
-    GradColorGroupStart4,
+    EnableGradientColor4,
     StartColor4,
     EndColor4,
     InvertGradient4,
-    GradColorGroupEnd4,
-    GradColorGroupStart5,
+    EnableGradientColor5,
     StartColor5,
     EndColor5,
     InvertGradient5,
-    GradColorGroupEnd5,
-    GradColorGroupStart6,
+    EnableGradientColor6,
     StartColor6,
     EndColor6,
     InvertGradient6,
-    GradColorGroupEnd6,
-    GradColorGroupStart7,
+    EnableGradientColor7,
     StartColor7,
     EndColor7,
     InvertGradient7,
-    GradColorGroupEnd7,
-    GradColorGroupStart8,
+    EnableGradientColor8,
     StartColor8,
     EndColor8,
     InvertGradient8,
-    GradColorGroupEnd8,
-    GradColorGroupStart9,
+    EnableGradientColor9,
     StartColor9,
     EndColor9,
     InvertGradient9,
-    GradColorGroupEnd9,
-    GradColorGroupStart10,
+    EnableGradientColor10,
     StartColor10,
     EndColor10,
     InvertGradient10,
-    GradColorGroupEnd10,
-    GradColorGroupStart11,
+    EnableGradientColor11,
     StartColor11,
     EndColor11,
     InvertGradient11,
-    GradColorGroupEnd11,
-    GradColorGroupStart12,
+    EnableGradientColor12,
     StartColor12,
     EndColor12,
     InvertGradient12,
-    GradColorGroupEnd12,
-    GradColorGroupStart13,
+    EnableGradientColor13,
     StartColor13,
     EndColor13,
     InvertGradient13,
-    GradColorGroupEnd13,
-    GradColorGroupStart14,
+    EnableGradientColor14,
     StartColor14,
     EndColor14,
     InvertGradient14,
-    GradColorGroupEnd14,
-    GradColorGroupStart15,
+    EnableGradientColor15,
     StartColor15,
     EndColor15,
     InvertGradient15,
-    GradColorGroupEnd15,
-    GradColorGroupStart16,
+    EnableGradientColor16,
     StartColor16,
     EndColor16,
     InvertGradient16,
-    GradColorGroupEnd16,
-    GradColorGroupStart17,
+    EnableGradientColor17,
     StartColor17,
     EndColor17,
     InvertGradient17,
-    GradColorGroupEnd17,
-    GradColorGroupStart18,
+    EnableGradientColor18,
     StartColor18,
     EndColor18,
     InvertGradient18,
-    GradColorGroupEnd18,
-    GradColorGroupStart19,
+    EnableGradientColor19,
     StartColor19,
     EndColor19,
     InvertGradient19,
-    GradColorGroupEnd19,
-    GradColorGroupStart20,
+    EnableGradientColor20,
     StartColor20,
     EndColor20,
     InvertGradient20,
-    GradColorGroupEnd20,
-    GradColorGroupStart21,
+    EnableGradientColor21,
     StartColor21,
     EndColor21,
     InvertGradient21,
-    GradColorGroupEnd21,
-    GradColorGroupStart22,
+    EnableGradientColor22,
     StartColor22,
     EndColor22,
     InvertGradient22,
-    GradColorGroupEnd22,
-    GradColorGroupStart23,
+    EnableGradientColor23,
     StartColor23,
     EndColor23,
     InvertGradient23,
-    GradColorGroupEnd23,
-    GradColorGroupStart24,
+    EnableGradientColor24,
     StartColor24,
     EndColor24,
     InvertGradient24,
-    GradColorGroupEnd24,
-    GradColorGroupStart25,
+    EnableGradientColor25,
     StartColor25,
     EndColor25,
     InvertGradient25,
-    GradColorGroupEnd25,
-    GradColorGroupStart26,
+    EnableGradientColor26,
     StartColor26,
     EndColor26,
     InvertGradient26,
-    GradColorGroupEnd26,
-    GradColorGroupStart27,
+    EnableGradientColor27,
     StartColor27,
     EndColor27,
     InvertGradient27,
-    GradColorGroupEnd27,
-    GradColorGroupStart28,
+    EnableGradientColor28,
     StartColor28,
     EndColor28,
     InvertGradient28,
-    GradColorGroupEnd28,
-    GradColorGroupStart29,
+    EnableGradientColor29,
     StartColor29,
     EndColor29,
     InvertGradient29,
-    GradColorGroupEnd29,
-    GradColorGroupStart30,
+    EnableGradientColor30,
     StartColor30,
     EndColor30,
     InvertGradient30,
-    GradColorGroupEnd30,
-    GradColorGroupStart31,
+    EnableGradientColor31,
     StartColor31,
     EndColor31,
     InvertGradient31,
-    GradColorGroupEnd31,
 }
 
 #[derive(Default)]
@@ -441,9 +336,6 @@ ae::define_effect!(Plugin, (), Params);
 const PLUGIN_DESCRIPTION: &str =
     "Tracks colored regions as islands and applies per-island gradients or temp colors.";
 
-// ---------------------------------------------------------------------------
-// Lookup arrays  (index → Params variant)
-// ---------------------------------------------------------------------------
 const EXTRACTION_TARGET_COLORS: [Params; EXTRACTION_SETS] = [
     Params::TargetColor0,
     Params::TargetColor1,
@@ -513,74 +405,6 @@ const EXTRACTION_COLOR_RANGES: [Params; EXTRACTION_SETS] = [
     Params::ColorRange31,
 ];
 
-const MERGE_GROUP_START: [Params; MERGE_ISLAND_SETS] = [
-    Params::MergeGroupStart0,
-    Params::MergeGroupStart1,
-    Params::MergeGroupStart2,
-    Params::MergeGroupStart3,
-    Params::MergeGroupStart4,
-    Params::MergeGroupStart5,
-    Params::MergeGroupStart6,
-    Params::MergeGroupStart7,
-    Params::MergeGroupStart8,
-    Params::MergeGroupStart9,
-    Params::MergeGroupStart10,
-    Params::MergeGroupStart11,
-    Params::MergeGroupStart12,
-    Params::MergeGroupStart13,
-    Params::MergeGroupStart14,
-    Params::MergeGroupStart15,
-    Params::MergeGroupStart16,
-    Params::MergeGroupStart17,
-    Params::MergeGroupStart18,
-    Params::MergeGroupStart19,
-    Params::MergeGroupStart20,
-    Params::MergeGroupStart21,
-    Params::MergeGroupStart22,
-    Params::MergeGroupStart23,
-    Params::MergeGroupStart24,
-    Params::MergeGroupStart25,
-    Params::MergeGroupStart26,
-    Params::MergeGroupStart27,
-    Params::MergeGroupStart28,
-    Params::MergeGroupStart29,
-    Params::MergeGroupStart30,
-    Params::MergeGroupStart31,
-];
-const MERGE_GROUP_END: [Params; MERGE_ISLAND_SETS] = [
-    Params::MergeGroupEnd0,
-    Params::MergeGroupEnd1,
-    Params::MergeGroupEnd2,
-    Params::MergeGroupEnd3,
-    Params::MergeGroupEnd4,
-    Params::MergeGroupEnd5,
-    Params::MergeGroupEnd6,
-    Params::MergeGroupEnd7,
-    Params::MergeGroupEnd8,
-    Params::MergeGroupEnd9,
-    Params::MergeGroupEnd10,
-    Params::MergeGroupEnd11,
-    Params::MergeGroupEnd12,
-    Params::MergeGroupEnd13,
-    Params::MergeGroupEnd14,
-    Params::MergeGroupEnd15,
-    Params::MergeGroupEnd16,
-    Params::MergeGroupEnd17,
-    Params::MergeGroupEnd18,
-    Params::MergeGroupEnd19,
-    Params::MergeGroupEnd20,
-    Params::MergeGroupEnd21,
-    Params::MergeGroupEnd22,
-    Params::MergeGroupEnd23,
-    Params::MergeGroupEnd24,
-    Params::MergeGroupEnd25,
-    Params::MergeGroupEnd26,
-    Params::MergeGroupEnd27,
-    Params::MergeGroupEnd28,
-    Params::MergeGroupEnd29,
-    Params::MergeGroupEnd30,
-    Params::MergeGroupEnd31,
-];
 const MERGE_ENABLE: [Params; MERGE_ISLAND_SETS] = [
     Params::EnableMerge0,
     Params::EnableMerge1,
@@ -684,6 +508,40 @@ const MERGE_TARGET_TEMP: [Params; MERGE_ISLAND_SETS] = [
     Params::TargetTempColor31,
 ];
 
+const GRADIENT_ENABLE: [Params; GRADIENT_SETS] = [
+    Params::EnableGradientColor0,
+    Params::EnableGradientColor1,
+    Params::EnableGradientColor2,
+    Params::EnableGradientColor3,
+    Params::EnableGradientColor4,
+    Params::EnableGradientColor5,
+    Params::EnableGradientColor6,
+    Params::EnableGradientColor7,
+    Params::EnableGradientColor8,
+    Params::EnableGradientColor9,
+    Params::EnableGradientColor10,
+    Params::EnableGradientColor11,
+    Params::EnableGradientColor12,
+    Params::EnableGradientColor13,
+    Params::EnableGradientColor14,
+    Params::EnableGradientColor15,
+    Params::EnableGradientColor16,
+    Params::EnableGradientColor17,
+    Params::EnableGradientColor18,
+    Params::EnableGradientColor19,
+    Params::EnableGradientColor20,
+    Params::EnableGradientColor21,
+    Params::EnableGradientColor22,
+    Params::EnableGradientColor23,
+    Params::EnableGradientColor24,
+    Params::EnableGradientColor25,
+    Params::EnableGradientColor26,
+    Params::EnableGradientColor27,
+    Params::EnableGradientColor28,
+    Params::EnableGradientColor29,
+    Params::EnableGradientColor30,
+    Params::EnableGradientColor31,
+];
 const GRADIENT_START_COLOR: [Params; GRADIENT_SETS] = [
     Params::StartColor0,
     Params::StartColor1,
@@ -786,78 +644,7 @@ const GRADIENT_INVERT: [Params; GRADIENT_SETS] = [
     Params::InvertGradient30,
     Params::InvertGradient31,
 ];
-const GRADIENT_GRAD_COLOR_GROUP_START: [Params; GRADIENT_SETS] = [
-    Params::GradColorGroupStart0,
-    Params::GradColorGroupStart1,
-    Params::GradColorGroupStart2,
-    Params::GradColorGroupStart3,
-    Params::GradColorGroupStart4,
-    Params::GradColorGroupStart5,
-    Params::GradColorGroupStart6,
-    Params::GradColorGroupStart7,
-    Params::GradColorGroupStart8,
-    Params::GradColorGroupStart9,
-    Params::GradColorGroupStart10,
-    Params::GradColorGroupStart11,
-    Params::GradColorGroupStart12,
-    Params::GradColorGroupStart13,
-    Params::GradColorGroupStart14,
-    Params::GradColorGroupStart15,
-    Params::GradColorGroupStart16,
-    Params::GradColorGroupStart17,
-    Params::GradColorGroupStart18,
-    Params::GradColorGroupStart19,
-    Params::GradColorGroupStart20,
-    Params::GradColorGroupStart21,
-    Params::GradColorGroupStart22,
-    Params::GradColorGroupStart23,
-    Params::GradColorGroupStart24,
-    Params::GradColorGroupStart25,
-    Params::GradColorGroupStart26,
-    Params::GradColorGroupStart27,
-    Params::GradColorGroupStart28,
-    Params::GradColorGroupStart29,
-    Params::GradColorGroupStart30,
-    Params::GradColorGroupStart31,
-];
-const GRADIENT_GRAD_COLOR_GROUP_END: [Params; GRADIENT_SETS] = [
-    Params::GradColorGroupEnd0,
-    Params::GradColorGroupEnd1,
-    Params::GradColorGroupEnd2,
-    Params::GradColorGroupEnd3,
-    Params::GradColorGroupEnd4,
-    Params::GradColorGroupEnd5,
-    Params::GradColorGroupEnd6,
-    Params::GradColorGroupEnd7,
-    Params::GradColorGroupEnd8,
-    Params::GradColorGroupEnd9,
-    Params::GradColorGroupEnd10,
-    Params::GradColorGroupEnd11,
-    Params::GradColorGroupEnd12,
-    Params::GradColorGroupEnd13,
-    Params::GradColorGroupEnd14,
-    Params::GradColorGroupEnd15,
-    Params::GradColorGroupEnd16,
-    Params::GradColorGroupEnd17,
-    Params::GradColorGroupEnd18,
-    Params::GradColorGroupEnd19,
-    Params::GradColorGroupEnd20,
-    Params::GradColorGroupEnd21,
-    Params::GradColorGroupEnd22,
-    Params::GradColorGroupEnd23,
-    Params::GradColorGroupEnd24,
-    Params::GradColorGroupEnd25,
-    Params::GradColorGroupEnd26,
-    Params::GradColorGroupEnd27,
-    Params::GradColorGroupEnd28,
-    Params::GradColorGroupEnd29,
-    Params::GradColorGroupEnd30,
-    Params::GradColorGroupEnd31,
-];
 
-// ---------------------------------------------------------------------------
-// Helpers for dynamic UI
-// ---------------------------------------------------------------------------
 fn popup_to_count(params: &ae::Parameters<Params>, key: Params) -> usize {
     params
         .get(key)
@@ -902,43 +689,88 @@ fn set_param_visibility(
     Ok(())
 }
 
+fn set_param_disabled(
+    in_data: InData,
+    params: &ae::Parameters<Params>,
+    param_type: Params,
+    disabled: bool,
+) -> Result<(), ae::Error> {
+    let index = match params.map.get(&param_type) {
+        Some(info) => info.index as i32,
+        None => return Ok(()),
+    };
+    let expected = params.raw_param_type(param_type);
+    let mut param_def = ae::ParamDef::checkout(
+        in_data,
+        index,
+        in_data.current_time(),
+        in_data.time_step(),
+        in_data.time_scale(),
+        expected,
+    )?;
+    let raw = param_def.as_mut();
+    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
+    if disabled {
+        flags.insert(ae::ParamUIFlags::DISABLED);
+    } else {
+        flags.remove(ae::ParamUIFlags::DISABLED);
+    }
+    raw.ui_flags = flags.bits() as _;
+    param_def.update_param_ui()?;
+    Ok(())
+}
+
 fn update_params_ui_visibility(
     in_data: InData,
     params: &mut ae::Parameters<Params>,
 ) -> Result<(), ae::Error> {
-    // --- Extraction ---
     let ext_count = popup_to_count(params, Params::ExtractionCount);
     for i in 0..EXTRACTION_SETS {
         let vis = i < ext_count;
         set_param_visibility(in_data, params, EXTRACTION_TARGET_COLORS[i], vis)?;
         set_param_visibility(in_data, params, EXTRACTION_COLOR_RANGES[i], vis)?;
     }
-    // --- Merge ---
+
     let merge_count = popup_to_count(params, Params::MergeIslandCount);
     for i in 0..MERGE_ISLAND_SETS {
         let vis = i < merge_count;
-        set_param_visibility(in_data, params, MERGE_GROUP_START[i], vis)?;
         set_param_visibility(in_data, params, MERGE_ENABLE[i], vis)?;
         set_param_visibility(in_data, params, MERGE_SOURCE_TEMP[i], vis)?;
         set_param_visibility(in_data, params, MERGE_TARGET_TEMP[i], vis)?;
-        set_param_visibility(in_data, params, MERGE_GROUP_END[i], vis)?;
+        if vis {
+            let enabled = params
+                .get(MERGE_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
+            let disabled = !enabled;
+            set_param_disabled(in_data, params, MERGE_SOURCE_TEMP[i], disabled)?;
+            set_param_disabled(in_data, params, MERGE_TARGET_TEMP[i], disabled)?;
+        }
     }
-    // --- Gradient ---
+
     let grad_count = popup_to_count(params, Params::GradientSettingsCount);
     for i in 0..GRADIENT_SETS {
         let vis = i < grad_count;
-        set_param_visibility(in_data, params, GRADIENT_GRAD_COLOR_GROUP_START[i], vis)?;
+        set_param_visibility(in_data, params, GRADIENT_ENABLE[i], vis)?;
         set_param_visibility(in_data, params, GRADIENT_START_COLOR[i], vis)?;
         set_param_visibility(in_data, params, GRADIENT_END_COLOR[i], vis)?;
         set_param_visibility(in_data, params, GRADIENT_INVERT[i], vis)?;
-        set_param_visibility(in_data, params, GRADIENT_GRAD_COLOR_GROUP_END[i], vis)?;
+        if vis {
+            let enabled = params
+                .get(GRADIENT_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
+            let disabled = !enabled;
+            set_param_disabled(in_data, params, GRADIENT_START_COLOR[i], disabled)?;
+            set_param_disabled(in_data, params, GRADIENT_END_COLOR[i], disabled)?;
+            set_param_disabled(in_data, params, GRADIENT_INVERT[i], disabled)?;
+        }
     }
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// params_setup
-// ---------------------------------------------------------------------------
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
@@ -946,7 +778,6 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        // ----- 0. Output Settings -----
         params.add(
             Params::OutputMode,
             "Output Mode",
@@ -961,7 +792,6 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // ----- 1. Color Extraction -----
         params.add_group(
             Params::ColorExtGroupStart,
             Params::ColorExtGroupEnd,
@@ -1037,7 +867,6 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
-        // ----- 2. Island Tracking & Temp Colors -----
         params.add_group(
             Params::IslandTrackGroupStart,
             Params::IslandTrackGroupEnd,
@@ -1070,49 +899,39 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..MERGE_ISLAND_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_MERGE;
-                    let name = format!("Merge Setting {n}");
-                    params.add_group(
-                        MERGE_GROUP_START[i],
-                        MERGE_GROUP_END[i],
-                        &name,
-                        true,
-                        |inner| {
-                            inner.add_with_flags(
-                                MERGE_ENABLE[i],
-                                &format!("Enable Merge {n}"),
-                                CheckBoxDef::setup(|d| {
-                                    d.set_default(false);
-                                }),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            inner.add_with_flags(
-                                MERGE_SOURCE_TEMP[i],
-                                &format!("Source Temp Color {n}"),
-                                ColorDef::setup(|_| {}),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            inner.add_with_flags(
-                                MERGE_TARGET_TEMP[i],
-                                &format!("Target Temp Color {n}"),
-                                ColorDef::setup(|_| {}),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            Ok(())
+                    params.add_with_flags(
+                        MERGE_ENABLE[i],
+                        &format!("Enable Merge {n}"),
+                        CheckBoxDef::setup(|d| {
+                            d.set_default(true);
+                        }),
+                        ParamFlag::SUPERVISE,
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        MERGE_SOURCE_TEMP[i],
+                        &format!("Source Temp Color {n}"),
+                        ColorDef::setup(|_| {}),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        MERGE_TARGET_TEMP[i],
+                        &format!("Target Temp Color {n}"),
+                        ColorDef::setup(|_| {}),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
                         },
                     )?;
                 }
@@ -1120,7 +939,6 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
-        // ----- 3. Gradient Render -----
         params.add_group(
             Params::GradientGroupStart,
             Params::GradientGroupEnd,
@@ -1192,51 +1010,54 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..GRADIENT_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_GRADIENT;
-                    let name = format!("Gradient Color {n}");
-                    params.add_group(
-                        GRADIENT_GRAD_COLOR_GROUP_START[i],
-                        GRADIENT_GRAD_COLOR_GROUP_END[i],
-                        &name,
-                        true,
-                        |inner| {
-                            inner.add_with_flags(
-                                GRADIENT_START_COLOR[i],
-                                &format!("Start Color {n}"),
-                                ColorDef::setup(|d| {
-                                    d.set_default(white);
-                                }),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            inner.add_with_flags(
-                                GRADIENT_END_COLOR[i],
-                                &format!("End Color {n}"),
-                                ColorDef::setup(|_| {}),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            inner.add_with_flags(
-                                GRADIENT_INVERT[i],
-                                &format!("Invert Gradient {n}"),
-                                CheckBoxDef::setup(|d| {
-                                    d.set_default(false);
-                                }),
-                                ParamFlag::empty(),
-                                if hidden {
-                                    ParamUIFlags::INVISIBLE
-                                } else {
-                                    ParamUIFlags::NONE
-                                },
-                            )?;
-                            Ok(())
+                    params.add_with_flags(
+                        GRADIENT_ENABLE[i],
+                        &format!("Enable Gradient Color {n}"),
+                        CheckBoxDef::setup(|d| {
+                            d.set_default(true);
+                        }),
+                        ParamFlag::SUPERVISE,
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        GRADIENT_START_COLOR[i],
+                        &format!("Start Color {n}"),
+                        ColorDef::setup(|d| {
+                            d.set_default(white);
+                        }),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        GRADIENT_END_COLOR[i],
+                        &format!("End Color {n}"),
+                        ColorDef::setup(|_| {}),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        GRADIENT_INVERT[i],
+                        &format!("Invert Gradient {n}"),
+                        CheckBoxDef::setup(|d| {
+                            d.set_default(false);
+                        }),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
                         },
                     )?;
                 }
@@ -1312,9 +1133,6 @@ impl AdobePluginGlobal for Plugin {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Rendering helpers
-// ---------------------------------------------------------------------------
 fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
     let dr = a.red - b.red;
     let dg = a.green - b.green;
