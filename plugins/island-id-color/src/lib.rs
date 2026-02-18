@@ -13,6 +13,17 @@ const INITIAL_EXTRACTION: usize = 4;
 const INITIAL_MERGE: usize = 4;
 const INITIAL_GRADIENT: usize = 4;
 
+/// アイランド解析結果のキャッシュ。スレッド間共有に対応するため Clone を実装。
+#[derive(Clone)]
+pub struct IslandCacheData {
+    pub width: usize,
+    pub height: usize,
+    /// 各ピクセルのアイランドID（0 = 背景, 1〜 = 島）
+    pub labels: Vec<u32>,
+    /// アイランドIDごとのバウンディングボックス
+    pub bounding_boxes: std::collections::HashMap<u32, ae::Rect>,
+}
+
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     OutputMode,
