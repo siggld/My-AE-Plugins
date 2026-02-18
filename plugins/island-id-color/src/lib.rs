@@ -802,12 +802,10 @@ fn update_params_ui_visibility(
         .get(Params::MergeIslandCount)
         .ok()
         .and_then(|p| {
-            p.as_popup()
-                .ok()
-                .map(|pd| {
-                    let v = (pd.value() as usize).saturating_sub(1);
-                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
-                })
+            p.as_popup().ok().map(|pd| {
+                let v = (pd.value() as usize).saturating_sub(1);
+                MERGE_COUNTS.get(v).copied().unwrap_or(4)
+            })
         })
         .unwrap_or(4);
     for i in 0..MERGE_ISLAND_SETS {
@@ -820,12 +818,10 @@ fn update_params_ui_visibility(
         .get(Params::GradientSettingsCount)
         .ok()
         .and_then(|p| {
-            p.as_popup()
-                .ok()
-                .map(|pd| {
-                    let v = (pd.value() as usize).saturating_sub(1);
-                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
-                })
+            p.as_popup().ok().map(|pd| {
+                let v = (pd.value() as usize).saturating_sub(1);
+                MERGE_COUNTS.get(v).copied().unwrap_or(4)
+            })
         })
         .unwrap_or(4);
     for i in 0..GRADIENT_SETS {
@@ -843,12 +839,10 @@ fn update_params_ui_visibility(
         .get(Params::InvertGradCount)
         .ok()
         .and_then(|p| {
-            p.as_popup()
-                .ok()
-                .map(|pd| {
-                    let v = (pd.value() as usize).saturating_sub(1);
-                    MERGE_COUNTS.get(v).copied().unwrap_or(4)
-                })
+            p.as_popup().ok().map(|pd| {
+                let v = (pd.value() as usize).saturating_sub(1);
+                MERGE_COUNTS.get(v).copied().unwrap_or(4)
+            })
         })
         .unwrap_or(4);
     for (i, &param) in INVERT_TEMP_COLORS.iter().enumerate() {
