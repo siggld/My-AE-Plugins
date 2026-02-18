@@ -138,99 +138,131 @@ enum Params {
     EnableMerge0,
     SourceTempColor0,
     TargetTempColor0,
+    TrackingColorRange0,
     EnableMerge1,
     SourceTempColor1,
     TargetTempColor1,
+    TrackingColorRange1,
     EnableMerge2,
     SourceTempColor2,
     TargetTempColor2,
+    TrackingColorRange2,
     EnableMerge3,
     SourceTempColor3,
     TargetTempColor3,
+    TrackingColorRange3,
     EnableMerge4,
     SourceTempColor4,
     TargetTempColor4,
+    TrackingColorRange4,
     EnableMerge5,
     SourceTempColor5,
     TargetTempColor5,
+    TrackingColorRange5,
     EnableMerge6,
     SourceTempColor6,
     TargetTempColor6,
+    TrackingColorRange6,
     EnableMerge7,
     SourceTempColor7,
     TargetTempColor7,
+    TrackingColorRange7,
     EnableMerge8,
     SourceTempColor8,
     TargetTempColor8,
+    TrackingColorRange8,
     EnableMerge9,
     SourceTempColor9,
     TargetTempColor9,
+    TrackingColorRange9,
     EnableMerge10,
     SourceTempColor10,
     TargetTempColor10,
+    TrackingColorRange10,
     EnableMerge11,
     SourceTempColor11,
     TargetTempColor11,
+    TrackingColorRange11,
     EnableMerge12,
     SourceTempColor12,
     TargetTempColor12,
+    TrackingColorRange12,
     EnableMerge13,
     SourceTempColor13,
     TargetTempColor13,
+    TrackingColorRange13,
     EnableMerge14,
     SourceTempColor14,
     TargetTempColor14,
+    TrackingColorRange14,
     EnableMerge15,
     SourceTempColor15,
     TargetTempColor15,
+    TrackingColorRange15,
     EnableMerge16,
     SourceTempColor16,
     TargetTempColor16,
+    TrackingColorRange16,
     EnableMerge17,
     SourceTempColor17,
     TargetTempColor17,
+    TrackingColorRange17,
     EnableMerge18,
     SourceTempColor18,
     TargetTempColor18,
+    TrackingColorRange18,
     EnableMerge19,
     SourceTempColor19,
     TargetTempColor19,
+    TrackingColorRange19,
     EnableMerge20,
     SourceTempColor20,
     TargetTempColor20,
+    TrackingColorRange20,
     EnableMerge21,
     SourceTempColor21,
     TargetTempColor21,
+    TrackingColorRange21,
     EnableMerge22,
     SourceTempColor22,
     TargetTempColor22,
+    TrackingColorRange22,
     EnableMerge23,
     SourceTempColor23,
     TargetTempColor23,
+    TrackingColorRange23,
     EnableMerge24,
     SourceTempColor24,
     TargetTempColor24,
+    TrackingColorRange24,
     EnableMerge25,
     SourceTempColor25,
     TargetTempColor25,
+    TrackingColorRange25,
     EnableMerge26,
     SourceTempColor26,
     TargetTempColor26,
+    TrackingColorRange26,
     EnableMerge27,
     SourceTempColor27,
     TargetTempColor27,
+    TrackingColorRange27,
     EnableMerge28,
     SourceTempColor28,
     TargetTempColor28,
+    TrackingColorRange28,
     EnableMerge29,
     SourceTempColor29,
     TargetTempColor29,
+    TrackingColorRange29,
     EnableMerge30,
     SourceTempColor30,
     TargetTempColor30,
+    TrackingColorRange30,
     EnableMerge31,
     SourceTempColor31,
     TargetTempColor31,
+    TrackingColorRange31,
 
     GradientGroupStart,
     GradientGroupEnd,
@@ -585,6 +617,40 @@ const MERGE_TARGET_TEMP: [Params; MERGE_ISLAND_SETS] = [
     Params::TargetTempColor30,
     Params::TargetTempColor31,
 ];
+const TRACKING_COLOR_RANGE: [Params; MERGE_ISLAND_SETS] = [
+    Params::TrackingColorRange0,
+    Params::TrackingColorRange1,
+    Params::TrackingColorRange2,
+    Params::TrackingColorRange3,
+    Params::TrackingColorRange4,
+    Params::TrackingColorRange5,
+    Params::TrackingColorRange6,
+    Params::TrackingColorRange7,
+    Params::TrackingColorRange8,
+    Params::TrackingColorRange9,
+    Params::TrackingColorRange10,
+    Params::TrackingColorRange11,
+    Params::TrackingColorRange12,
+    Params::TrackingColorRange13,
+    Params::TrackingColorRange14,
+    Params::TrackingColorRange15,
+    Params::TrackingColorRange16,
+    Params::TrackingColorRange17,
+    Params::TrackingColorRange18,
+    Params::TrackingColorRange19,
+    Params::TrackingColorRange20,
+    Params::TrackingColorRange21,
+    Params::TrackingColorRange22,
+    Params::TrackingColorRange23,
+    Params::TrackingColorRange24,
+    Params::TrackingColorRange25,
+    Params::TrackingColorRange26,
+    Params::TrackingColorRange27,
+    Params::TrackingColorRange28,
+    Params::TrackingColorRange29,
+    Params::TrackingColorRange30,
+    Params::TrackingColorRange31,
+];
 
 const GRADIENT_ENABLE: [Params; GRADIENT_SETS] = [
     Params::EnableGradientColor0,
@@ -821,6 +887,12 @@ fn update_params_ui_visibility(
                 pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
                 pd.update_param_ui()?;
             }
+            {
+                let mut pd = p.get_mut(TRACKING_COLOR_RANGE[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+                pd.update_param_ui()?;
+            }
         }
         for i in 0..GRADIENT_SETS {
             let vis = i < grad_count;
@@ -883,6 +955,9 @@ fn update_params_ui_visibility(
             let idx_tgt = params
                 .index(MERGE_TARGET_TEMP[i])
                 .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_tcr = params
+                .index(TRACKING_COLOR_RANGE[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_en)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
@@ -891,6 +966,9 @@ fn update_params_ui_visibility(
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_tgt)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_tcr)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
         }
         for i in 0..GRADIENT_SETS {
@@ -936,6 +1014,7 @@ fn update_params_ui_visibility(
                 {
                     let mut pd = p.get_mut(EXTRACTION_COLOR_RANGES[i])?;
                     pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd.update_param_ui()?;
                 }
             }
@@ -951,6 +1030,12 @@ fn update_params_ui_visibility(
                 {
                     let mut pd = p.get_mut(MERGE_TARGET_TEMP[i])?;
                     pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(TRACKING_COLOR_RANGE[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd.update_param_ui()?;
                 }
             }
@@ -1149,6 +1234,24 @@ impl AdobePluginGlobal for Plugin {
                         MERGE_TARGET_TEMP[i],
                         &format!("Target Temp Color {n}"),
                         ColorDef::setup(|_| {}),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        TRACKING_COLOR_RANGE[i],
+                        &format!("Tracking Color Range {n}"),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(0.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(0.0);
+                            d.set_slider_max(50.0);
+                            d.set_default(5.0);
+                            d.set_precision(1);
+                        }),
                         ParamFlag::empty(),
                         if hidden {
                             ParamUIFlags::INVISIBLE
@@ -1560,6 +1663,42 @@ impl Plugin {
         let width = in_layer.width();
         let height = in_layer.height();
 
+        // Tracking Color Range 値の収集（将来の Tracking 処理で使用）
+        let merge_count = popup_to_count(params, Params::MergeIslandCount).min(MERGE_ISLAND_SETS);
+        let mut tracking_targets: Vec<(PixelF32, PixelF32, f32)> = Vec::with_capacity(merge_count);
+        for i in 0..merge_count {
+            let enabled = params
+                .get(MERGE_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
+            if !enabled {
+                continue;
+            }
+            let src_color = params
+                .get(MERGE_SOURCE_TEMP[i])
+                .ok()
+                .and_then(|p| p.as_color().ok().map(|cd| cd.value()));
+            let tgt_color = params
+                .get(MERGE_TARGET_TEMP[i])
+                .ok()
+                .and_then(|p| p.as_color().ok().map(|cd| cd.value()));
+            let range_val = params
+                .get(TRACKING_COLOR_RANGE[i])
+                .ok()
+                .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+                .unwrap_or(5.0) as f32;
+            let range_f32 = (range_val / 100.0).clamp(0.0, 1.0);
+            if let (Some(src), Some(tgt)) = (src_color, tgt_color) {
+                tracking_targets.push((
+                    target_color_to_f32(&src),
+                    target_color_to_f32(&tgt),
+                    range_f32,
+                ));
+            }
+        }
+        let _ = tracking_targets; // 将来の Tracking 処理で使用予定
+
         // Temp Color モードの場合のみ CCL を実行
         let island_labels: Option<Vec<u32>> = if output_mode == 3 {
             // 全ピクセルを走査して2値マスクを構築
@@ -1567,9 +1706,11 @@ impl Plugin {
             for y in 0..height {
                 for x in 0..width {
                     let px = read_pixel_f32(&in_layer, in_world_type, x, y);
-                    let extracted = extraction_targets
-                        .iter()
-                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
+                    let extracted = extraction_targets.iter().any(|(target, range)| {
+                        let dist = color_distance_f32(&px, target);
+                        // Range=0 でも完全一致なら true（浮動小数点誤差対策）
+                        dist == 0.0 || dist <= *range
+                    });
                     mask[y * width + x] = extracted != invert_extraction;
                 }
             }
@@ -1584,9 +1725,10 @@ impl Plugin {
             let out_px = match output_mode {
                 1 => px,
                 2 => {
-                    let extracted = extraction_targets
-                        .iter()
-                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
+                    let extracted = extraction_targets.iter().any(|(target, range)| {
+                        let dist = color_distance_f32(&px, target);
+                        dist == 0.0 || dist <= *range
+                    });
                     let show = extracted != invert_extraction;
                     if show {
                         PixelF32 {
