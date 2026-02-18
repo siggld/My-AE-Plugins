@@ -4,9 +4,11 @@ use after_effects as ae;
 use std::env;
 
 use ae::pf::*;
+use utils::ToPixel;
 
 // ---------------------------------------------------------------------------
 // Output (always visible)
+
 // ---------------------------------------------------------------------------
 const EXTRACTION_SETS: usize = 8;
 const MERGE_ISLAND_SETS: usize = 32;
@@ -18,7 +20,9 @@ enum Params {
     // 0. Output Settings
     OutputMode,
 
-    // 1. Color Extraction (group: when after-effects provides GroupStartDef/GroupEndDef, add them)
+    // 1. Color Extraction group
+    ColorExtGroupStart,
+    ColorExtGroupEnd,
     InvertExtraction,
     ExtractionCount,
     // TargetColor[0..EXTRACTION_SETS], ColorRange[0..EXTRACTION_SETS]
@@ -40,7 +44,9 @@ enum Params {
     ColorRange7,
     ChokeSpread,
 
-    // 2. Island Tracking & Temp Colors
+    // 2. Island Tracking & Temp Colors group
+    IslandTrackGroupStart,
+    IslandTrackGroupEnd,
     TrackingPath,
     ShowTempColors,
     MergeIslandCount,
@@ -110,7 +116,9 @@ enum Params {
     SourceTempColor31,
     TargetTempColor31,
 
-    // 3. Gradient Render
+    // 3. Gradient Render group
+    GradientGroupStart,
+    GradientGroupEnd,
     GradientSettingsCount,
     // GradType, StartColor, EndColor, Angle, Bias, Offset, NoiseAmount x GRADIENT_SETS
     GradType0,
@@ -380,6 +388,467 @@ ae::define_effect!(Plugin, (), Params);
 const PLUGIN_DESCRIPTION: &str =
     "Tracks colored regions as islands and applies per-island gradients or temp colors.";
 
+// Param arrays for dynamic UI visibility (UpdateParamsUi)
+const EXTRACTION_TARGET_COLORS: [Params; EXTRACTION_SETS] = [
+    Params::TargetColor0,
+    Params::TargetColor1,
+    Params::TargetColor2,
+    Params::TargetColor3,
+    Params::TargetColor4,
+    Params::TargetColor5,
+    Params::TargetColor6,
+    Params::TargetColor7,
+];
+const EXTRACTION_COLOR_RANGES: [Params; EXTRACTION_SETS] = [
+    Params::ColorRange0,
+    Params::ColorRange1,
+    Params::ColorRange2,
+    Params::ColorRange3,
+    Params::ColorRange4,
+    Params::ColorRange5,
+    Params::ColorRange6,
+    Params::ColorRange7,
+];
+const MERGE_SOURCE_TEMP: [Params; MERGE_ISLAND_SETS] = [
+    Params::SourceTempColor0,
+    Params::SourceTempColor1,
+    Params::SourceTempColor2,
+    Params::SourceTempColor3,
+    Params::SourceTempColor4,
+    Params::SourceTempColor5,
+    Params::SourceTempColor6,
+    Params::SourceTempColor7,
+    Params::SourceTempColor8,
+    Params::SourceTempColor9,
+    Params::SourceTempColor10,
+    Params::SourceTempColor11,
+    Params::SourceTempColor12,
+    Params::SourceTempColor13,
+    Params::SourceTempColor14,
+    Params::SourceTempColor15,
+    Params::SourceTempColor16,
+    Params::SourceTempColor17,
+    Params::SourceTempColor18,
+    Params::SourceTempColor19,
+    Params::SourceTempColor20,
+    Params::SourceTempColor21,
+    Params::SourceTempColor22,
+    Params::SourceTempColor23,
+    Params::SourceTempColor24,
+    Params::SourceTempColor25,
+    Params::SourceTempColor26,
+    Params::SourceTempColor27,
+    Params::SourceTempColor28,
+    Params::SourceTempColor29,
+    Params::SourceTempColor30,
+    Params::SourceTempColor31,
+];
+const MERGE_TARGET_TEMP: [Params; MERGE_ISLAND_SETS] = [
+    Params::TargetTempColor0,
+    Params::TargetTempColor1,
+    Params::TargetTempColor2,
+    Params::TargetTempColor3,
+    Params::TargetTempColor4,
+    Params::TargetTempColor5,
+    Params::TargetTempColor6,
+    Params::TargetTempColor7,
+    Params::TargetTempColor8,
+    Params::TargetTempColor9,
+    Params::TargetTempColor10,
+    Params::TargetTempColor11,
+    Params::TargetTempColor12,
+    Params::TargetTempColor13,
+    Params::TargetTempColor14,
+    Params::TargetTempColor15,
+    Params::TargetTempColor16,
+    Params::TargetTempColor17,
+    Params::TargetTempColor18,
+    Params::TargetTempColor19,
+    Params::TargetTempColor20,
+    Params::TargetTempColor21,
+    Params::TargetTempColor22,
+    Params::TargetTempColor23,
+    Params::TargetTempColor24,
+    Params::TargetTempColor25,
+    Params::TargetTempColor26,
+    Params::TargetTempColor27,
+    Params::TargetTempColor28,
+    Params::TargetTempColor29,
+    Params::TargetTempColor30,
+    Params::TargetTempColor31,
+];
+const GRADIENT_GRAD_TYPE: [Params; GRADIENT_SETS] = [
+    Params::GradType0,
+    Params::GradType1,
+    Params::GradType2,
+    Params::GradType3,
+    Params::GradType4,
+    Params::GradType5,
+    Params::GradType6,
+    Params::GradType7,
+    Params::GradType8,
+    Params::GradType9,
+    Params::GradType10,
+    Params::GradType11,
+    Params::GradType12,
+    Params::GradType13,
+    Params::GradType14,
+    Params::GradType15,
+    Params::GradType16,
+    Params::GradType17,
+    Params::GradType18,
+    Params::GradType19,
+    Params::GradType20,
+    Params::GradType21,
+    Params::GradType22,
+    Params::GradType23,
+    Params::GradType24,
+    Params::GradType25,
+    Params::GradType26,
+    Params::GradType27,
+    Params::GradType28,
+    Params::GradType29,
+    Params::GradType30,
+    Params::GradType31,
+];
+const GRADIENT_START_COLOR: [Params; GRADIENT_SETS] = [
+    Params::StartColor0,
+    Params::StartColor1,
+    Params::StartColor2,
+    Params::StartColor3,
+    Params::StartColor4,
+    Params::StartColor5,
+    Params::StartColor6,
+    Params::StartColor7,
+    Params::StartColor8,
+    Params::StartColor9,
+    Params::StartColor10,
+    Params::StartColor11,
+    Params::StartColor12,
+    Params::StartColor13,
+    Params::StartColor14,
+    Params::StartColor15,
+    Params::StartColor16,
+    Params::StartColor17,
+    Params::StartColor18,
+    Params::StartColor19,
+    Params::StartColor20,
+    Params::StartColor21,
+    Params::StartColor22,
+    Params::StartColor23,
+    Params::StartColor24,
+    Params::StartColor25,
+    Params::StartColor26,
+    Params::StartColor27,
+    Params::StartColor28,
+    Params::StartColor29,
+    Params::StartColor30,
+    Params::StartColor31,
+];
+const GRADIENT_END_COLOR: [Params; GRADIENT_SETS] = [
+    Params::EndColor0,
+    Params::EndColor1,
+    Params::EndColor2,
+    Params::EndColor3,
+    Params::EndColor4,
+    Params::EndColor5,
+    Params::EndColor6,
+    Params::EndColor7,
+    Params::EndColor8,
+    Params::EndColor9,
+    Params::EndColor10,
+    Params::EndColor11,
+    Params::EndColor12,
+    Params::EndColor13,
+    Params::EndColor14,
+    Params::EndColor15,
+    Params::EndColor16,
+    Params::EndColor17,
+    Params::EndColor18,
+    Params::EndColor19,
+    Params::EndColor20,
+    Params::EndColor21,
+    Params::EndColor22,
+    Params::EndColor23,
+    Params::EndColor24,
+    Params::EndColor25,
+    Params::EndColor26,
+    Params::EndColor27,
+    Params::EndColor28,
+    Params::EndColor29,
+    Params::EndColor30,
+    Params::EndColor31,
+];
+const GRADIENT_ANGLE: [Params; GRADIENT_SETS] = [
+    Params::Angle0,
+    Params::Angle1,
+    Params::Angle2,
+    Params::Angle3,
+    Params::Angle4,
+    Params::Angle5,
+    Params::Angle6,
+    Params::Angle7,
+    Params::Angle8,
+    Params::Angle9,
+    Params::Angle10,
+    Params::Angle11,
+    Params::Angle12,
+    Params::Angle13,
+    Params::Angle14,
+    Params::Angle15,
+    Params::Angle16,
+    Params::Angle17,
+    Params::Angle18,
+    Params::Angle19,
+    Params::Angle20,
+    Params::Angle21,
+    Params::Angle22,
+    Params::Angle23,
+    Params::Angle24,
+    Params::Angle25,
+    Params::Angle26,
+    Params::Angle27,
+    Params::Angle28,
+    Params::Angle29,
+    Params::Angle30,
+    Params::Angle31,
+];
+const GRADIENT_BIAS: [Params; GRADIENT_SETS] = [
+    Params::Bias0,
+    Params::Bias1,
+    Params::Bias2,
+    Params::Bias3,
+    Params::Bias4,
+    Params::Bias5,
+    Params::Bias6,
+    Params::Bias7,
+    Params::Bias8,
+    Params::Bias9,
+    Params::Bias10,
+    Params::Bias11,
+    Params::Bias12,
+    Params::Bias13,
+    Params::Bias14,
+    Params::Bias15,
+    Params::Bias16,
+    Params::Bias17,
+    Params::Bias18,
+    Params::Bias19,
+    Params::Bias20,
+    Params::Bias21,
+    Params::Bias22,
+    Params::Bias23,
+    Params::Bias24,
+    Params::Bias25,
+    Params::Bias26,
+    Params::Bias27,
+    Params::Bias28,
+    Params::Bias29,
+    Params::Bias30,
+    Params::Bias31,
+];
+const GRADIENT_OFFSET: [Params; GRADIENT_SETS] = [
+    Params::Offset0,
+    Params::Offset1,
+    Params::Offset2,
+    Params::Offset3,
+    Params::Offset4,
+    Params::Offset5,
+    Params::Offset6,
+    Params::Offset7,
+    Params::Offset8,
+    Params::Offset9,
+    Params::Offset10,
+    Params::Offset11,
+    Params::Offset12,
+    Params::Offset13,
+    Params::Offset14,
+    Params::Offset15,
+    Params::Offset16,
+    Params::Offset17,
+    Params::Offset18,
+    Params::Offset19,
+    Params::Offset20,
+    Params::Offset21,
+    Params::Offset22,
+    Params::Offset23,
+    Params::Offset24,
+    Params::Offset25,
+    Params::Offset26,
+    Params::Offset27,
+    Params::Offset28,
+    Params::Offset29,
+    Params::Offset30,
+    Params::Offset31,
+];
+const GRADIENT_NOISE_AMOUNT: [Params; GRADIENT_SETS] = [
+    Params::NoiseAmount0,
+    Params::NoiseAmount1,
+    Params::NoiseAmount2,
+    Params::NoiseAmount3,
+    Params::NoiseAmount4,
+    Params::NoiseAmount5,
+    Params::NoiseAmount6,
+    Params::NoiseAmount7,
+    Params::NoiseAmount8,
+    Params::NoiseAmount9,
+    Params::NoiseAmount10,
+    Params::NoiseAmount11,
+    Params::NoiseAmount12,
+    Params::NoiseAmount13,
+    Params::NoiseAmount14,
+    Params::NoiseAmount15,
+    Params::NoiseAmount16,
+    Params::NoiseAmount17,
+    Params::NoiseAmount18,
+    Params::NoiseAmount19,
+    Params::NoiseAmount20,
+    Params::NoiseAmount21,
+    Params::NoiseAmount22,
+    Params::NoiseAmount23,
+    Params::NoiseAmount24,
+    Params::NoiseAmount25,
+    Params::NoiseAmount26,
+    Params::NoiseAmount27,
+    Params::NoiseAmount28,
+    Params::NoiseAmount29,
+    Params::NoiseAmount30,
+    Params::NoiseAmount31,
+];
+const INVERT_TEMP_COLORS: [Params; INVERT_GRAD_SETS] = [
+    Params::InvertTempColor0,
+    Params::InvertTempColor1,
+    Params::InvertTempColor2,
+    Params::InvertTempColor3,
+    Params::InvertTempColor4,
+    Params::InvertTempColor5,
+    Params::InvertTempColor6,
+    Params::InvertTempColor7,
+    Params::InvertTempColor8,
+    Params::InvertTempColor9,
+    Params::InvertTempColor10,
+    Params::InvertTempColor11,
+    Params::InvertTempColor12,
+    Params::InvertTempColor13,
+    Params::InvertTempColor14,
+    Params::InvertTempColor15,
+    Params::InvertTempColor16,
+    Params::InvertTempColor17,
+    Params::InvertTempColor18,
+    Params::InvertTempColor19,
+    Params::InvertTempColor20,
+    Params::InvertTempColor21,
+    Params::InvertTempColor22,
+    Params::InvertTempColor23,
+    Params::InvertTempColor24,
+    Params::InvertTempColor25,
+    Params::InvertTempColor26,
+    Params::InvertTempColor27,
+    Params::InvertTempColor28,
+    Params::InvertTempColor29,
+    Params::InvertTempColor30,
+    Params::InvertTempColor31,
+];
+
+fn set_param_visibility(
+    in_data: InData,
+    params: &ae::Parameters<Params>,
+    param_type: Params,
+    visible: bool,
+) -> Result<(), ae::Error> {
+    let index = match params.map.get(&param_type) {
+        Some(info) => info.index as i32,
+        None => return Ok(()),
+    };
+    let expected = params.raw_param_type(param_type);
+    let mut param_def = ae::ParamDef::checkout(
+        in_data,
+        index,
+        in_data.current_time(),
+        in_data.time_step(),
+        in_data.time_scale(),
+        expected,
+    )?;
+    let raw = param_def.as_mut();
+    let inv = ae::ParamUIFlags::INVISIBLE.bits();
+    if visible {
+        raw.ui_flags &= !inv;
+    } else {
+        raw.ui_flags |= inv;
+    }
+    param_def.update_param_ui()?;
+    Ok(())
+}
+
+fn update_params_ui_visibility(
+    in_data: InData,
+    params: &mut ae::Parameters<Params>,
+) -> Result<(), ae::Error> {
+    // ExtractionCount: popup "1".."8" -> value 0..7, visible count = value + 1
+    let extraction_count: usize = params
+        .get(Params::ExtractionCount)
+        .ok()
+        .and_then(|p| p.as_popup().ok().map(|pd| (pd.value() + 1) as usize))
+        .unwrap_or(1)
+        .min(EXTRACTION_SETS);
+    for i in 0..EXTRACTION_SETS {
+        let visible = i < extraction_count;
+        set_param_visibility(in_data, params, EXTRACTION_TARGET_COLORS[i], visible)?;
+        set_param_visibility(in_data, params, EXTRACTION_COLOR_RANGES[i], visible)?;
+    }
+    // MergeIslandCount: popup "4","8","16","32" -> value 0..3, count = [4,8,16,32][value]
+    const MERGE_COUNTS: [usize; 4] = [4, 8, 16, 32];
+    let merge_count: usize = params
+        .get(Params::MergeIslandCount)
+        .ok()
+        .and_then(|p| {
+            p.as_popup()
+                .ok()
+                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+        })
+        .unwrap_or(4);
+    for i in 0..MERGE_ISLAND_SETS {
+        let visible = i < merge_count;
+        set_param_visibility(in_data, params, MERGE_SOURCE_TEMP[i], visible)?;
+        set_param_visibility(in_data, params, MERGE_TARGET_TEMP[i], visible)?;
+    }
+    // GradientSettingsCount: same as MergeIslandCount
+    let gradient_count: usize = params
+        .get(Params::GradientSettingsCount)
+        .ok()
+        .and_then(|p| {
+            p.as_popup()
+                .ok()
+                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+        })
+        .unwrap_or(4);
+    for i in 0..GRADIENT_SETS {
+        let visible = i < gradient_count;
+        set_param_visibility(in_data, params, GRADIENT_GRAD_TYPE[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_START_COLOR[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_END_COLOR[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_ANGLE[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_BIAS[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_OFFSET[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_NOISE_AMOUNT[i], visible)?;
+    }
+    // InvertGradCount: same as MergeIslandCount
+    let invert_count: usize = params
+        .get(Params::InvertGradCount)
+        .ok()
+        .and_then(|p| {
+            p.as_popup()
+                .ok()
+                .map(|pd| MERGE_COUNTS.get(pd.value() as usize).copied().unwrap_or(4))
+        })
+        .unwrap_or(4);
+    for (i, &param) in INVERT_TEMP_COLORS.iter().enumerate() {
+        let visible = i < invert_count;
+        set_param_visibility(in_data, params, param, visible)?;
+    }
+    Ok(())
+}
+
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
@@ -402,578 +871,605 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        // ----- 1. Color Extraction -----
-        params.add(
-            Params::InvertExtraction,
-            "Invert Extraction",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-        )?;
-        params.add(
-            Params::ExtractionCount,
-            "Extraction Count",
-            PopupDef::setup(|d| {
-                d.set_options(&["1", "2", "3", "4", "5", "6", "7", "8"]);
-                d.set_default(1);
-            }),
-        )?;
+        // ----- 1. Color Extraction group (collapsed by default) -----
+        params.add_group(
+            Params::ColorExtGroupStart,
+            Params::ColorExtGroupEnd,
+            "Color Extraction",
+            true,
+            |params| {
+                params.add(
+                    Params::InvertExtraction,
+                    "Invert Extraction",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                )?;
+                params.add(
+                    Params::ExtractionCount,
+                    "Extraction Count",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["1", "2", "3", "4", "5", "6", "7", "8"]);
+                        d.set_default(1);
+                    }),
+                )?;
 
-        let target_color_range = [
-            (Params::TargetColor0, Params::ColorRange0),
-            (Params::TargetColor1, Params::ColorRange1),
-            (Params::TargetColor2, Params::ColorRange2),
-            (Params::TargetColor3, Params::ColorRange3),
-            (Params::TargetColor4, Params::ColorRange4),
-            (Params::TargetColor5, Params::ColorRange5),
-            (Params::TargetColor6, Params::ColorRange6),
-            (Params::TargetColor7, Params::ColorRange7),
-        ];
-        for (i, (tc, cr)) in target_color_range.iter().enumerate() {
-            params.add(
-                *tc,
-                &format!("Target Color {}", i + 1),
-                ColorDef::setup(|_d| {}),
-            )?;
-            params.add(
-                *cr,
-                &format!("Color Range {}", i + 1),
-                FloatSliderDef::setup(|d| {
-                    d.set_valid_min(0.0);
-                    d.set_valid_max(100.0);
-                    d.set_slider_min(0.0);
-                    d.set_slider_max(50.0);
-                    d.set_default(10.0);
-                    d.set_precision(1);
-                }),
-            )?;
-        }
+                let target_color_range = [
+                    (Params::TargetColor0, Params::ColorRange0),
+                    (Params::TargetColor1, Params::ColorRange1),
+                    (Params::TargetColor2, Params::ColorRange2),
+                    (Params::TargetColor3, Params::ColorRange3),
+                    (Params::TargetColor4, Params::ColorRange4),
+                    (Params::TargetColor5, Params::ColorRange5),
+                    (Params::TargetColor6, Params::ColorRange6),
+                    (Params::TargetColor7, Params::ColorRange7),
+                ];
+                for (i, (tc, cr)) in target_color_range.iter().enumerate() {
+                    params.add(
+                        *tc,
+                        &format!("Target Color {}", i + 1),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                    params.add(
+                        *cr,
+                        &format!("Color Range {}", i + 1),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(0.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(0.0);
+                            d.set_slider_max(50.0);
+                            d.set_default(10.0);
+                            d.set_precision(1);
+                        }),
+                    )?;
+                }
 
-        params.add(
-            Params::ChokeSpread,
-            "Choke / Spread",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-20.0);
-                d.set_slider_max(20.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
-        )?;
-
-        // ----- 2. Island Tracking & Temp Colors -----
-        params.add(
-            Params::TrackingPath,
-            "Tracking Path",
-            PathDef::setup(|_| {}),
-        )?;
-        params.add(
-            Params::ShowTempColors,
-            "Show Temp Colors",
-            CheckBoxDef::setup(|d| {
-                d.set_default(true);
-            }),
-        )?;
-        params.add(
-            Params::MergeIslandCount,
-            "Merge Island Count",
-            PopupDef::setup(|d| {
-                d.set_options(&["4", "8", "16", "32"]);
-                d.set_default(2); // 8
-            }),
+                params.add(
+                    Params::ChokeSpread,
+                    "Choke / Spread",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(-100.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(-20.0);
+                        d.set_slider_max(20.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                Ok(())
+            },
         )?;
 
-        for i in 0..MERGE_ISLAND_SETS {
-            params.add(
-                match i {
-                    0 => Params::SourceTempColor0,
-                    1 => Params::SourceTempColor1,
-                    2 => Params::SourceTempColor2,
-                    3 => Params::SourceTempColor3,
-                    4 => Params::SourceTempColor4,
-                    5 => Params::SourceTempColor5,
-                    6 => Params::SourceTempColor6,
-                    7 => Params::SourceTempColor7,
-                    8 => Params::SourceTempColor8,
-                    9 => Params::SourceTempColor9,
-                    10 => Params::SourceTempColor10,
-                    11 => Params::SourceTempColor11,
-                    12 => Params::SourceTempColor12,
-                    13 => Params::SourceTempColor13,
-                    14 => Params::SourceTempColor14,
-                    15 => Params::SourceTempColor15,
-                    16 => Params::SourceTempColor16,
-                    17 => Params::SourceTempColor17,
-                    18 => Params::SourceTempColor18,
-                    19 => Params::SourceTempColor19,
-                    20 => Params::SourceTempColor20,
-                    21 => Params::SourceTempColor21,
-                    22 => Params::SourceTempColor22,
-                    23 => Params::SourceTempColor23,
-                    24 => Params::SourceTempColor24,
-                    25 => Params::SourceTempColor25,
-                    26 => Params::SourceTempColor26,
-                    27 => Params::SourceTempColor27,
-                    28 => Params::SourceTempColor28,
-                    29 => Params::SourceTempColor29,
-                    30 => Params::SourceTempColor30,
-                    _ => Params::SourceTempColor31,
-                },
-                &format!("Source Temp Color {}", i + 1),
-                ColorDef::setup(|_d| {}),
-            )?;
-            params.add(
-                match i {
-                    0 => Params::TargetTempColor0,
-                    1 => Params::TargetTempColor1,
-                    2 => Params::TargetTempColor2,
-                    3 => Params::TargetTempColor3,
-                    4 => Params::TargetTempColor4,
-                    5 => Params::TargetTempColor5,
-                    6 => Params::TargetTempColor6,
-                    7 => Params::TargetTempColor7,
-                    8 => Params::TargetTempColor8,
-                    9 => Params::TargetTempColor9,
-                    10 => Params::TargetTempColor10,
-                    11 => Params::TargetTempColor11,
-                    12 => Params::TargetTempColor12,
-                    13 => Params::TargetTempColor13,
-                    14 => Params::TargetTempColor14,
-                    15 => Params::TargetTempColor15,
-                    16 => Params::TargetTempColor16,
-                    17 => Params::TargetTempColor17,
-                    18 => Params::TargetTempColor18,
-                    19 => Params::TargetTempColor19,
-                    20 => Params::TargetTempColor20,
-                    21 => Params::TargetTempColor21,
-                    22 => Params::TargetTempColor22,
-                    23 => Params::TargetTempColor23,
-                    24 => Params::TargetTempColor24,
-                    25 => Params::TargetTempColor25,
-                    26 => Params::TargetTempColor26,
-                    27 => Params::TargetTempColor27,
-                    28 => Params::TargetTempColor28,
-                    29 => Params::TargetTempColor29,
-                    30 => Params::TargetTempColor30,
-                    _ => Params::TargetTempColor31,
-                },
-                &format!("Target Temp Color {}", i + 1),
-                ColorDef::setup(|_d| {}),
-            )?;
-        }
+        // ----- 2. Island Tracking & Temp Colors group (collapsed) -----
+        params.add_group(
+            Params::IslandTrackGroupStart,
+            Params::IslandTrackGroupEnd,
+            "Island Tracking & Temp Colors",
+            true,
+            |params| {
+                params.add(
+                    Params::TrackingPath,
+                    "Tracking Path",
+                    PathDef::setup(|_| {}),
+                )?;
+                params.add(
+                    Params::ShowTempColors,
+                    "Show Temp Colors",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(true);
+                    }),
+                )?;
+                params.add(
+                    Params::MergeIslandCount,
+                    "Merge Island Count",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["4", "8", "16", "32"]);
+                        d.set_default(2); // 8
+                    }),
+                )?;
 
-        // ----- 3. Gradient Render -----
-        params.add(
-            Params::GradientSettingsCount,
-            "Gradient Settings Count",
-            PopupDef::setup(|d| {
-                d.set_options(&["4", "8", "16", "32"]);
-                d.set_default(2); // 8
-            }),
+                for i in 0..MERGE_ISLAND_SETS {
+                    params.add(
+                        match i {
+                            0 => Params::SourceTempColor0,
+                            1 => Params::SourceTempColor1,
+                            2 => Params::SourceTempColor2,
+                            3 => Params::SourceTempColor3,
+                            4 => Params::SourceTempColor4,
+                            5 => Params::SourceTempColor5,
+                            6 => Params::SourceTempColor6,
+                            7 => Params::SourceTempColor7,
+                            8 => Params::SourceTempColor8,
+                            9 => Params::SourceTempColor9,
+                            10 => Params::SourceTempColor10,
+                            11 => Params::SourceTempColor11,
+                            12 => Params::SourceTempColor12,
+                            13 => Params::SourceTempColor13,
+                            14 => Params::SourceTempColor14,
+                            15 => Params::SourceTempColor15,
+                            16 => Params::SourceTempColor16,
+                            17 => Params::SourceTempColor17,
+                            18 => Params::SourceTempColor18,
+                            19 => Params::SourceTempColor19,
+                            20 => Params::SourceTempColor20,
+                            21 => Params::SourceTempColor21,
+                            22 => Params::SourceTempColor22,
+                            23 => Params::SourceTempColor23,
+                            24 => Params::SourceTempColor24,
+                            25 => Params::SourceTempColor25,
+                            26 => Params::SourceTempColor26,
+                            27 => Params::SourceTempColor27,
+                            28 => Params::SourceTempColor28,
+                            29 => Params::SourceTempColor29,
+                            30 => Params::SourceTempColor30,
+                            _ => Params::SourceTempColor31,
+                        },
+                        &format!("Source Temp Color {}", i + 1),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                    params.add(
+                        match i {
+                            0 => Params::TargetTempColor0,
+                            1 => Params::TargetTempColor1,
+                            2 => Params::TargetTempColor2,
+                            3 => Params::TargetTempColor3,
+                            4 => Params::TargetTempColor4,
+                            5 => Params::TargetTempColor5,
+                            6 => Params::TargetTempColor6,
+                            7 => Params::TargetTempColor7,
+                            8 => Params::TargetTempColor8,
+                            9 => Params::TargetTempColor9,
+                            10 => Params::TargetTempColor10,
+                            11 => Params::TargetTempColor11,
+                            12 => Params::TargetTempColor12,
+                            13 => Params::TargetTempColor13,
+                            14 => Params::TargetTempColor14,
+                            15 => Params::TargetTempColor15,
+                            16 => Params::TargetTempColor16,
+                            17 => Params::TargetTempColor17,
+                            18 => Params::TargetTempColor18,
+                            19 => Params::TargetTempColor19,
+                            20 => Params::TargetTempColor20,
+                            21 => Params::TargetTempColor21,
+                            22 => Params::TargetTempColor22,
+                            23 => Params::TargetTempColor23,
+                            24 => Params::TargetTempColor24,
+                            25 => Params::TargetTempColor25,
+                            26 => Params::TargetTempColor26,
+                            27 => Params::TargetTempColor27,
+                            28 => Params::TargetTempColor28,
+                            29 => Params::TargetTempColor29,
+                            30 => Params::TargetTempColor30,
+                            _ => Params::TargetTempColor31,
+                        },
+                        &format!("Target Temp Color {}", i + 1),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                }
+                Ok(())
+            },
         )?;
 
-        let grad_params = [
-            (
-                Params::GradType0,
-                Params::StartColor0,
-                Params::EndColor0,
-                Params::Angle0,
-                Params::Bias0,
-                Params::Offset0,
-                Params::NoiseAmount0,
-            ),
-            (
-                Params::GradType1,
-                Params::StartColor1,
-                Params::EndColor1,
-                Params::Angle1,
-                Params::Bias1,
-                Params::Offset1,
-                Params::NoiseAmount1,
-            ),
-            (
-                Params::GradType2,
-                Params::StartColor2,
-                Params::EndColor2,
-                Params::Angle2,
-                Params::Bias2,
-                Params::Offset2,
-                Params::NoiseAmount2,
-            ),
-            (
-                Params::GradType3,
-                Params::StartColor3,
-                Params::EndColor3,
-                Params::Angle3,
-                Params::Bias3,
-                Params::Offset3,
-                Params::NoiseAmount3,
-            ),
-            (
-                Params::GradType4,
-                Params::StartColor4,
-                Params::EndColor4,
-                Params::Angle4,
-                Params::Bias4,
-                Params::Offset4,
-                Params::NoiseAmount4,
-            ),
-            (
-                Params::GradType5,
-                Params::StartColor5,
-                Params::EndColor5,
-                Params::Angle5,
-                Params::Bias5,
-                Params::Offset5,
-                Params::NoiseAmount5,
-            ),
-            (
-                Params::GradType6,
-                Params::StartColor6,
-                Params::EndColor6,
-                Params::Angle6,
-                Params::Bias6,
-                Params::Offset6,
-                Params::NoiseAmount6,
-            ),
-            (
-                Params::GradType7,
-                Params::StartColor7,
-                Params::EndColor7,
-                Params::Angle7,
-                Params::Bias7,
-                Params::Offset7,
-                Params::NoiseAmount7,
-            ),
-            (
-                Params::GradType8,
-                Params::StartColor8,
-                Params::EndColor8,
-                Params::Angle8,
-                Params::Bias8,
-                Params::Offset8,
-                Params::NoiseAmount8,
-            ),
-            (
-                Params::GradType9,
-                Params::StartColor9,
-                Params::EndColor9,
-                Params::Angle9,
-                Params::Bias9,
-                Params::Offset9,
-                Params::NoiseAmount9,
-            ),
-            (
-                Params::GradType10,
-                Params::StartColor10,
-                Params::EndColor10,
-                Params::Angle10,
-                Params::Bias10,
-                Params::Offset10,
-                Params::NoiseAmount10,
-            ),
-            (
-                Params::GradType11,
-                Params::StartColor11,
-                Params::EndColor11,
-                Params::Angle11,
-                Params::Bias11,
-                Params::Offset11,
-                Params::NoiseAmount11,
-            ),
-            (
-                Params::GradType12,
-                Params::StartColor12,
-                Params::EndColor12,
-                Params::Angle12,
-                Params::Bias12,
-                Params::Offset12,
-                Params::NoiseAmount12,
-            ),
-            (
-                Params::GradType13,
-                Params::StartColor13,
-                Params::EndColor13,
-                Params::Angle13,
-                Params::Bias13,
-                Params::Offset13,
-                Params::NoiseAmount13,
-            ),
-            (
-                Params::GradType14,
-                Params::StartColor14,
-                Params::EndColor14,
-                Params::Angle14,
-                Params::Bias14,
-                Params::Offset14,
-                Params::NoiseAmount14,
-            ),
-            (
-                Params::GradType15,
-                Params::StartColor15,
-                Params::EndColor15,
-                Params::Angle15,
-                Params::Bias15,
-                Params::Offset15,
-                Params::NoiseAmount15,
-            ),
-            (
-                Params::GradType16,
-                Params::StartColor16,
-                Params::EndColor16,
-                Params::Angle16,
-                Params::Bias16,
-                Params::Offset16,
-                Params::NoiseAmount16,
-            ),
-            (
-                Params::GradType17,
-                Params::StartColor17,
-                Params::EndColor17,
-                Params::Angle17,
-                Params::Bias17,
-                Params::Offset17,
-                Params::NoiseAmount17,
-            ),
-            (
-                Params::GradType18,
-                Params::StartColor18,
-                Params::EndColor18,
-                Params::Angle18,
-                Params::Bias18,
-                Params::Offset18,
-                Params::NoiseAmount18,
-            ),
-            (
-                Params::GradType19,
-                Params::StartColor19,
-                Params::EndColor19,
-                Params::Angle19,
-                Params::Bias19,
-                Params::Offset19,
-                Params::NoiseAmount19,
-            ),
-            (
-                Params::GradType20,
-                Params::StartColor20,
-                Params::EndColor20,
-                Params::Angle20,
-                Params::Bias20,
-                Params::Offset20,
-                Params::NoiseAmount20,
-            ),
-            (
-                Params::GradType21,
-                Params::StartColor21,
-                Params::EndColor21,
-                Params::Angle21,
-                Params::Bias21,
-                Params::Offset21,
-                Params::NoiseAmount21,
-            ),
-            (
-                Params::GradType22,
-                Params::StartColor22,
-                Params::EndColor22,
-                Params::Angle22,
-                Params::Bias22,
-                Params::Offset22,
-                Params::NoiseAmount22,
-            ),
-            (
-                Params::GradType23,
-                Params::StartColor23,
-                Params::EndColor23,
-                Params::Angle23,
-                Params::Bias23,
-                Params::Offset23,
-                Params::NoiseAmount23,
-            ),
-            (
-                Params::GradType24,
-                Params::StartColor24,
-                Params::EndColor24,
-                Params::Angle24,
-                Params::Bias24,
-                Params::Offset24,
-                Params::NoiseAmount24,
-            ),
-            (
-                Params::GradType25,
-                Params::StartColor25,
-                Params::EndColor25,
-                Params::Angle25,
-                Params::Bias25,
-                Params::Offset25,
-                Params::NoiseAmount25,
-            ),
-            (
-                Params::GradType26,
-                Params::StartColor26,
-                Params::EndColor26,
-                Params::Angle26,
-                Params::Bias26,
-                Params::Offset26,
-                Params::NoiseAmount26,
-            ),
-            (
-                Params::GradType27,
-                Params::StartColor27,
-                Params::EndColor27,
-                Params::Angle27,
-                Params::Bias27,
-                Params::Offset27,
-                Params::NoiseAmount27,
-            ),
-            (
-                Params::GradType28,
-                Params::StartColor28,
-                Params::EndColor28,
-                Params::Angle28,
-                Params::Bias28,
-                Params::Offset28,
-                Params::NoiseAmount28,
-            ),
-            (
-                Params::GradType29,
-                Params::StartColor29,
-                Params::EndColor29,
-                Params::Angle29,
-                Params::Bias29,
-                Params::Offset29,
-                Params::NoiseAmount29,
-            ),
-            (
-                Params::GradType30,
-                Params::StartColor30,
-                Params::EndColor30,
-                Params::Angle30,
-                Params::Bias30,
-                Params::Offset30,
-                Params::NoiseAmount30,
-            ),
-            (
-                Params::GradType31,
-                Params::StartColor31,
-                Params::EndColor31,
-                Params::Angle31,
-                Params::Bias31,
-                Params::Offset31,
-                Params::NoiseAmount31,
-            ),
-        ];
-        for (idx, (grad_type, start_c, end_c, angle, bias, offset, noise)) in
-            grad_params.iter().enumerate()
-        {
-            let n = idx + 1;
-            params.add(
-                *grad_type,
-                &format!("Grad Type {}", n),
-                PopupDef::setup(|d| {
-                    d.set_options(&["Linear", "Radial"]);
-                    d.set_default(1);
-                }),
-            )?;
-            params.add(
-                *start_c,
-                &format!("Start Color {}", n),
-                ColorDef::setup(|_d| {}),
-            )?;
-            params.add(
-                *end_c,
-                &format!("End Color {}", n),
-                ColorDef::setup(|_d| {}),
-            )?;
-            params.add(*angle, &format!("Angle {}", n), AngleDef::setup(|_d| {}))?;
-            params.add(
-                *bias,
-                &format!("Bias {}", n),
-                FloatSliderDef::setup(|d| {
-                    d.set_valid_min(0.0);
-                    d.set_valid_max(100.0);
-                    d.set_slider_min(0.0);
-                    d.set_slider_max(100.0);
-                    d.set_default(50.0);
-                    d.set_precision(1);
-                }),
-            )?;
-            params.add(
-                *offset,
-                &format!("Offset {}", n),
-                FloatSliderDef::setup(|d| {
-                    d.set_valid_min(-100.0);
-                    d.set_valid_max(100.0);
-                    d.set_slider_min(-100.0);
-                    d.set_slider_max(100.0);
-                    d.set_default(0.0);
-                    d.set_precision(1);
-                }),
-            )?;
-            params.add(
-                *noise,
-                &format!("Noise Amount {}", n),
-                FloatSliderDef::setup(|d| {
-                    d.set_valid_min(0.0);
-                    d.set_valid_max(100.0);
-                    d.set_slider_min(0.0);
-                    d.set_slider_max(50.0);
-                    d.set_default(0.0);
-                    d.set_precision(1);
-                }),
-            )?;
-        }
+        // ----- 3. Gradient Render group (collapsed) -----
+        params.add_group(
+            Params::GradientGroupStart,
+            Params::GradientGroupEnd,
+            "Gradient Render",
+            true,
+            |params| {
+                params.add(
+                    Params::GradientSettingsCount,
+                    "Gradient Settings Count",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["4", "8", "16", "32"]);
+                        d.set_default(2); // 8
+                    }),
+                )?;
 
-        params.add(
-            Params::InvertGradCount,
-            "Invert Gradient Count",
-            PopupDef::setup(|d| {
-                d.set_options(&["4", "8", "16", "32"]);
-                d.set_default(2);
-            }),
+                let grad_params = [
+                    (
+                        Params::GradType0,
+                        Params::StartColor0,
+                        Params::EndColor0,
+                        Params::Angle0,
+                        Params::Bias0,
+                        Params::Offset0,
+                        Params::NoiseAmount0,
+                    ),
+                    (
+                        Params::GradType1,
+                        Params::StartColor1,
+                        Params::EndColor1,
+                        Params::Angle1,
+                        Params::Bias1,
+                        Params::Offset1,
+                        Params::NoiseAmount1,
+                    ),
+                    (
+                        Params::GradType2,
+                        Params::StartColor2,
+                        Params::EndColor2,
+                        Params::Angle2,
+                        Params::Bias2,
+                        Params::Offset2,
+                        Params::NoiseAmount2,
+                    ),
+                    (
+                        Params::GradType3,
+                        Params::StartColor3,
+                        Params::EndColor3,
+                        Params::Angle3,
+                        Params::Bias3,
+                        Params::Offset3,
+                        Params::NoiseAmount3,
+                    ),
+                    (
+                        Params::GradType4,
+                        Params::StartColor4,
+                        Params::EndColor4,
+                        Params::Angle4,
+                        Params::Bias4,
+                        Params::Offset4,
+                        Params::NoiseAmount4,
+                    ),
+                    (
+                        Params::GradType5,
+                        Params::StartColor5,
+                        Params::EndColor5,
+                        Params::Angle5,
+                        Params::Bias5,
+                        Params::Offset5,
+                        Params::NoiseAmount5,
+                    ),
+                    (
+                        Params::GradType6,
+                        Params::StartColor6,
+                        Params::EndColor6,
+                        Params::Angle6,
+                        Params::Bias6,
+                        Params::Offset6,
+                        Params::NoiseAmount6,
+                    ),
+                    (
+                        Params::GradType7,
+                        Params::StartColor7,
+                        Params::EndColor7,
+                        Params::Angle7,
+                        Params::Bias7,
+                        Params::Offset7,
+                        Params::NoiseAmount7,
+                    ),
+                    (
+                        Params::GradType8,
+                        Params::StartColor8,
+                        Params::EndColor8,
+                        Params::Angle8,
+                        Params::Bias8,
+                        Params::Offset8,
+                        Params::NoiseAmount8,
+                    ),
+                    (
+                        Params::GradType9,
+                        Params::StartColor9,
+                        Params::EndColor9,
+                        Params::Angle9,
+                        Params::Bias9,
+                        Params::Offset9,
+                        Params::NoiseAmount9,
+                    ),
+                    (
+                        Params::GradType10,
+                        Params::StartColor10,
+                        Params::EndColor10,
+                        Params::Angle10,
+                        Params::Bias10,
+                        Params::Offset10,
+                        Params::NoiseAmount10,
+                    ),
+                    (
+                        Params::GradType11,
+                        Params::StartColor11,
+                        Params::EndColor11,
+                        Params::Angle11,
+                        Params::Bias11,
+                        Params::Offset11,
+                        Params::NoiseAmount11,
+                    ),
+                    (
+                        Params::GradType12,
+                        Params::StartColor12,
+                        Params::EndColor12,
+                        Params::Angle12,
+                        Params::Bias12,
+                        Params::Offset12,
+                        Params::NoiseAmount12,
+                    ),
+                    (
+                        Params::GradType13,
+                        Params::StartColor13,
+                        Params::EndColor13,
+                        Params::Angle13,
+                        Params::Bias13,
+                        Params::Offset13,
+                        Params::NoiseAmount13,
+                    ),
+                    (
+                        Params::GradType14,
+                        Params::StartColor14,
+                        Params::EndColor14,
+                        Params::Angle14,
+                        Params::Bias14,
+                        Params::Offset14,
+                        Params::NoiseAmount14,
+                    ),
+                    (
+                        Params::GradType15,
+                        Params::StartColor15,
+                        Params::EndColor15,
+                        Params::Angle15,
+                        Params::Bias15,
+                        Params::Offset15,
+                        Params::NoiseAmount15,
+                    ),
+                    (
+                        Params::GradType16,
+                        Params::StartColor16,
+                        Params::EndColor16,
+                        Params::Angle16,
+                        Params::Bias16,
+                        Params::Offset16,
+                        Params::NoiseAmount16,
+                    ),
+                    (
+                        Params::GradType17,
+                        Params::StartColor17,
+                        Params::EndColor17,
+                        Params::Angle17,
+                        Params::Bias17,
+                        Params::Offset17,
+                        Params::NoiseAmount17,
+                    ),
+                    (
+                        Params::GradType18,
+                        Params::StartColor18,
+                        Params::EndColor18,
+                        Params::Angle18,
+                        Params::Bias18,
+                        Params::Offset18,
+                        Params::NoiseAmount18,
+                    ),
+                    (
+                        Params::GradType19,
+                        Params::StartColor19,
+                        Params::EndColor19,
+                        Params::Angle19,
+                        Params::Bias19,
+                        Params::Offset19,
+                        Params::NoiseAmount19,
+                    ),
+                    (
+                        Params::GradType20,
+                        Params::StartColor20,
+                        Params::EndColor20,
+                        Params::Angle20,
+                        Params::Bias20,
+                        Params::Offset20,
+                        Params::NoiseAmount20,
+                    ),
+                    (
+                        Params::GradType21,
+                        Params::StartColor21,
+                        Params::EndColor21,
+                        Params::Angle21,
+                        Params::Bias21,
+                        Params::Offset21,
+                        Params::NoiseAmount21,
+                    ),
+                    (
+                        Params::GradType22,
+                        Params::StartColor22,
+                        Params::EndColor22,
+                        Params::Angle22,
+                        Params::Bias22,
+                        Params::Offset22,
+                        Params::NoiseAmount22,
+                    ),
+                    (
+                        Params::GradType23,
+                        Params::StartColor23,
+                        Params::EndColor23,
+                        Params::Angle23,
+                        Params::Bias23,
+                        Params::Offset23,
+                        Params::NoiseAmount23,
+                    ),
+                    (
+                        Params::GradType24,
+                        Params::StartColor24,
+                        Params::EndColor24,
+                        Params::Angle24,
+                        Params::Bias24,
+                        Params::Offset24,
+                        Params::NoiseAmount24,
+                    ),
+                    (
+                        Params::GradType25,
+                        Params::StartColor25,
+                        Params::EndColor25,
+                        Params::Angle25,
+                        Params::Bias25,
+                        Params::Offset25,
+                        Params::NoiseAmount25,
+                    ),
+                    (
+                        Params::GradType26,
+                        Params::StartColor26,
+                        Params::EndColor26,
+                        Params::Angle26,
+                        Params::Bias26,
+                        Params::Offset26,
+                        Params::NoiseAmount26,
+                    ),
+                    (
+                        Params::GradType27,
+                        Params::StartColor27,
+                        Params::EndColor27,
+                        Params::Angle27,
+                        Params::Bias27,
+                        Params::Offset27,
+                        Params::NoiseAmount27,
+                    ),
+                    (
+                        Params::GradType28,
+                        Params::StartColor28,
+                        Params::EndColor28,
+                        Params::Angle28,
+                        Params::Bias28,
+                        Params::Offset28,
+                        Params::NoiseAmount28,
+                    ),
+                    (
+                        Params::GradType29,
+                        Params::StartColor29,
+                        Params::EndColor29,
+                        Params::Angle29,
+                        Params::Bias29,
+                        Params::Offset29,
+                        Params::NoiseAmount29,
+                    ),
+                    (
+                        Params::GradType30,
+                        Params::StartColor30,
+                        Params::EndColor30,
+                        Params::Angle30,
+                        Params::Bias30,
+                        Params::Offset30,
+                        Params::NoiseAmount30,
+                    ),
+                    (
+                        Params::GradType31,
+                        Params::StartColor31,
+                        Params::EndColor31,
+                        Params::Angle31,
+                        Params::Bias31,
+                        Params::Offset31,
+                        Params::NoiseAmount31,
+                    ),
+                ];
+                for (idx, (grad_type, start_c, end_c, angle, bias, offset, noise)) in
+                    grad_params.iter().enumerate()
+                {
+                    let n = idx + 1;
+                    params.add(
+                        *grad_type,
+                        &format!("Grad Type {}", n),
+                        PopupDef::setup(|d| {
+                            d.set_options(&["Linear", "Radial"]);
+                            d.set_default(1);
+                        }),
+                    )?;
+                    params.add(
+                        *start_c,
+                        &format!("Start Color {}", n),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                    params.add(
+                        *end_c,
+                        &format!("End Color {}", n),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                    params.add(*angle, &format!("Angle {}", n), AngleDef::setup(|_d| {}))?;
+                    params.add(
+                        *bias,
+                        &format!("Bias {}", n),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(0.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(0.0);
+                            d.set_slider_max(100.0);
+                            d.set_default(50.0);
+                            d.set_precision(1);
+                        }),
+                    )?;
+                    params.add(
+                        *offset,
+                        &format!("Offset {}", n),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(-100.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(-100.0);
+                            d.set_slider_max(100.0);
+                            d.set_default(0.0);
+                            d.set_precision(1);
+                        }),
+                    )?;
+                    params.add(
+                        *noise,
+                        &format!("Noise Amount {}", n),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(0.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(0.0);
+                            d.set_slider_max(50.0);
+                            d.set_default(0.0);
+                            d.set_precision(1);
+                        }),
+                    )?;
+                }
+
+                params.add(
+                    Params::InvertGradCount,
+                    "Invert Gradient Count",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["4", "8", "16", "32"]);
+                        d.set_default(2);
+                    }),
+                )?;
+
+                let invert_colors = [
+                    Params::InvertTempColor0,
+                    Params::InvertTempColor1,
+                    Params::InvertTempColor2,
+                    Params::InvertTempColor3,
+                    Params::InvertTempColor4,
+                    Params::InvertTempColor5,
+                    Params::InvertTempColor6,
+                    Params::InvertTempColor7,
+                    Params::InvertTempColor8,
+                    Params::InvertTempColor9,
+                    Params::InvertTempColor10,
+                    Params::InvertTempColor11,
+                    Params::InvertTempColor12,
+                    Params::InvertTempColor13,
+                    Params::InvertTempColor14,
+                    Params::InvertTempColor15,
+                    Params::InvertTempColor16,
+                    Params::InvertTempColor17,
+                    Params::InvertTempColor18,
+                    Params::InvertTempColor19,
+                    Params::InvertTempColor20,
+                    Params::InvertTempColor21,
+                    Params::InvertTempColor22,
+                    Params::InvertTempColor23,
+                    Params::InvertTempColor24,
+                    Params::InvertTempColor25,
+                    Params::InvertTempColor26,
+                    Params::InvertTempColor27,
+                    Params::InvertTempColor28,
+                    Params::InvertTempColor29,
+                    Params::InvertTempColor30,
+                    Params::InvertTempColor31,
+                ];
+                for (i, &p) in invert_colors.iter().enumerate() {
+                    params.add(
+                        p,
+                        &format!("Invert Temp Color {}", i + 1),
+                        ColorDef::setup(|_d| {}),
+                    )?;
+                }
+                Ok(())
+            },
         )?;
-
-        let invert_colors = [
-            Params::InvertTempColor0,
-            Params::InvertTempColor1,
-            Params::InvertTempColor2,
-            Params::InvertTempColor3,
-            Params::InvertTempColor4,
-            Params::InvertTempColor5,
-            Params::InvertTempColor6,
-            Params::InvertTempColor7,
-            Params::InvertTempColor8,
-            Params::InvertTempColor9,
-            Params::InvertTempColor10,
-            Params::InvertTempColor11,
-            Params::InvertTempColor12,
-            Params::InvertTempColor13,
-            Params::InvertTempColor14,
-            Params::InvertTempColor15,
-            Params::InvertTempColor16,
-            Params::InvertTempColor17,
-            Params::InvertTempColor18,
-            Params::InvertTempColor19,
-            Params::InvertTempColor20,
-            Params::InvertTempColor21,
-            Params::InvertTempColor22,
-            Params::InvertTempColor23,
-            Params::InvertTempColor24,
-            Params::InvertTempColor25,
-            Params::InvertTempColor26,
-            Params::InvertTempColor27,
-            Params::InvertTempColor28,
-            Params::InvertTempColor29,
-            Params::InvertTempColor30,
-            Params::InvertTempColor31,
-        ];
-        for (i, &p) in invert_colors.iter().enumerate() {
-            params.add(
-                p,
-                &format!("Invert Temp Color {}", i + 1),
-                ColorDef::setup(|_d| {}),
-            )?;
-        }
 
         Ok(())
     }
@@ -997,11 +1493,15 @@ impl AdobePluginGlobal for Plugin {
                 );
             }
             ae::Command::GlobalSetup => {
+                out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag2(OutFlags2::SupportsGetFlattenedSequenceData, true);
                 // When using GROUP_START params: set ParamGroupStartCollapsedFlag so twirly starts collapsed (AE_Rust_Knowledge).
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
+            }
+            ae::Command::UpdateParamsUi => {
+                update_params_ui_visibility(in_data, params)?;
             }
             ae::Command::Render {
                 in_layer,
@@ -1043,17 +1543,130 @@ impl AdobePluginGlobal for Plugin {
     }
 }
 
+/// Euclidean distance in RGB space (0..1). Alpha is ignored for extraction.
+fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
+    let dr = a.red - b.red;
+    let dg = a.green - b.green;
+    let db = a.blue - b.blue;
+    (dr * dr + dg * dg + db * db).sqrt()
+}
+
+/// Convert AE color param (Pixel8, 0..255) to normalized PixelF32 (0..1).
+fn target_color_to_f32(c: &ae::Pixel8) -> PixelF32 {
+    let scale = 1.0 / ae::MAX_CHANNEL8 as f32;
+    PixelF32 {
+        red: c.red as f32 * scale,
+        green: c.green as f32 * scale,
+        blue: c.blue as f32 * scale,
+        alpha: c.alpha as f32 * scale,
+    }
+}
+
 impl Plugin {
     fn do_render(
         &self,
         _in_data: InData,
-        _in_layer: Layer,
+        in_layer: Layer,
         _out_data: OutData,
-        out_layer: Layer,
-        _params: &mut Parameters<Params>,
+        mut out_layer: Layer,
+        params: &mut Parameters<Params>,
     ) -> Result<(), Error> {
-        let _progress_final = out_layer.height() as i32;
-        // TODO: Core algorithm (extraction, CCL, path mapping, gradient render)
+        let progress_final = out_layer.height() as i32;
+        let in_world_type = in_layer.world_type();
+        let out_world_type = out_layer.world_type();
+
+        // 1. Parameter retrieval
+        let output_mode: i32 = params
+            .get(Params::OutputMode)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(0);
+        let invert_extraction: bool = params
+            .get(Params::InvertExtraction)
+            .ok()
+            .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+            .unwrap_or(false);
+        let extraction_count: usize = params
+            .get(Params::ExtractionCount)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| (pd.value() + 1) as usize))
+            .unwrap_or(1)
+            .min(EXTRACTION_SETS);
+
+        let mut extraction_targets: Vec<(PixelF32, f32)> = Vec::with_capacity(extraction_count);
+        for i in 0..extraction_count {
+            let target_color = params
+                .get(EXTRACTION_TARGET_COLORS[i])
+                .ok()
+                .and_then(|p| p.as_color().ok().map(|cd| cd.value()))
+                .ok_or(Error::InvalidParms)?;
+            let color_range_val = params
+                .get(EXTRACTION_COLOR_RANGES[i])
+                .ok()
+                .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+                .ok_or(Error::InvalidParms)? as f32;
+            // Color Range slider 0..100 → threshold in 0..1 normalized space
+            let range_f32 = (color_range_val / 100.0).clamp(0.0, 1.0);
+            extraction_targets.push((target_color_to_f32(&target_color), range_f32));
+        }
+
+        // 2–3. Per-pixel processing and output branching
+        let out_world_type_copy = out_world_type;
+        out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
+            let x = x as usize;
+            let y = y as usize;
+            let px = read_pixel_f32(&in_layer, in_world_type, x, y);
+
+            let out_px = match output_mode {
+                0 => {
+                    // Original: pass through
+                    px
+                }
+                1 => {
+                    // Extraction: match any target within range, then invert if requested
+                    let extracted = extraction_targets.iter().any(|(target, range)| {
+                        color_distance_f32(&px, target) <= *range
+                    });
+                    let show = extracted != invert_extraction;
+                    if show {
+                        PixelF32 {
+                            red: 1.0,
+                            green: 1.0,
+                            blue: 1.0,
+                            alpha: px.alpha,
+                        }
+                    } else {
+                        PixelF32 {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: px.alpha,
+                        }
+                    }
+                }
+                2 | 3 => {
+                    // Temp Color / Final Gradient: placeholder — pass through
+                    px
+                }
+                _ => px,
+            };
+
+            match out_world_type_copy {
+                ae::aegp::WorldType::U8 => dst.set_from_u8(out_px.to_pixel8()),
+                ae::aegp::WorldType::U15 => dst.set_from_u16(out_px.to_pixel16()),
+                ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => dst.set_from_f32(out_px),
+            }
+            Ok(())
+        })?;
+
         Ok(())
+    }
+}
+
+fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: usize) -> PixelF32 {
+    match world_type {
+        ae::aegp::WorldType::U8 => layer.as_pixel8(x, y).to_pixel32(),
+        ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
+        ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
     }
 }
