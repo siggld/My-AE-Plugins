@@ -10,8 +10,8 @@ const EXTRACTION_SETS: usize = 32;
 const MERGE_ISLAND_SETS: usize = 32;
 const GRADIENT_SETS: usize = 32;
 const INITIAL_EXTRACTION: usize = 4;
-const INITIAL_MERGE: usize = 8;
-const INITIAL_GRADIENT: usize = 8;
+const INITIAL_MERGE: usize = 4;
+const INITIAL_GRADIENT: usize = 4;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -197,7 +197,6 @@ enum Params {
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
-    GradientSeparator,
     EnableGradientColor0,
     StartColor0,
     EndColor0,
@@ -690,6 +689,40 @@ fn set_param_visibility(
     Ok(())
 }
 
+fn set_param_visibility_collapsed(
+    in_data: InData,
+    params: &ae::Parameters<Params>,
+    param_type: Params,
+    visible: bool,
+) -> Result<(), ae::Error> {
+    let index = match params.map.get(&param_type) {
+        Some(info) => info.index as i32,
+        None => return Ok(()),
+    };
+    let expected = params.raw_param_type(param_type);
+    let mut param_def = ae::ParamDef::checkout(
+        in_data,
+        index,
+        in_data.current_time(),
+        in_data.time_step(),
+        in_data.time_scale(),
+        expected,
+    )?;
+    let raw = param_def.as_mut();
+    let mut ui_flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags);
+    if visible {
+        ui_flags.remove(ae::ParamUIFlags::INVISIBLE);
+    } else {
+        ui_flags.insert(ae::ParamUIFlags::INVISIBLE);
+    }
+    raw.ui_flags = ui_flags.bits() as _;
+    let mut flags = ae::ParamFlag::from_bits_truncate(raw.flags);
+    flags.insert(ae::ParamFlag::START_COLLAPSED);
+    raw.flags = flags.bits() as _;
+    param_def.update_param_ui()?;
+    Ok(())
+}
+
 fn set_param_disabled(
     in_data: InData,
     params: &ae::Parameters<Params>,
@@ -729,7 +762,7 @@ fn update_params_ui_visibility(
     for i in 0..EXTRACTION_SETS {
         let vis = i < ext_count;
         set_param_visibility(in_data, params, EXTRACTION_TARGET_COLORS[i], vis)?;
-        set_param_visibility(in_data, params, EXTRACTION_COLOR_RANGES[i], vis)?;
+        set_param_visibility_collapsed(in_data, params, EXTRACTION_COLOR_RANGES[i], vis)?;
     }
 
     let merge_count = popup_to_count(params, Params::MergeIslandCount);
@@ -891,7 +924,7 @@ impl AdobePluginGlobal for Plugin {
                     "Merge Island Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["4", "8", "16", "32"]);
-                        d.set_default(2);
+                        d.set_default(1);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
@@ -992,20 +1025,11 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add_with_flags(
-                    Params::GradientSeparator,
-                    "--------------------",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::empty(),
-                    ParamUIFlags::DISABLED,
-                )?;
-                params.add_with_flags(
                     Params::GradientSettingsCount,
                     "Gradient Settings Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["4", "8", "16", "32"]);
-                        d.set_default(2);
+                        d.set_default(1);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
