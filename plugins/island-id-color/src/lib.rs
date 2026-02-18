@@ -1656,7 +1656,10 @@ impl Plugin {
                 .ok()
                 .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
                 .ok_or(Error::InvalidParms)? as f32;
-            let range_f32 = (color_range_val / 100.0).clamp(0.0, 1.0);
+            // AEのスポイトはディスプレイカラーマネジメントを経由するため、
+            // レイヤーバッファ内のf32値と完全一致しないことがある。
+            // Range=0 でも確実に拾えるよう最小 epsilon (≒ 0.1%スライダー相当) を設ける。
+            let range_f32 = (color_range_val / 100.0).clamp(0.0, 1.0).max(1e-3_f32);
             extraction_targets.push((target_color_to_f32(&target_color), range_f32));
         }
 
@@ -1706,11 +1709,9 @@ impl Plugin {
             for y in 0..height {
                 for x in 0..width {
                     let px = read_pixel_f32(&in_layer, in_world_type, x, y);
-                    let extracted = extraction_targets.iter().any(|(target, range)| {
-                        let dist = color_distance_f32(&px, target);
-                        // Range=0 でも完全一致なら true（浮動小数点誤差対策）
-                        dist == 0.0 || dist <= *range
-                    });
+                    let extracted = extraction_targets
+                        .iter()
+                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
                     mask[y * width + x] = extracted != invert_extraction;
                 }
             }
@@ -1725,10 +1726,9 @@ impl Plugin {
             let out_px = match output_mode {
                 1 => px,
                 2 => {
-                    let extracted = extraction_targets.iter().any(|(target, range)| {
-                        let dist = color_distance_f32(&px, target);
-                        dist == 0.0 || dist <= *range
-                    });
+                    let extracted = extraction_targets
+                        .iter()
+                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
                     let show = extracted != invert_extraction;
                     if show {
                         PixelF32 {
