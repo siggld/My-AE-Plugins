@@ -119,232 +119,108 @@ enum Params {
     GradientGroupStart,
     GradientGroupEnd,
     GradientSettingsCount,
+    MasterGradType,
     MasterAngle,
-    // GradType, StartColor, EndColor, InvertGradient, Bias, Offset, NoiseAmount x GRADIENT_SETS
-    GradType0,
+    MasterBias,
+    MasterOffset,
+    MasterNoiseAmount,
+    // StartColor[n], EndColor[n], InvertGradient[n] x GRADIENT_SETS
     StartColor0,
     EndColor0,
     InvertGradient0,
-    Bias0,
-    Offset0,
-    NoiseAmount0,
-    GradType1,
     StartColor1,
     EndColor1,
     InvertGradient1,
-    Bias1,
-    Offset1,
-    NoiseAmount1,
-    GradType2,
     StartColor2,
     EndColor2,
     InvertGradient2,
-    Bias2,
-    Offset2,
-    NoiseAmount2,
-    GradType3,
     StartColor3,
     EndColor3,
     InvertGradient3,
-    Bias3,
-    Offset3,
-    NoiseAmount3,
-    GradType4,
     StartColor4,
     EndColor4,
     InvertGradient4,
-    Bias4,
-    Offset4,
-    NoiseAmount4,
-    GradType5,
     StartColor5,
     EndColor5,
     InvertGradient5,
-    Bias5,
-    Offset5,
-    NoiseAmount5,
-    GradType6,
     StartColor6,
     EndColor6,
     InvertGradient6,
-    Bias6,
-    Offset6,
-    NoiseAmount6,
-    GradType7,
     StartColor7,
     EndColor7,
     InvertGradient7,
-    Bias7,
-    Offset7,
-    NoiseAmount7,
-    GradType8,
     StartColor8,
     EndColor8,
     InvertGradient8,
-    Bias8,
-    Offset8,
-    NoiseAmount8,
-    GradType9,
     StartColor9,
     EndColor9,
     InvertGradient9,
-    Bias9,
-    Offset9,
-    NoiseAmount9,
-    GradType10,
     StartColor10,
     EndColor10,
     InvertGradient10,
-    Bias10,
-    Offset10,
-    NoiseAmount10,
-    GradType11,
     StartColor11,
     EndColor11,
     InvertGradient11,
-    Bias11,
-    Offset11,
-    NoiseAmount11,
-    GradType12,
     StartColor12,
     EndColor12,
     InvertGradient12,
-    Bias12,
-    Offset12,
-    NoiseAmount12,
-    GradType13,
     StartColor13,
     EndColor13,
     InvertGradient13,
-    Bias13,
-    Offset13,
-    NoiseAmount13,
-    GradType14,
     StartColor14,
     EndColor14,
     InvertGradient14,
-    Bias14,
-    Offset14,
-    NoiseAmount14,
-    GradType15,
     StartColor15,
     EndColor15,
     InvertGradient15,
-    Bias15,
-    Offset15,
-    NoiseAmount15,
-    GradType16,
     StartColor16,
     EndColor16,
     InvertGradient16,
-    Bias16,
-    Offset16,
-    NoiseAmount16,
-    GradType17,
     StartColor17,
     EndColor17,
     InvertGradient17,
-    Bias17,
-    Offset17,
-    NoiseAmount17,
-    GradType18,
     StartColor18,
     EndColor18,
     InvertGradient18,
-    Bias18,
-    Offset18,
-    NoiseAmount18,
-    GradType19,
     StartColor19,
     EndColor19,
     InvertGradient19,
-    Bias19,
-    Offset19,
-    NoiseAmount19,
-    GradType20,
     StartColor20,
     EndColor20,
     InvertGradient20,
-    Bias20,
-    Offset20,
-    NoiseAmount20,
-    GradType21,
     StartColor21,
     EndColor21,
     InvertGradient21,
-    Bias21,
-    Offset21,
-    NoiseAmount21,
-    GradType22,
     StartColor22,
     EndColor22,
     InvertGradient22,
-    Bias22,
-    Offset22,
-    NoiseAmount22,
-    GradType23,
     StartColor23,
     EndColor23,
     InvertGradient23,
-    Bias23,
-    Offset23,
-    NoiseAmount23,
-    GradType24,
     StartColor24,
     EndColor24,
     InvertGradient24,
-    Bias24,
-    Offset24,
-    NoiseAmount24,
-    GradType25,
     StartColor25,
     EndColor25,
     InvertGradient25,
-    Bias25,
-    Offset25,
-    NoiseAmount25,
-    GradType26,
     StartColor26,
     EndColor26,
     InvertGradient26,
-    Bias26,
-    Offset26,
-    NoiseAmount26,
-    GradType27,
     StartColor27,
     EndColor27,
     InvertGradient27,
-    Bias27,
-    Offset27,
-    NoiseAmount27,
-    GradType28,
     StartColor28,
     EndColor28,
     InvertGradient28,
-    Bias28,
-    Offset28,
-    NoiseAmount28,
-    GradType29,
     StartColor29,
     EndColor29,
     InvertGradient29,
-    Bias29,
-    Offset29,
-    NoiseAmount29,
-    GradType30,
     StartColor30,
     EndColor30,
     InvertGradient30,
-    Bias30,
-    Offset30,
-    NoiseAmount30,
-    GradType31,
     StartColor31,
     EndColor31,
     InvertGradient31,
-    Bias31,
-    Offset31,
-    NoiseAmount31,
 }
 
 #[derive(Default)]
@@ -443,40 +319,6 @@ const MERGE_TARGET_TEMP: [Params; MERGE_ISLAND_SETS] = [
     Params::TargetTempColor29,
     Params::TargetTempColor30,
     Params::TargetTempColor31,
-];
-const GRADIENT_GRAD_TYPE: [Params; GRADIENT_SETS] = [
-    Params::GradType0,
-    Params::GradType1,
-    Params::GradType2,
-    Params::GradType3,
-    Params::GradType4,
-    Params::GradType5,
-    Params::GradType6,
-    Params::GradType7,
-    Params::GradType8,
-    Params::GradType9,
-    Params::GradType10,
-    Params::GradType11,
-    Params::GradType12,
-    Params::GradType13,
-    Params::GradType14,
-    Params::GradType15,
-    Params::GradType16,
-    Params::GradType17,
-    Params::GradType18,
-    Params::GradType19,
-    Params::GradType20,
-    Params::GradType21,
-    Params::GradType22,
-    Params::GradType23,
-    Params::GradType24,
-    Params::GradType25,
-    Params::GradType26,
-    Params::GradType27,
-    Params::GradType28,
-    Params::GradType29,
-    Params::GradType30,
-    Params::GradType31,
 ];
 const GRADIENT_START_COLOR: [Params; GRADIENT_SETS] = [
     Params::StartColor0,
@@ -580,108 +422,6 @@ const GRADIENT_INVERT: [Params; GRADIENT_SETS] = [
     Params::InvertGradient30,
     Params::InvertGradient31,
 ];
-const GRADIENT_BIAS: [Params; GRADIENT_SETS] = [
-    Params::Bias0,
-    Params::Bias1,
-    Params::Bias2,
-    Params::Bias3,
-    Params::Bias4,
-    Params::Bias5,
-    Params::Bias6,
-    Params::Bias7,
-    Params::Bias8,
-    Params::Bias9,
-    Params::Bias10,
-    Params::Bias11,
-    Params::Bias12,
-    Params::Bias13,
-    Params::Bias14,
-    Params::Bias15,
-    Params::Bias16,
-    Params::Bias17,
-    Params::Bias18,
-    Params::Bias19,
-    Params::Bias20,
-    Params::Bias21,
-    Params::Bias22,
-    Params::Bias23,
-    Params::Bias24,
-    Params::Bias25,
-    Params::Bias26,
-    Params::Bias27,
-    Params::Bias28,
-    Params::Bias29,
-    Params::Bias30,
-    Params::Bias31,
-];
-const GRADIENT_OFFSET: [Params; GRADIENT_SETS] = [
-    Params::Offset0,
-    Params::Offset1,
-    Params::Offset2,
-    Params::Offset3,
-    Params::Offset4,
-    Params::Offset5,
-    Params::Offset6,
-    Params::Offset7,
-    Params::Offset8,
-    Params::Offset9,
-    Params::Offset10,
-    Params::Offset11,
-    Params::Offset12,
-    Params::Offset13,
-    Params::Offset14,
-    Params::Offset15,
-    Params::Offset16,
-    Params::Offset17,
-    Params::Offset18,
-    Params::Offset19,
-    Params::Offset20,
-    Params::Offset21,
-    Params::Offset22,
-    Params::Offset23,
-    Params::Offset24,
-    Params::Offset25,
-    Params::Offset26,
-    Params::Offset27,
-    Params::Offset28,
-    Params::Offset29,
-    Params::Offset30,
-    Params::Offset31,
-];
-const GRADIENT_NOISE_AMOUNT: [Params; GRADIENT_SETS] = [
-    Params::NoiseAmount0,
-    Params::NoiseAmount1,
-    Params::NoiseAmount2,
-    Params::NoiseAmount3,
-    Params::NoiseAmount4,
-    Params::NoiseAmount5,
-    Params::NoiseAmount6,
-    Params::NoiseAmount7,
-    Params::NoiseAmount8,
-    Params::NoiseAmount9,
-    Params::NoiseAmount10,
-    Params::NoiseAmount11,
-    Params::NoiseAmount12,
-    Params::NoiseAmount13,
-    Params::NoiseAmount14,
-    Params::NoiseAmount15,
-    Params::NoiseAmount16,
-    Params::NoiseAmount17,
-    Params::NoiseAmount18,
-    Params::NoiseAmount19,
-    Params::NoiseAmount20,
-    Params::NoiseAmount21,
-    Params::NoiseAmount22,
-    Params::NoiseAmount23,
-    Params::NoiseAmount24,
-    Params::NoiseAmount25,
-    Params::NoiseAmount26,
-    Params::NoiseAmount27,
-    Params::NoiseAmount28,
-    Params::NoiseAmount29,
-    Params::NoiseAmount30,
-    Params::NoiseAmount31,
-];
 
 fn set_param_visibility(
     in_data: InData,
@@ -703,12 +443,13 @@ fn set_param_visibility(
         expected,
     )?;
     let raw = param_def.as_mut();
-    let inv = ae::ParamUIFlags::INVISIBLE.bits();
+    let mut flags = ae::ParamUIFlags::from_bits_truncate(raw.ui_flags as i32);
     if visible {
-        raw.ui_flags &= !inv;
+        flags.remove(ae::ParamUIFlags::INVISIBLE);
     } else {
-        raw.ui_flags |= inv;
+        flags.insert(ae::ParamUIFlags::INVISIBLE);
     }
+    raw.ui_flags = flags.bits() as _;
     param_def.update_param_ui()?;
     Ok(())
 }
@@ -746,7 +487,7 @@ fn update_params_ui_visibility(
         set_param_visibility(in_data, params, MERGE_SOURCE_TEMP[i], visible)?;
         set_param_visibility(in_data, params, MERGE_TARGET_TEMP[i], visible)?;
     }
-    // Gradient: all 7 params per index i (GradType, StartColor, EndColor, InvertGradient, Bias, Offset, NoiseAmount).
+    // Gradient: only StartColor[i], EndColor[i], InvertGradient[i] are dynamically shown/hidden.
     let gradient_count: usize = params
         .get(Params::GradientSettingsCount)
         .ok()
@@ -759,13 +500,9 @@ fn update_params_ui_visibility(
         .unwrap_or(4);
     for i in 0..GRADIENT_SETS {
         let visible = i < gradient_count;
-        set_param_visibility(in_data, params, GRADIENT_GRAD_TYPE[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_START_COLOR[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_END_COLOR[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_INVERT[i], visible)?;
-        set_param_visibility(in_data, params, GRADIENT_BIAS[i], visible)?;
-        set_param_visibility(in_data, params, GRADIENT_OFFSET[i], visible)?;
-        set_param_visibility(in_data, params, GRADIENT_NOISE_AMOUNT[i], visible)?;
     }
     Ok(())
 }
@@ -1018,388 +755,94 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
+                    Params::MasterGradType,
+                    "Master Grad Type",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["Linear", "Radial"]);
+                        d.set_default(1);
+                    }),
+                )?;
+                params.add(
                     Params::MasterAngle,
                     "Master Angle",
                     AngleDef::setup(|_d| {}),
                 )?;
+                params.add(
+                    Params::MasterBias,
+                    "Master Bias",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::MasterOffset,
+                    "Master Offset",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(-100.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(-100.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::MasterNoiseAmount,
+                    "Master Noise Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(50.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
 
-                let grad_params = [
-                    (
-                        Params::GradType0,
-                        Params::StartColor0,
-                        Params::EndColor0,
-                        Params::InvertGradient0,
-                        Params::Bias0,
-                        Params::Offset0,
-                        Params::NoiseAmount0,
-                    ),
-                    (
-                        Params::GradType1,
-                        Params::StartColor1,
-                        Params::EndColor1,
-                        Params::InvertGradient1,
-                        Params::Bias1,
-                        Params::Offset1,
-                        Params::NoiseAmount1,
-                    ),
-                    (
-                        Params::GradType2,
-                        Params::StartColor2,
-                        Params::EndColor2,
-                        Params::InvertGradient2,
-                        Params::Bias2,
-                        Params::Offset2,
-                        Params::NoiseAmount2,
-                    ),
-                    (
-                        Params::GradType3,
-                        Params::StartColor3,
-                        Params::EndColor3,
-                        Params::InvertGradient3,
-                        Params::Bias3,
-                        Params::Offset3,
-                        Params::NoiseAmount3,
-                    ),
-                    (
-                        Params::GradType4,
-                        Params::StartColor4,
-                        Params::EndColor4,
-                        Params::InvertGradient4,
-                        Params::Bias4,
-                        Params::Offset4,
-                        Params::NoiseAmount4,
-                    ),
-                    (
-                        Params::GradType5,
-                        Params::StartColor5,
-                        Params::EndColor5,
-                        Params::InvertGradient5,
-                        Params::Bias5,
-                        Params::Offset5,
-                        Params::NoiseAmount5,
-                    ),
-                    (
-                        Params::GradType6,
-                        Params::StartColor6,
-                        Params::EndColor6,
-                        Params::InvertGradient6,
-                        Params::Bias6,
-                        Params::Offset6,
-                        Params::NoiseAmount6,
-                    ),
-                    (
-                        Params::GradType7,
-                        Params::StartColor7,
-                        Params::EndColor7,
-                        Params::InvertGradient7,
-                        Params::Bias7,
-                        Params::Offset7,
-                        Params::NoiseAmount7,
-                    ),
-                    (
-                        Params::GradType8,
-                        Params::StartColor8,
-                        Params::EndColor8,
-                        Params::InvertGradient8,
-                        Params::Bias8,
-                        Params::Offset8,
-                        Params::NoiseAmount8,
-                    ),
-                    (
-                        Params::GradType9,
-                        Params::StartColor9,
-                        Params::EndColor9,
-                        Params::InvertGradient9,
-                        Params::Bias9,
-                        Params::Offset9,
-                        Params::NoiseAmount9,
-                    ),
-                    (
-                        Params::GradType10,
-                        Params::StartColor10,
-                        Params::EndColor10,
-                        Params::InvertGradient10,
-                        Params::Bias10,
-                        Params::Offset10,
-                        Params::NoiseAmount10,
-                    ),
-                    (
-                        Params::GradType11,
-                        Params::StartColor11,
-                        Params::EndColor11,
-                        Params::InvertGradient11,
-                        Params::Bias11,
-                        Params::Offset11,
-                        Params::NoiseAmount11,
-                    ),
-                    (
-                        Params::GradType12,
-                        Params::StartColor12,
-                        Params::EndColor12,
-                        Params::InvertGradient12,
-                        Params::Bias12,
-                        Params::Offset12,
-                        Params::NoiseAmount12,
-                    ),
-                    (
-                        Params::GradType13,
-                        Params::StartColor13,
-                        Params::EndColor13,
-                        Params::InvertGradient13,
-                        Params::Bias13,
-                        Params::Offset13,
-                        Params::NoiseAmount13,
-                    ),
-                    (
-                        Params::GradType14,
-                        Params::StartColor14,
-                        Params::EndColor14,
-                        Params::InvertGradient14,
-                        Params::Bias14,
-                        Params::Offset14,
-                        Params::NoiseAmount14,
-                    ),
-                    (
-                        Params::GradType15,
-                        Params::StartColor15,
-                        Params::EndColor15,
-                        Params::InvertGradient15,
-                        Params::Bias15,
-                        Params::Offset15,
-                        Params::NoiseAmount15,
-                    ),
-                    (
-                        Params::GradType16,
-                        Params::StartColor16,
-                        Params::EndColor16,
-                        Params::InvertGradient16,
-                        Params::Bias16,
-                        Params::Offset16,
-                        Params::NoiseAmount16,
-                    ),
-                    (
-                        Params::GradType17,
-                        Params::StartColor17,
-                        Params::EndColor17,
-                        Params::InvertGradient17,
-                        Params::Bias17,
-                        Params::Offset17,
-                        Params::NoiseAmount17,
-                    ),
-                    (
-                        Params::GradType18,
-                        Params::StartColor18,
-                        Params::EndColor18,
-                        Params::InvertGradient18,
-                        Params::Bias18,
-                        Params::Offset18,
-                        Params::NoiseAmount18,
-                    ),
-                    (
-                        Params::GradType19,
-                        Params::StartColor19,
-                        Params::EndColor19,
-                        Params::InvertGradient19,
-                        Params::Bias19,
-                        Params::Offset19,
-                        Params::NoiseAmount19,
-                    ),
-                    (
-                        Params::GradType20,
-                        Params::StartColor20,
-                        Params::EndColor20,
-                        Params::InvertGradient20,
-                        Params::Bias20,
-                        Params::Offset20,
-                        Params::NoiseAmount20,
-                    ),
-                    (
-                        Params::GradType21,
-                        Params::StartColor21,
-                        Params::EndColor21,
-                        Params::InvertGradient21,
-                        Params::Bias21,
-                        Params::Offset21,
-                        Params::NoiseAmount21,
-                    ),
-                    (
-                        Params::GradType22,
-                        Params::StartColor22,
-                        Params::EndColor22,
-                        Params::InvertGradient22,
-                        Params::Bias22,
-                        Params::Offset22,
-                        Params::NoiseAmount22,
-                    ),
-                    (
-                        Params::GradType23,
-                        Params::StartColor23,
-                        Params::EndColor23,
-                        Params::InvertGradient23,
-                        Params::Bias23,
-                        Params::Offset23,
-                        Params::NoiseAmount23,
-                    ),
-                    (
-                        Params::GradType24,
-                        Params::StartColor24,
-                        Params::EndColor24,
-                        Params::InvertGradient24,
-                        Params::Bias24,
-                        Params::Offset24,
-                        Params::NoiseAmount24,
-                    ),
-                    (
-                        Params::GradType25,
-                        Params::StartColor25,
-                        Params::EndColor25,
-                        Params::InvertGradient25,
-                        Params::Bias25,
-                        Params::Offset25,
-                        Params::NoiseAmount25,
-                    ),
-                    (
-                        Params::GradType26,
-                        Params::StartColor26,
-                        Params::EndColor26,
-                        Params::InvertGradient26,
-                        Params::Bias26,
-                        Params::Offset26,
-                        Params::NoiseAmount26,
-                    ),
-                    (
-                        Params::GradType27,
-                        Params::StartColor27,
-                        Params::EndColor27,
-                        Params::InvertGradient27,
-                        Params::Bias27,
-                        Params::Offset27,
-                        Params::NoiseAmount27,
-                    ),
-                    (
-                        Params::GradType28,
-                        Params::StartColor28,
-                        Params::EndColor28,
-                        Params::InvertGradient28,
-                        Params::Bias28,
-                        Params::Offset28,
-                        Params::NoiseAmount28,
-                    ),
-                    (
-                        Params::GradType29,
-                        Params::StartColor29,
-                        Params::EndColor29,
-                        Params::InvertGradient29,
-                        Params::Bias29,
-                        Params::Offset29,
-                        Params::NoiseAmount29,
-                    ),
-                    (
-                        Params::GradType30,
-                        Params::StartColor30,
-                        Params::EndColor30,
-                        Params::InvertGradient30,
-                        Params::Bias30,
-                        Params::Offset30,
-                        Params::NoiseAmount30,
-                    ),
-                    (
-                        Params::GradType31,
-                        Params::StartColor31,
-                        Params::EndColor31,
-                        Params::InvertGradient31,
-                        Params::Bias31,
-                        Params::Offset31,
-                        Params::NoiseAmount31,
-                    ),
-                ];
                 const GRADIENT_INITIAL_COUNT: usize = 8; // GradientSettingsCount default = 8
-                for (idx, (grad_type, start_c, end_c, invert_grad, bias, offset, noise)) in
-                    grad_params.iter().enumerate()
-                {
-                    let n = idx + 1;
-                    let grad_hidden = idx >= GRADIENT_INITIAL_COUNT;
-                    let g_ui = || {
-                        if grad_hidden {
-                            ParamUIFlags::INVISIBLE
-                        } else {
-                            ParamUIFlags::NONE
-                        }
+                for i in 0..GRADIENT_SETS {
+                    let n = i + 1;
+                    let hidden = i >= GRADIENT_INITIAL_COUNT;
+                    let ui_flags = if hidden {
+                        ParamUIFlags::INVISIBLE
+                    } else {
+                        ParamUIFlags::NONE
                     };
                     params.add_with_flags(
-                        *grad_type,
-                        &format!("Grad Type {}", n),
-                        PopupDef::setup(|d| {
-                            d.set_options(&["Linear", "Radial"]);
-                            d.set_default(1);
-                        }),
-                        ParamFlag::empty(),
-                        g_ui(),
-                    )?;
-                    params.add_with_flags(
-                        *start_c,
+                        GRADIENT_START_COLOR[i],
                         &format!("Start Color {}", n),
                         ColorDef::setup(|_d| {}),
                         ParamFlag::empty(),
-                        g_ui(),
+                        ui_flags,
                     )?;
                     params.add_with_flags(
-                        *end_c,
+                        GRADIENT_END_COLOR[i],
                         &format!("End Color {}", n),
                         ColorDef::setup(|_d| {}),
                         ParamFlag::empty(),
-                        g_ui(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
                     )?;
                     params.add_with_flags(
-                        *invert_grad,
+                        GRADIENT_INVERT[i],
                         &format!("Invert Gradient {}", n),
                         CheckBoxDef::setup(|d| {
                             d.set_default(false);
                         }),
                         ParamFlag::empty(),
-                        g_ui(),
-                    )?;
-                    params.add_with_flags(
-                        *bias,
-                        &format!("Bias {}", n),
-                        FloatSliderDef::setup(|d| {
-                            d.set_valid_min(0.0);
-                            d.set_valid_max(100.0);
-                            d.set_slider_min(0.0);
-                            d.set_slider_max(100.0);
-                            d.set_default(50.0);
-                            d.set_precision(1);
-                        }),
-                        ParamFlag::empty(),
-                        g_ui(),
-                    )?;
-                    params.add_with_flags(
-                        *offset,
-                        &format!("Offset {}", n),
-                        FloatSliderDef::setup(|d| {
-                            d.set_valid_min(-100.0);
-                            d.set_valid_max(100.0);
-                            d.set_slider_min(-100.0);
-                            d.set_slider_max(100.0);
-                            d.set_default(0.0);
-                            d.set_precision(1);
-                        }),
-                        ParamFlag::empty(),
-                        g_ui(),
-                    )?;
-                    params.add_with_flags(
-                        *noise,
-                        &format!("Noise Amount {}", n),
-                        FloatSliderDef::setup(|d| {
-                            d.set_valid_min(0.0);
-                            d.set_valid_max(100.0);
-                            d.set_slider_min(0.0);
-                            d.set_slider_max(50.0);
-                            d.set_default(0.0);
-                            d.set_precision(1);
-                        }),
-                        ParamFlag::empty(),
-                        g_ui(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
                     )?;
                 }
                 Ok(())
