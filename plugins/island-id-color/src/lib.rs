@@ -124,103 +124,167 @@ enum Params {
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
-    // StartColor[n], EndColor[n], InvertGradient[n] x GRADIENT_SETS
+    // [GradColorGroupStart[n], StartColor[n], EndColor[n], InvertGradient[n], GradColorGroupEnd[n]] x GRADIENT_SETS
+    GradColorGroupStart0,
     StartColor0,
     EndColor0,
     InvertGradient0,
+    GradColorGroupEnd0,
+    GradColorGroupStart1,
     StartColor1,
     EndColor1,
     InvertGradient1,
+    GradColorGroupEnd1,
+    GradColorGroupStart2,
     StartColor2,
     EndColor2,
     InvertGradient2,
+    GradColorGroupEnd2,
+    GradColorGroupStart3,
     StartColor3,
     EndColor3,
     InvertGradient3,
+    GradColorGroupEnd3,
+    GradColorGroupStart4,
     StartColor4,
     EndColor4,
     InvertGradient4,
+    GradColorGroupEnd4,
+    GradColorGroupStart5,
     StartColor5,
     EndColor5,
     InvertGradient5,
+    GradColorGroupEnd5,
+    GradColorGroupStart6,
     StartColor6,
     EndColor6,
     InvertGradient6,
+    GradColorGroupEnd6,
+    GradColorGroupStart7,
     StartColor7,
     EndColor7,
     InvertGradient7,
+    GradColorGroupEnd7,
+    GradColorGroupStart8,
     StartColor8,
     EndColor8,
     InvertGradient8,
+    GradColorGroupEnd8,
+    GradColorGroupStart9,
     StartColor9,
     EndColor9,
     InvertGradient9,
+    GradColorGroupEnd9,
+    GradColorGroupStart10,
     StartColor10,
     EndColor10,
     InvertGradient10,
+    GradColorGroupEnd10,
+    GradColorGroupStart11,
     StartColor11,
     EndColor11,
     InvertGradient11,
+    GradColorGroupEnd11,
+    GradColorGroupStart12,
     StartColor12,
     EndColor12,
     InvertGradient12,
+    GradColorGroupEnd12,
+    GradColorGroupStart13,
     StartColor13,
     EndColor13,
     InvertGradient13,
+    GradColorGroupEnd13,
+    GradColorGroupStart14,
     StartColor14,
     EndColor14,
     InvertGradient14,
+    GradColorGroupEnd14,
+    GradColorGroupStart15,
     StartColor15,
     EndColor15,
     InvertGradient15,
+    GradColorGroupEnd15,
+    GradColorGroupStart16,
     StartColor16,
     EndColor16,
     InvertGradient16,
+    GradColorGroupEnd16,
+    GradColorGroupStart17,
     StartColor17,
     EndColor17,
     InvertGradient17,
+    GradColorGroupEnd17,
+    GradColorGroupStart18,
     StartColor18,
     EndColor18,
     InvertGradient18,
+    GradColorGroupEnd18,
+    GradColorGroupStart19,
     StartColor19,
     EndColor19,
     InvertGradient19,
+    GradColorGroupEnd19,
+    GradColorGroupStart20,
     StartColor20,
     EndColor20,
     InvertGradient20,
+    GradColorGroupEnd20,
+    GradColorGroupStart21,
     StartColor21,
     EndColor21,
     InvertGradient21,
+    GradColorGroupEnd21,
+    GradColorGroupStart22,
     StartColor22,
     EndColor22,
     InvertGradient22,
+    GradColorGroupEnd22,
+    GradColorGroupStart23,
     StartColor23,
     EndColor23,
     InvertGradient23,
+    GradColorGroupEnd23,
+    GradColorGroupStart24,
     StartColor24,
     EndColor24,
     InvertGradient24,
+    GradColorGroupEnd24,
+    GradColorGroupStart25,
     StartColor25,
     EndColor25,
     InvertGradient25,
+    GradColorGroupEnd25,
+    GradColorGroupStart26,
     StartColor26,
     EndColor26,
     InvertGradient26,
+    GradColorGroupEnd26,
+    GradColorGroupStart27,
     StartColor27,
     EndColor27,
     InvertGradient27,
+    GradColorGroupEnd27,
+    GradColorGroupStart28,
     StartColor28,
     EndColor28,
     InvertGradient28,
+    GradColorGroupEnd28,
+    GradColorGroupStart29,
     StartColor29,
     EndColor29,
     InvertGradient29,
+    GradColorGroupEnd29,
+    GradColorGroupStart30,
     StartColor30,
     EndColor30,
     InvertGradient30,
+    GradColorGroupEnd30,
+    GradColorGroupStart31,
     StartColor31,
     EndColor31,
     InvertGradient31,
+    GradColorGroupEnd31,
 }
 
 #[derive(Default)]
@@ -422,6 +486,74 @@ const GRADIENT_INVERT: [Params; GRADIENT_SETS] = [
     Params::InvertGradient30,
     Params::InvertGradient31,
 ];
+const GRADIENT_GRAD_COLOR_GROUP_START: [Params; GRADIENT_SETS] = [
+    Params::GradColorGroupStart0,
+    Params::GradColorGroupStart1,
+    Params::GradColorGroupStart2,
+    Params::GradColorGroupStart3,
+    Params::GradColorGroupStart4,
+    Params::GradColorGroupStart5,
+    Params::GradColorGroupStart6,
+    Params::GradColorGroupStart7,
+    Params::GradColorGroupStart8,
+    Params::GradColorGroupStart9,
+    Params::GradColorGroupStart10,
+    Params::GradColorGroupStart11,
+    Params::GradColorGroupStart12,
+    Params::GradColorGroupStart13,
+    Params::GradColorGroupStart14,
+    Params::GradColorGroupStart15,
+    Params::GradColorGroupStart16,
+    Params::GradColorGroupStart17,
+    Params::GradColorGroupStart18,
+    Params::GradColorGroupStart19,
+    Params::GradColorGroupStart20,
+    Params::GradColorGroupStart21,
+    Params::GradColorGroupStart22,
+    Params::GradColorGroupStart23,
+    Params::GradColorGroupStart24,
+    Params::GradColorGroupStart25,
+    Params::GradColorGroupStart26,
+    Params::GradColorGroupStart27,
+    Params::GradColorGroupStart28,
+    Params::GradColorGroupStart29,
+    Params::GradColorGroupStart30,
+    Params::GradColorGroupStart31,
+];
+const GRADIENT_GRAD_COLOR_GROUP_END: [Params; GRADIENT_SETS] = [
+    Params::GradColorGroupEnd0,
+    Params::GradColorGroupEnd1,
+    Params::GradColorGroupEnd2,
+    Params::GradColorGroupEnd3,
+    Params::GradColorGroupEnd4,
+    Params::GradColorGroupEnd5,
+    Params::GradColorGroupEnd6,
+    Params::GradColorGroupEnd7,
+    Params::GradColorGroupEnd8,
+    Params::GradColorGroupEnd9,
+    Params::GradColorGroupEnd10,
+    Params::GradColorGroupEnd11,
+    Params::GradColorGroupEnd12,
+    Params::GradColorGroupEnd13,
+    Params::GradColorGroupEnd14,
+    Params::GradColorGroupEnd15,
+    Params::GradColorGroupEnd16,
+    Params::GradColorGroupEnd17,
+    Params::GradColorGroupEnd18,
+    Params::GradColorGroupEnd19,
+    Params::GradColorGroupEnd20,
+    Params::GradColorGroupEnd21,
+    Params::GradColorGroupEnd22,
+    Params::GradColorGroupEnd23,
+    Params::GradColorGroupEnd24,
+    Params::GradColorGroupEnd25,
+    Params::GradColorGroupEnd26,
+    Params::GradColorGroupEnd27,
+    Params::GradColorGroupEnd28,
+    Params::GradColorGroupEnd29,
+    Params::GradColorGroupEnd30,
+    Params::GradColorGroupEnd31,
+];
 
 fn set_param_visibility(
     in_data: InData,
@@ -500,9 +632,11 @@ fn update_params_ui_visibility(
         .unwrap_or(4);
     for i in 0..GRADIENT_SETS {
         let visible = i < gradient_count;
+        set_param_visibility(in_data, params, GRADIENT_GRAD_COLOR_GROUP_START[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_START_COLOR[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_END_COLOR[i], visible)?;
         set_param_visibility(in_data, params, GRADIENT_INVERT[i], visible)?;
+        set_param_visibility(in_data, params, GRADIENT_GRAD_COLOR_GROUP_END[i], visible)?;
     }
     Ok(())
 }
@@ -543,13 +677,15 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(false);
                     }),
                 )?;
-                params.add(
+                params.add_with_flags(
                     Params::ExtractionCount,
                     "Extraction Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["1", "2", "3", "4", "5", "6", "7", "8"]);
                         d.set_default(1);
                     }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
                 )?;
 
                 let target_color_range = [
@@ -632,13 +768,15 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(true);
                     }),
                 )?;
-                params.add(
+                params.add_with_flags(
                     Params::MergeIslandCount,
                     "Merge Island Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["4", "8", "16", "32"]);
                         d.set_default(2); // 8 (1-based index 2)
                     }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
                 )?;
 
                 const MERGE_INITIAL_COUNT: usize = 8; // default option "8"
@@ -746,13 +884,15 @@ impl AdobePluginGlobal for Plugin {
             "Gradient Render",
             true,
             |params| {
-                params.add(
+                params.add_with_flags(
                     Params::GradientSettingsCount,
                     "Gradient Settings Count",
                     PopupDef::setup(|d| {
                         d.set_options(&["4", "8", "16", "32"]);
                         d.set_default(2); // 8
                     }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
                 )?;
                 params.add(
                     Params::MasterGradType,
@@ -805,6 +945,12 @@ impl AdobePluginGlobal for Plugin {
                 )?;
 
                 const GRADIENT_INITIAL_COUNT: usize = 8; // GradientSettingsCount default = 8
+                let white = ae::Pixel8 {
+                    red: 255,
+                    green: 255,
+                    blue: 255,
+                    alpha: 255,
+                };
                 for i in 0..GRADIENT_SETS {
                     let n = i + 1;
                     let hidden = i >= GRADIENT_INITIAL_COUNT;
@@ -813,35 +959,46 @@ impl AdobePluginGlobal for Plugin {
                     } else {
                         ParamUIFlags::NONE
                     };
-                    params.add_with_flags(
-                        GRADIENT_START_COLOR[i],
-                        &format!("Start Color {}", n),
-                        ColorDef::setup(|_d| {}),
-                        ParamFlag::empty(),
-                        ui_flags,
-                    )?;
-                    params.add_with_flags(
-                        GRADIENT_END_COLOR[i],
-                        &format!("End Color {}", n),
-                        ColorDef::setup(|_d| {}),
-                        ParamFlag::empty(),
-                        if hidden {
-                            ParamUIFlags::INVISIBLE
-                        } else {
-                            ParamUIFlags::NONE
-                        },
-                    )?;
-                    params.add_with_flags(
-                        GRADIENT_INVERT[i],
-                        &format!("Invert Gradient {}", n),
-                        CheckBoxDef::setup(|d| {
-                            d.set_default(false);
-                        }),
-                        ParamFlag::empty(),
-                        if hidden {
-                            ParamUIFlags::INVISIBLE
-                        } else {
-                            ParamUIFlags::NONE
+                    params.add_group(
+                        GRADIENT_GRAD_COLOR_GROUP_START[i],
+                        GRADIENT_GRAD_COLOR_GROUP_END[i],
+                        &format!("Gradient Color {}", n),
+                        true, // Start Collapsed
+                        |inner| {
+                            inner.add_with_flags(
+                                GRADIENT_START_COLOR[i],
+                                &format!("Start Color {}", n),
+                                ColorDef::setup(|d| {
+                                    d.set_default(white);
+                                }),
+                                ParamFlag::empty(),
+                                ui_flags,
+                            )?;
+                            inner.add_with_flags(
+                                GRADIENT_END_COLOR[i],
+                                &format!("End Color {}", n),
+                                ColorDef::setup(|_d| {}),
+                                ParamFlag::empty(),
+                                if hidden {
+                                    ParamUIFlags::INVISIBLE
+                                } else {
+                                    ParamUIFlags::NONE
+                                },
+                            )?;
+                            inner.add_with_flags(
+                                GRADIENT_INVERT[i],
+                                &format!("Invert Gradient {}", n),
+                                CheckBoxDef::setup(|d| {
+                                    d.set_default(false);
+                                }),
+                                ParamFlag::empty(),
+                                if hidden {
+                                    ParamUIFlags::INVISIBLE
+                                } else {
+                                    ParamUIFlags::NONE
+                                },
+                            )?;
+                            Ok(())
                         },
                     )?;
                 }
