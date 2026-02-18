@@ -328,7 +328,9 @@ enum Params {
 }
 
 #[derive(Default)]
-struct Plugin {}
+struct Plugin {
+    my_id: ae::aegp::PluginId,
+}
 
 ae::define_effect!(Plugin, (), Params);
 
@@ -658,118 +660,206 @@ fn popup_to_count(params: &ae::Parameters<Params>, key: Params) -> usize {
     }
 }
 
-fn update_params_ui_visibility(params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
+fn update_params_ui_visibility(
+    in_data: InData,
+    plugin_id: ae::aegp::PluginId,
+    params: &mut ae::Parameters<Params>,
+) -> Result<(), ae::Error> {
     let ext_count = popup_to_count(params, Params::ExtractionCount);
     let merge_count = popup_to_count(params, Params::MergeIslandCount);
     let grad_count = popup_to_count(params, Params::GradientSettingsCount);
 
-    // Read enable states BEFORE cloning (AE's original array is read-only for writes,
-    // so we clone to get a writable copy; reads must happen from the original first)
+    // Read enable states from original params before any mutation
     let merge_enabled: [bool; MERGE_ISLAND_SETS] = {
         let mut arr = [true; MERGE_ISLAND_SETS];
         for i in 0..MERGE_ISLAND_SETS {
-            if i < merge_count {
-                arr[i] = params
-                    .get(MERGE_ENABLE[i])
-                    .ok()
-                    .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                    .unwrap_or(true);
-            }
+            arr[i] = params
+                .get(MERGE_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
         }
         arr
     };
     let grad_enabled: [bool; GRADIENT_SETS] = {
         let mut arr = [true; GRADIENT_SETS];
         for i in 0..GRADIENT_SETS {
-            if i < grad_count {
-                arr[i] = params
-                    .get(GRADIENT_ENABLE[i])
-                    .ok()
-                    .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                    .unwrap_or(true);
-            }
+            arr[i] = params
+                .get(GRADIENT_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
         }
         arr
     };
 
-    // Clone params to get a writable copy for UI flag mutations
-    let mut p = params.cloned();
+    if in_data.is_premiere() {
+        // Premiere Pro: INVISIBLE flag is honored via update_param_ui
+        let mut p = params.cloned();
 
-    // --- Color Extraction ---
-    for i in 0..EXTRACTION_SETS {
-        let vis = i < ext_count;
-        {
-            let mut pd = p.get_mut(EXTRACTION_TARGET_COLORS[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            pd.update_param_ui()?;
+        for i in 0..EXTRACTION_SETS {
+            let vis = i < ext_count;
+            {
+                let mut pd = p.get_mut(EXTRACTION_TARGET_COLORS[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(EXTRACTION_COLOR_RANGES[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+                pd.update_param_ui()?;
+            }
         }
-        {
-            let mut pd = p.get_mut(EXTRACTION_COLOR_RANGES[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
-            pd.update_param_ui()?;
+        for i in 0..MERGE_ISLAND_SETS {
+            let vis = i < merge_count;
+            {
+                let mut pd = p.get_mut(MERGE_ENABLE[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(MERGE_SOURCE_TEMP[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(MERGE_TARGET_TEMP[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+        }
+        for i in 0..GRADIENT_SETS {
+            let vis = i < grad_count;
+            {
+                let mut pd = p.get_mut(GRADIENT_ENABLE[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(GRADIENT_START_COLOR[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(GRADIENT_END_COLOR[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+            {
+                let mut pd = p.get_mut(GRADIENT_INVERT[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
+        }
+    } else {
+        // After Effects: INVISIBLE is not supported via update_param_ui.
+        // Use AEGP DynamicStreamFlags::Hidden to show/hide parameters.
+        let effect = in_data.effect();
+        let aegp_eff = effect.aegp_effect(plugin_id)?;
+
+        for i in 0..EXTRACTION_SETS {
+            let hidden = i >= ext_count;
+            let idx_tc = params
+                .index(EXTRACTION_TARGET_COLORS[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_cr = params
+                .index(EXTRACTION_COLOR_RANGES[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_tc)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_cr)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+        }
+        for i in 0..MERGE_ISLAND_SETS {
+            let hidden = i >= merge_count;
+            let idx_en = params
+                .index(MERGE_ENABLE[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_src = params
+                .index(MERGE_SOURCE_TEMP[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_tgt = params
+                .index(MERGE_TARGET_TEMP[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_en)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_src)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_tgt)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+        }
+        for i in 0..GRADIENT_SETS {
+            let hidden = i >= grad_count;
+            let idx_en = params
+                .index(GRADIENT_ENABLE[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_sc = params
+                .index(GRADIENT_START_COLOR[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_ec = params
+                .index(GRADIENT_END_COLOR[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_iv = params
+                .index(GRADIENT_INVERT[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_en)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_sc)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_ec)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_iv)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
         }
     }
 
-    // --- Merge Island ---
-    for i in 0..MERGE_ISLAND_SETS {
-        let vis = i < merge_count;
-        let sub_disabled = !merge_enabled[i];
-        {
-            let mut pd = p.get_mut(MERGE_ENABLE[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            pd.update_param_ui()?;
-        }
-        {
-            let mut pd = p.get_mut(MERGE_SOURCE_TEMP[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            if vis {
-                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+    // DISABLED (grayed-out) handling: update_param_ui honors DISABLED in both AE and Premiere
+    {
+        let mut p = params.cloned();
+        for i in 0..MERGE_ISLAND_SETS {
+            if i < merge_count {
+                let sub_disabled = !merge_enabled[i];
+                {
+                    let mut pd = p.get_mut(MERGE_SOURCE_TEMP[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(MERGE_TARGET_TEMP[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
             }
-            pd.update_param_ui()?;
         }
-        {
-            let mut pd = p.get_mut(MERGE_TARGET_TEMP[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            if vis {
-                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+        for i in 0..GRADIENT_SETS {
+            if i < grad_count {
+                let sub_disabled = !grad_enabled[i];
+                {
+                    let mut pd = p.get_mut(GRADIENT_START_COLOR[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(GRADIENT_END_COLOR[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(GRADIENT_INVERT[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
             }
-            pd.update_param_ui()?;
-        }
-    }
-
-    // --- Gradient Render ---
-    for i in 0..GRADIENT_SETS {
-        let vis = i < grad_count;
-        let sub_disabled = !grad_enabled[i];
-        {
-            let mut pd = p.get_mut(GRADIENT_ENABLE[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            pd.update_param_ui()?;
-        }
-        {
-            let mut pd = p.get_mut(GRADIENT_START_COLOR[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            if vis {
-                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
-            }
-            pd.update_param_ui()?;
-        }
-        {
-            let mut pd = p.get_mut(GRADIENT_END_COLOR[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            if vis {
-                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
-            }
-            pd.update_param_ui()?;
-        }
-        {
-            let mut pd = p.get_mut(GRADIENT_INVERT[i])?;
-            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
-            if vis {
-                pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
-            }
-            pd.update_param_ui()?;
         }
     }
 
@@ -904,11 +994,12 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..MERGE_ISLAND_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_MERGE;
+                    let enable_default = i == 0;
                     params.add_with_flags(
                         MERGE_ENABLE[i],
                         &format!("Enable Merge {n}"),
-                        CheckBoxDef::setup(|d| {
-                            d.set_default(true);
+                        CheckBoxDef::setup(move |d| {
+                            d.set_default(enable_default);
                         }),
                         ParamFlag::SUPERVISE,
                         if hidden {
@@ -1015,11 +1106,12 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..GRADIENT_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_GRADIENT;
+                    let enable_default = i == 0;
                     params.add_with_flags(
                         GRADIENT_ENABLE[i],
                         &format!("Enable Gradient Color {n}"),
-                        CheckBoxDef::setup(|d| {
-                            d.set_default(true);
+                        CheckBoxDef::setup(move |d| {
+                            d.set_default(enable_default);
                         }),
                         ParamFlag::SUPERVISE,
                         if hidden {
@@ -1097,9 +1189,14 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag2(OutFlags2::SupportsGetFlattenedSequenceData, true);
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
+                if let Ok(suite) = ae::aegp::suites::Utility::new()
+                    && let Ok(id) = suite.register_with_aegp("AOD_IslandIdColor")
+                {
+                    self.my_id = id;
+                }
             }
             ae::Command::UpdateParamsUi => {
-                update_params_ui_visibility(params)?;
+                update_params_ui_visibility(in_data, self.my_id, params)?;
             }
             ae::Command::Render {
                 in_layer,
