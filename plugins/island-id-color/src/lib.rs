@@ -32,68 +32,100 @@ enum Params {
     ColorExtGroupEnd,
     InvertExtraction,
     ExtractionCount,
+    EnableExtraction0,
     TargetColor0,
     ColorRange0,
+    EnableExtraction1,
     TargetColor1,
     ColorRange1,
+    EnableExtraction2,
     TargetColor2,
     ColorRange2,
+    EnableExtraction3,
     TargetColor3,
     ColorRange3,
+    EnableExtraction4,
     TargetColor4,
     ColorRange4,
+    EnableExtraction5,
     TargetColor5,
     ColorRange5,
+    EnableExtraction6,
     TargetColor6,
     ColorRange6,
+    EnableExtraction7,
     TargetColor7,
     ColorRange7,
+    EnableExtraction8,
     TargetColor8,
     ColorRange8,
+    EnableExtraction9,
     TargetColor9,
     ColorRange9,
+    EnableExtraction10,
     TargetColor10,
     ColorRange10,
+    EnableExtraction11,
     TargetColor11,
     ColorRange11,
+    EnableExtraction12,
     TargetColor12,
     ColorRange12,
+    EnableExtraction13,
     TargetColor13,
     ColorRange13,
+    EnableExtraction14,
     TargetColor14,
     ColorRange14,
+    EnableExtraction15,
     TargetColor15,
     ColorRange15,
+    EnableExtraction16,
     TargetColor16,
     ColorRange16,
+    EnableExtraction17,
     TargetColor17,
     ColorRange17,
+    EnableExtraction18,
     TargetColor18,
     ColorRange18,
+    EnableExtraction19,
     TargetColor19,
     ColorRange19,
+    EnableExtraction20,
     TargetColor20,
     ColorRange20,
+    EnableExtraction21,
     TargetColor21,
     ColorRange21,
+    EnableExtraction22,
     TargetColor22,
     ColorRange22,
+    EnableExtraction23,
     TargetColor23,
     ColorRange23,
+    EnableExtraction24,
     TargetColor24,
     ColorRange24,
+    EnableExtraction25,
     TargetColor25,
     ColorRange25,
+    EnableExtraction26,
     TargetColor26,
     ColorRange26,
+    EnableExtraction27,
     TargetColor27,
     ColorRange27,
+    EnableExtraction28,
     TargetColor28,
     ColorRange28,
+    EnableExtraction29,
     TargetColor29,
     ColorRange29,
+    EnableExtraction30,
     TargetColor30,
     ColorRange30,
+    EnableExtraction31,
     TargetColor31,
     ColorRange31,
     ChokeSpread,
@@ -348,6 +380,40 @@ ae::define_effect!(Plugin, (), Params);
 const PLUGIN_DESCRIPTION: &str =
     "Tracks colored regions as islands and applies per-island gradients or temp colors.";
 
+const EXTRACTION_ENABLE: [Params; EXTRACTION_SETS] = [
+    Params::EnableExtraction0,
+    Params::EnableExtraction1,
+    Params::EnableExtraction2,
+    Params::EnableExtraction3,
+    Params::EnableExtraction4,
+    Params::EnableExtraction5,
+    Params::EnableExtraction6,
+    Params::EnableExtraction7,
+    Params::EnableExtraction8,
+    Params::EnableExtraction9,
+    Params::EnableExtraction10,
+    Params::EnableExtraction11,
+    Params::EnableExtraction12,
+    Params::EnableExtraction13,
+    Params::EnableExtraction14,
+    Params::EnableExtraction15,
+    Params::EnableExtraction16,
+    Params::EnableExtraction17,
+    Params::EnableExtraction18,
+    Params::EnableExtraction19,
+    Params::EnableExtraction20,
+    Params::EnableExtraction21,
+    Params::EnableExtraction22,
+    Params::EnableExtraction23,
+    Params::EnableExtraction24,
+    Params::EnableExtraction25,
+    Params::EnableExtraction26,
+    Params::EnableExtraction27,
+    Params::EnableExtraction28,
+    Params::EnableExtraction29,
+    Params::EnableExtraction30,
+    Params::EnableExtraction31,
+];
 const EXTRACTION_TARGET_COLORS: [Params; EXTRACTION_SETS] = [
     Params::TargetColor0,
     Params::TargetColor1,
@@ -681,6 +747,17 @@ fn update_params_ui_visibility(
     let grad_count = popup_to_count(params, Params::GradientSettingsCount);
 
     // Read enable states from original params before any mutation
+    let ext_enabled: [bool; EXTRACTION_SETS] = {
+        let mut arr = [true; EXTRACTION_SETS];
+        for i in 0..EXTRACTION_SETS {
+            arr[i] = params
+                .get(EXTRACTION_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
+        }
+        arr
+    };
     let merge_enabled: [bool; MERGE_ISLAND_SETS] = {
         let mut arr = [true; MERGE_ISLAND_SETS];
         for i in 0..MERGE_ISLAND_SETS {
@@ -710,6 +787,11 @@ fn update_params_ui_visibility(
 
         for i in 0..EXTRACTION_SETS {
             let vis = i < ext_count;
+            {
+                let mut pd = p.get_mut(EXTRACTION_ENABLE[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
             {
                 let mut pd = p.get_mut(EXTRACTION_TARGET_COLORS[i])?;
                 pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
@@ -771,12 +853,18 @@ fn update_params_ui_visibility(
 
         for i in 0..EXTRACTION_SETS {
             let hidden = i >= ext_count;
+            let idx_en = params
+                .index(EXTRACTION_ENABLE[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
             let idx_tc = params
                 .index(EXTRACTION_TARGET_COLORS[i])
                 .ok_or(ae::Error::InvalidIndex)? as i32;
             let idx_cr = params
                 .index(EXTRACTION_COLOR_RANGES[i])
                 .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_en)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_tc)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
@@ -837,6 +925,21 @@ fn update_params_ui_visibility(
     // DISABLED (grayed-out) handling: update_param_ui honors DISABLED in both AE and Premiere
     {
         let mut p = params.cloned();
+        for i in 0..EXTRACTION_SETS {
+            if i < ext_count {
+                let sub_disabled = !ext_enabled[i];
+                {
+                    let mut pd = p.get_mut(EXTRACTION_TARGET_COLORS[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(EXTRACTION_COLOR_RANGES[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+            }
+        }
         for i in 0..MERGE_ISLAND_SETS {
             if i < merge_count {
                 let sub_disabled = !merge_enabled[i];
@@ -937,17 +1040,29 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..EXTRACTION_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_EXTRACTION;
-                    let ui = if hidden {
-                        ParamUIFlags::INVISIBLE
-                    } else {
-                        ParamUIFlags::NONE
-                    };
+                    params.add_with_flags(
+                        EXTRACTION_ENABLE[i],
+                        &format!("Enable Extraction {n}"),
+                        CheckBoxDef::setup(|d| {
+                            d.set_default(true);
+                        }),
+                        ParamFlag::SUPERVISE,
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
                     params.add_with_flags(
                         EXTRACTION_TARGET_COLORS[i],
                         &format!("Target Color {n}"),
                         ColorDef::setup(|_| {}),
                         ParamFlag::empty(),
-                        ui,
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
                     )?;
                     params.add_with_flags(
                         EXTRACTION_COLOR_RANGES[i],
@@ -1246,6 +1361,127 @@ impl AdobePluginGlobal for Plugin {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Union-Find (path-halving, union by min-root)
+// ---------------------------------------------------------------------------
+struct UnionFind {
+    parent: Vec<u32>,
+}
+
+impl UnionFind {
+    fn new(n: usize) -> Self {
+        Self {
+            parent: (0..n as u32).collect(),
+        }
+    }
+
+    fn find(&mut self, mut x: u32) -> u32 {
+        while self.parent[x as usize] != x {
+            let pp = self.parent[self.parent[x as usize] as usize];
+            self.parent[x as usize] = pp;
+            x = pp;
+        }
+        x
+    }
+
+    fn union(&mut self, x: u32, y: u32) {
+        let rx = self.find(x);
+        let ry = self.find(y);
+        if rx != ry {
+            if rx < ry {
+                self.parent[ry as usize] = rx;
+            } else {
+                self.parent[rx as usize] = ry;
+            }
+        }
+    }
+
+    fn ensure_size(&mut self, label: u32) {
+        let need = label as usize + 1;
+        if self.parent.len() < need {
+            let start = self.parent.len() as u32;
+            self.parent.extend(start..need as u32);
+        }
+    }
+}
+
+/// 2値マスクに対して4連結CCLを実行し、各ピクセルのアイランドID配列を返す。
+/// 0 = 背景、1〜 = アイランド（連番に圧縮済み）。
+fn compute_ccl(mask: &[bool], width: usize, height: usize) -> Vec<u32> {
+    let n = width * height;
+    let mut labels = vec![0u32; n];
+    let mut uf = UnionFind::new(1); // label 0 reserved for background
+    let mut next_label = 1u32;
+
+    // First pass: assign provisional labels and record equivalences
+    for y in 0..height {
+        for x in 0..width {
+            let idx = y * width + x;
+            if !mask[idx] {
+                continue;
+            }
+            let left = if x > 0 { labels[idx - 1] } else { 0 };
+            let top = if y > 0 { labels[idx - width] } else { 0 };
+
+            match (left, top) {
+                (0, 0) => {
+                    uf.ensure_size(next_label);
+                    labels[idx] = next_label;
+                    next_label += 1;
+                }
+                (a, 0) | (0, a) => {
+                    labels[idx] = a;
+                }
+                (a, b) => {
+                    uf.union(a, b);
+                    labels[idx] = a.min(b);
+                }
+            }
+        }
+    }
+
+    // Second pass: resolve labels through Union-Find
+    for label in labels.iter_mut() {
+        if *label != 0 {
+            *label = uf.find(*label);
+        }
+    }
+
+    // Compact provisional IDs to consecutive 1, 2, 3, ...
+    let mut id_map: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut next_id = 1u32;
+    for label in labels.iter_mut() {
+        if *label != 0 {
+            let entry = id_map.entry(*label).or_insert_with(|| {
+                let id = next_id;
+                next_id += 1;
+                id
+            });
+            *label = *entry;
+        }
+    }
+
+    labels
+}
+
+/// アイランドIDを疑似カラーに変換する（0 = 背景 → 透明黒）。
+fn island_id_to_color(id: u32) -> PixelF32 {
+    if id == 0 {
+        return PixelF32 {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        };
+    }
+    PixelF32 {
+        red: (id.wrapping_mul(50) % 255) as f32 / 255.0,
+        green: (id.wrapping_mul(80) % 255) as f32 / 255.0,
+        blue: (id.wrapping_mul(110) % 255) as f32 / 255.0,
+        alpha: 1.0,
+    }
+}
+
 fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
     let dr = a.red - b.red;
     let dg = a.green - b.green;
@@ -1296,8 +1532,17 @@ impl Plugin {
             .unwrap_or(false);
         let extraction_count = popup_to_count(params, Params::ExtractionCount).min(EXTRACTION_SETS);
 
+        // EnableExtraction フラグを読み取り、有効なターゲットだけを収集
         let mut extraction_targets: Vec<(PixelF32, f32)> = Vec::with_capacity(extraction_count);
         for i in 0..extraction_count {
+            let enabled = params
+                .get(EXTRACTION_ENABLE[i])
+                .ok()
+                .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                .unwrap_or(true);
+            if !enabled {
+                continue;
+            }
             let target_color = params
                 .get(EXTRACTION_TARGET_COLORS[i])
                 .ok()
@@ -1311,6 +1556,27 @@ impl Plugin {
             let range_f32 = (color_range_val / 100.0).clamp(0.0, 1.0);
             extraction_targets.push((target_color_to_f32(&target_color), range_f32));
         }
+
+        let width = in_layer.width();
+        let height = in_layer.height();
+
+        // Temp Color モードの場合のみ CCL を実行
+        let island_labels: Option<Vec<u32>> = if output_mode == 3 {
+            // 全ピクセルを走査して2値マスクを構築
+            let mut mask = vec![false; width * height];
+            for y in 0..height {
+                for x in 0..width {
+                    let px = read_pixel_f32(&in_layer, in_world_type, x, y);
+                    let extracted = extraction_targets
+                        .iter()
+                        .any(|(target, range)| color_distance_f32(&px, target) <= *range);
+                    mask[y * width + x] = extracted != invert_extraction;
+                }
+            }
+            Some(compute_ccl(&mask, width, height))
+        } else {
+            None
+        };
 
         let out_wt = out_world_type;
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
@@ -1338,7 +1604,12 @@ impl Plugin {
                         }
                     }
                 }
-                3 | 4 => px,
+                3 => {
+                    let idx = y as usize * width + x as usize;
+                    let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
+                    island_id_to_color(id)
+                }
+                4 => px,
                 _ => px,
             };
             match out_wt {
