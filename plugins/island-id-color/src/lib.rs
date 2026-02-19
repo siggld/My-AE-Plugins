@@ -1818,14 +1818,40 @@ fn area_weighted_tracking(
         }
     }
 
+    // Pass 1.5: per-slot の最大マッチ数を求める（正規化のための基準値）。
+    // これにより normalized_count と purity が同じ [0,1] スケールに揃い、
+    // area_weight で「絶対数優先 ↔ 純度優先」を確実に切り替えられる。
+    let mut slot_max_match: Vec<f32> = vec![1.0_f32; n_slots]; // 0 除算を避けるため 1.0 で初期化
+    for matches_vec in island_slot_matches.values() {
+        for (slot_pos, &cnt) in matches_vec.iter().enumerate() {
+            let c = cnt as f32;
+            if c > slot_max_match[slot_pos] {
+                slot_max_match[slot_pos] = c;
+            }
+        }
+    }
+
     // Pass 2: compute final scores and assign best slot to each island.
+    //
+    // スコア計算式（2段階線形補間）:
+    //   normalized_count = match_count / slot_max_match  [0,1]  ← このスロット内で最大の島を 1.0 とした相対順位
+    //   purity           = match_count / island_area     [0,1]  ← 島に占める Source Color の割合
+    //
+    //   final_score = (1 - w) * normalized_count + w * purity
+    //
+    // area_weight = 0% → normalized_count のみ（絶対マッチ数が多い島を優先）
+    // area_weight = 100% → purity のみ（Source Color に覆われた割合が高い島を優先）
+    //
+    // 旧実装 `base * (1-w) + base * purity * w = base * ((1-w) + purity*w)` は
+    // base（絶対数）を乗数として掛けるため大きい島が常に勝ちやすく、
+    // area_weight を変えても勝者が逆転しにくいという問題があった。
     let mut label_to_user_id: std::collections::HashMap<u32, u32> =
         std::collections::HashMap::new();
 
     for (lbl, matches) in &island_slot_matches {
         let total = *island_pixel_count.get(lbl).unwrap_or(&0);
         if total == 0 {
-            continue; // ゼロ除算ガード
+            continue;
         }
         let total_f = total as f32;
 
@@ -1834,17 +1860,19 @@ fn area_weighted_tracking(
 
         for (slot_pos, &match_count) in matches.iter().enumerate() {
             if match_count == 0 {
-                continue; // マッチなし → このスロットは対象外
+                continue;
             }
             let (slot_idx, _, _, _) = tracking_targets[slot_pos];
             let uid = (slot_idx as u32) + 1;
 
-            let color_match_score = match_count as f32;
-            // area_score = source_match_count / island_pixel_count  (0.0〜1.0)
-            // match_count <= total が保証されるのでクランプ不要だが念のため max(0)
-            let area_score = (color_match_score / total_f).min(1.0_f32);
-            let final_score = (1.0 - area_weight) * color_match_score
-                + area_weight * (color_match_score * area_score);
+            let base_score = match_count as f32;
+            let purity = (base_score / total_f).min(1.0_f32);
+            let normalized_count = base_score / slot_max_match[slot_pos]; // [0,1]
+
+            // area_weight=0 → normalized_count 優先（絶対数）
+            // area_weight=1 → purity 優先（純度）
+            let final_score =
+                (1.0 - area_weight) * normalized_count + area_weight * purity;
 
             if final_score > best_score {
                 best_score = final_score;
