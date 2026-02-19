@@ -1214,38 +1214,58 @@ fn update_params_ui_visibility(
     }
 
     // ─── SortMaskIndex / GradMaskIndex ポップアップをレイヤーの実際のマスク名で更新 ──
-    // AE のみ PathQuerySuite / PathDataSuite が利用可能。
-    // Premiere や取得失敗時は "Mask N" フォールバックを使う。
+    // PF_PathQuerySuite は UpdateParamsUi では使用不可のため、
+    // AEGP (PFInterface + Mask + Stream) を使用してマスク名を取得する。
+    // AEGP スイートは UpdateParamsUi でも動作する。
     //
     // 注意: AE では PF_UpdateParamUI でポップアップの選択肢「数」を変更できない。
-    // そのため、常に初期定義と同じ件数（MASK_POPUP_SLOTS = 4）を保持し、
-    // 存在するマスクのスロットだけ実際の名前に差し替える。
+    // 常に初期定義と同じ件数（MASK_POPUP_SLOTS = 4）を保持する。
     {
         const MASK_POPUP_SLOTS: usize = 4;
         let mask_names: Vec<String> = if !in_data.is_premiere() {
-            if let (Ok(pq), Ok(pd_suite)) = (
-                ae::pf::suites::PathQuery::new(),
-                ae::pf::suites::PathData::new(),
-            ) {
-                let effect_ref = in_data.effect_ref();
-                let num = pq.num_paths(effect_ref).unwrap_or(0).max(0) as usize;
-                (0..MASK_POPUP_SLOTS)
-                    .map(|i| {
+            let aegp_names: Option<Vec<String>> = (|| -> Option<Vec<String>> {
+                let pf_iface = ae::aegp::suites::PFInterface::new().ok()?;
+                let layer = pf_iface.effect_layer(in_data.effect_ref()).ok()?;
+                let mask_suite = ae::aegp::suites::Mask::new().ok()?;
+                let stream_suite = ae::aegp::suites::Stream::new().ok()?;
+                let dyn_suite = ae::aegp::suites::DynamicStream::new().ok()?;
+                let num = mask_suite.layer_num_masks(&layer).ok()? as usize;
+                let names: Vec<String> = (0..MASK_POPUP_SLOTS)
+                    .map(|i| -> String {
                         if i < num {
-                            pq.path_info(effect_ref, i as i32)
-                                .ok()
-                                .and_then(|pid| pd_suite.path_get_name(effect_ref, pid).ok())
-                                .unwrap_or_else(|| format!("Mask {}", i + 1))
+                            // マスクの Outline ストリームを取得し、
+                            // その親ストリーム（マスクグループ）の名前を取得する。
+                            // これがマスクの表示名（例: "マスク 2"）になる。
+                            let maybe_name: Option<String> = (|| -> Option<String> {
+                                let mask_ref =
+                                    mask_suite.layer_mask_by_index(&layer, i as i32).ok()?;
+                                let mask_stream = stream_suite
+                                    .new_mask_stream(
+                                        &mask_ref,
+                                        plugin_id,
+                                        ae::aegp::MaskStream::Outline,
+                                    )
+                                    .ok()?;
+                                let parent_stream = dyn_suite
+                                    .new_parent_stream_ref(&mask_stream, plugin_id)
+                                    .ok()?;
+                                stream_suite
+                                    .stream_name(&parent_stream, plugin_id, false)
+                                    .ok()
+                            })();
+                            maybe_name.unwrap_or_else(|| format!("Mask {}", i + 1))
                         } else {
                             format!("Mask {}", i + 1)
                         }
                     })
-                    .collect()
-            } else {
+                    .collect();
+                Some(names)
+            })();
+            aegp_names.unwrap_or_else(|| {
                 (1..=MASK_POPUP_SLOTS)
                     .map(|i| format!("Mask {}", i))
                     .collect()
-            }
+            })
         } else {
             (1..=MASK_POPUP_SLOTS)
                 .map(|i| format!("Mask {}", i))
@@ -2456,7 +2476,8 @@ fn sort_by_mask_path(
         })
         .collect();
 
-    keys.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // 同一弧長の場合は CCL ラベル値で tie-break → 毎レンダー同一結果
+    keys.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
 
     Some(
         keys.iter()
@@ -2737,11 +2758,10 @@ impl Plugin {
                         *sum_y.entry(lbl).or_insert(0) += (idx / width) as u64;
                     }
                     // By Angle 用: 角度をラジアンに変換して方向ベクトルを計算
-                    // 0° = (1,0)=左→右, 90° = (0,1)=上→下 (スクリーン座標)
-                    // AE AngleDef: 0°=上、時計回り正。
-                    // (sin, cos) で AE 視覚方向と一致: 0°=上→下、90°=右方向、180°=下→上
+                    // AE AngleDef: 0°=上（北）、時計回り正。
+                    // (-sin, cos): 0°=(0,1)=下方向→上→下グラデ、時計回りで方向も時計回り
                     let angle_rad = sort_angle_deg.to_radians();
-                    let dir_x = angle_rad.sin();
+                    let dir_x = -angle_rad.sin();
                     let dir_y = angle_rad.cos();
 
                     // ソートキーを計算（昇順で並べたときに小さいほど ID=1 に近い）
@@ -2765,7 +2785,8 @@ impl Plugin {
                             (lbl, key)
                         })
                         .collect();
-                    islands.sort_by(|a, b| a.1.total_cmp(&b.1));
+                    // 同一キーの場合は CCL ラベル値で tie-break → 毎レンダー同一結果
+                    islands.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
                     Some(
                         islands
                             .iter()
@@ -3208,9 +3229,9 @@ impl Plugin {
                                     }
                                     _ => {
                                         // Linear: Master Angle 方向で BB 内線形グラデーション
-                                        // AE AngleDef: 0°=上、時計回り正 → (sin, cos)
+                                        // AE AngleDef: 0°=上、時計回り正 → (-sin, cos)
                                         let angle_rad = master_angle_deg.to_radians();
-                                        let (dx, dy) = (angle_rad.sin(), angle_rad.cos());
+                                        let (dx, dy) = (-angle_rad.sin(), angle_rad.cos());
                                         let projs: [f32; 4] = [
                                             corners[0].0 * dx + corners[0].1 * dy,
                                             corners[1].0 * dx + corners[1].1 * dy,
