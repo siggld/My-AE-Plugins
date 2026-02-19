@@ -1871,8 +1871,7 @@ fn area_weighted_tracking(
 
             // area_weight=0 → normalized_count 優先（絶対数）
             // area_weight=1 → purity 優先（純度）
-            let final_score =
-                (1.0 - area_weight) * normalized_count + area_weight * purity;
+            let final_score = (1.0 - area_weight) * normalized_count + area_weight * purity;
 
             if final_score > best_score {
                 best_score = final_score;
