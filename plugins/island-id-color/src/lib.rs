@@ -2192,10 +2192,18 @@ impl Plugin {
         // Temp Color モードの場合のみ CCL を実行
         let island_labels: Option<Vec<u32>> = if output_mode == 3 {
             // ─── Step1: 2値マスクを構築 ─────────────────────────────
+            // 注意: AE のマスク（ストレートアルファ）は alpha=0 でも RGB が残る。
+            // alpha が実質 0 のピクセルは InvertExtraction の設定に関わらず
+            // 常に mask=false（背景）として扱い、CCL に取り込まれないようにする。
             let mut mask = vec![false; width * height];
             for y in 0..height {
                 for x in 0..width {
                     let px = read_pixel_f32(&in_layer, in_world_type, x, y);
+                    // alpha が閾値未満のピクセルは透明なので抽出対象外
+                    if px.alpha < 1e-3_f32 {
+                        // mask[y * width + x] は false のまま
+                        continue;
+                    }
                     let extracted = extraction_targets
                         .iter()
                         .any(|(target, range)| color_distance_f32(&px, target) <= *range);
