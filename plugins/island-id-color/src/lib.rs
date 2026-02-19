@@ -1818,33 +1818,35 @@ fn area_weighted_tracking(
         }
     }
 
-    // Pass 1.5: per-slot の最大マッチ数を求める（正規化のための基準値）。
-    // これにより normalized_count と purity が同じ [0,1] スケールに揃い、
-    // area_weight で「絶対数優先 ↔ 純度優先」を確実に切り替えられる。
-    let mut slot_max_match: Vec<f32> = vec![1.0_f32; n_slots]; // 0 除算を避けるため 1.0 で初期化
-    for matches_vec in island_slot_matches.values() {
-        for (slot_pos, &cnt) in matches_vec.iter().enumerate() {
-            let c = cnt as f32;
-            if c > slot_max_match[slot_pos] {
-                slot_max_match[slot_pos] = c;
-            }
-        }
-    }
-
     // Pass 2: compute final scores and assign best slot to each island.
     //
-    // スコア計算式（2段階線形補間）:
-    //   normalized_count = match_count / slot_max_match  [0,1]  ← このスロット内で最大の島を 1.0 とした相対順位
-    //   purity           = match_count / island_area     [0,1]  ← 島に占める Source Color の割合
+    // ──────────────────────────────────────────────────────────────────
+    // 設計メモ: なぜスコア式の変更だけでは area_weight に視覚的変化が出ないか
     //
-    //   final_score = (1 - w) * normalized_count + w * purity
+    // スコア式の変化（`base*(1-w)+base*purity*w` 等）は、同一スロットに
+    // 複数の島が競合するときにのみ「勝者の逆転」を生む。
+    // しかしユーザーのシーンでは Source Color が1島だけにマッチするのが
+    // 典型的であるため、どんな式でも area_weight を動かしても順位変動なし。
     //
-    // area_weight = 0% → normalized_count のみ（絶対マッチ数が多い島を優先）
-    // area_weight = 100% → purity のみ（Source Color に覆われた割合が高い島を優先）
+    // ── 解決策: Purity Gate（純度閾値）の導入 ──────────────────────
+    //   purity = match_count / island_area  （Source Color が島を覆う割合）
     //
-    // 旧実装 `base * (1-w) + base * purity * w = base * ((1-w) + purity*w)` は
-    // base（絶対数）を乗数として掛けるため大きい島が常に勝ちやすく、
-    // area_weight を変えても勝者が逆転しにくいという問題があった。
+    //   `purity < area_weight` の島は「マッチ失格」として弾く。
+    //
+    //   効果（1島シナリオ）:
+    //     area_weight < 島のpurity  → 通常トラッキング（安定色）
+    //     area_weight > 島のpurity  → 失格 → auto-assigned(33+)色に変化  ← 視覚的変化!
+    //
+    //   効果（複数島シナリオ）:
+    //     低purityの島が順次脱落し、残った島の中でスコア式による競合解決が行われる。
+    //
+    // スコア式:
+    //   final_score = base_score * (1 - w) + base_score * purity * w
+    //               = base_score * ((1 - w) + purity * w)
+    //
+    //   w=0: 絶対マッチ数優先（Color Match と同等）
+    //   w=1: purity×count 優先（Source Color に純粋に覆われた島が有利）
+    // ──────────────────────────────────────────────────────────────────
     let mut label_to_user_id: std::collections::HashMap<u32, u32> =
         std::collections::HashMap::new();
 
@@ -1867,11 +1869,14 @@ fn area_weighted_tracking(
 
             let base_score = match_count as f32;
             let purity = (base_score / total_f).min(1.0_f32);
-            let normalized_count = base_score / slot_max_match[slot_pos]; // [0,1]
 
-            // area_weight=0 → normalized_count 優先（絶対数）
-            // area_weight=1 → purity 優先（純度）
-            let final_score = (1.0 - area_weight) * normalized_count + area_weight * purity;
+            // Purity gate: area_weight を超えない purity の島はトラッキング対象外。
+            // これにより 1島のみマッチするシナリオでもスライダーの変化が視覚に現れる。
+            if purity < area_weight {
+                continue;
+            }
+
+            let final_score = base_score * (1.0 - area_weight) + base_score * purity * area_weight;
 
             if final_score > best_score {
                 best_score = final_score;
@@ -1889,12 +1894,16 @@ fn area_weighted_tracking(
 
 /// アルゴリズム3: 矩形重複（IoU）マッチング
 ///
-/// Source Temp Color にマッチするピクセル群のバウンディングボックスと
-/// 各 CCL 島のバウンディングボックスの IoU (Intersection over Union) を計算し、
-/// `iou_threshold` 以上の IoU を持つ島のうち最大 IoU のスロットを採用する。
+/// 各スロットの Source Temp Color にマッチするピクセル群の
+/// バウンディングボックス（BB）と、各 CCL 島の BB の
+/// IoU (Intersection over Union) を計算し、
+/// `iou_threshold` 以上かつ最大 IoU のスロットを各島に割り当てる。
 ///
-/// TODO: IoU 計算を実装する。
-/// 現在は color_match_tracking にフォールバックする。
+/// # 同色の孤立島に関する注意
+/// 2つの島が完全に同一の色を持つ場合、Source BB が両島を包む大きな矩形に
+/// なるため、両島の IoU が近い値になり区別できない。
+/// その場合は Color Match (algo=1) または将来実装予定のフレームキャッシュ方式を
+/// 併用することを推奨する。
 fn iou_tracking(
     raw_labels: &[u32],
     in_layer: &Layer,
@@ -1904,22 +1913,108 @@ fn iou_tracking(
     tracking_targets: &[(usize, PixelF32, PixelF32, f32)],
     iou_threshold: f32,
 ) -> std::collections::HashMap<u32, u32> {
-    // TODO: 実装手順
-    //   1. tracking_targets の各 slot に対して Source Color マッチピクセルの
-    //      (min_x, min_y, max_x, max_y) を計算 → source_bb[slot_idx]
-    //   2. raw_labels の各アイランドの (min_x, min_y, max_x, max_y) を計算 → island_bb[lbl]
-    //   3. IoU(source_bb, island_bb) を計算
-    //   4. iou_threshold を超える組み合わせのうち IoU 最大のスロットを各島に割り当て
-    let _ = iou_threshold; // TODO: IoU 計算に使用予定
-    color_match_tracking(
-        raw_labels,
-        in_layer,
-        in_world_type,
-        width,
-        height,
-        tracking_targets,
-        1.0,
-    )
+    if tracking_targets.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    let n_slots = tracking_targets.len();
+
+    // バウンディングボックス: (min_x, min_y, max_x, max_y)
+    // None = まだピクセルがない「空」状態
+    type Bb = Option<(usize, usize, usize, usize)>;
+
+    // BB にピクセル座標を取り込む
+    fn bb_expand(bb: &mut Bb, x: usize, y: usize) {
+        match bb {
+            None => *bb = Some((x, y, x, y)),
+            Some((x0, y0, x1, y1)) => {
+                if x < *x0 {
+                    *x0 = x;
+                }
+                if y < *y0 {
+                    *y0 = y;
+                }
+                if x > *x1 {
+                    *x1 = x;
+                }
+                if y > *y1 {
+                    *y1 = y;
+                }
+            }
+        }
+    }
+
+    // IoU = 重なり面積 / 合算面積
+    fn bb_iou(a: &Bb, b: &Bb) -> f32 {
+        let (a, b) = match (a, b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return 0.0,
+        };
+        let ix0 = a.0.max(b.0);
+        let iy0 = a.1.max(b.1);
+        let ix1 = a.2.min(b.2);
+        let iy1 = a.3.min(b.3);
+        if ix1 < ix0 || iy1 < iy0 {
+            return 0.0; // 重なりなし
+        }
+        let inter = ((ix1 - ix0 + 1) * (iy1 - iy0 + 1)) as f32;
+        let area_a = ((a.2 - a.0 + 1) * (a.3 - a.1 + 1)) as f32;
+        let area_b = ((b.2 - b.0 + 1) * (b.3 - b.1 + 1)) as f32;
+        let union = area_a + area_b - inter;
+        if union <= 0.0 {
+            0.0
+        } else {
+            inter / union
+        }
+    }
+
+    // ── Pass 1: 1スキャンで island_bb と source_bb を同時に収集 ──────────
+    // island_bb: CCL ラベルごとの島バウンディングボックス
+    // source_bb: 各スロットの Source Color にマッチしたピクセルの BB
+    //   ※島ピクセル（lbl != 0）のみを対象にすることで
+    //     背景ノイズが BB を不必要に膨らませるのを防ぐ
+    let mut island_bb: std::collections::HashMap<u32, Bb> = std::collections::HashMap::new();
+    let mut source_bb: Vec<Bb> = vec![None; n_slots];
+
+    for y in 0..height {
+        for x in 0..width {
+            let lbl = raw_labels[y * width + x];
+            if lbl == 0 {
+                continue;
+            }
+            bb_expand(island_bb.entry(lbl).or_insert(None), x, y);
+
+            let px = read_pixel_f32(in_layer, in_world_type, x, y);
+            for (slot_pos, (_, src_color, _, range)) in tracking_targets.iter().enumerate() {
+                if color_distance_f32(&px, src_color) <= *range {
+                    bb_expand(&mut source_bb[slot_pos], x, y);
+                }
+            }
+        }
+    }
+
+    // ── Pass 2: 各島に IoU 最大のスロットを割り当て ────────────────────
+    // iou_threshold を最低ラインとし、それを超えるスロットの中から
+    // 最高 IoU のスロットを採用する（複数スロット競合時は高 IoU 優先）
+    let mut label_to_user_id: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+
+    for (&lbl, ibb) in &island_bb {
+        let mut best_uid: Option<u32> = None;
+        let mut best_score = iou_threshold; // 閾値未満は採用しない
+
+        for (slot_pos, (slot_idx, _, _, _)) in tracking_targets.iter().enumerate() {
+            let score = bb_iou(ibb, &source_bb[slot_pos]);
+            if score > best_score {
+                best_score = score;
+                best_uid = Some((*slot_idx as u32) + 1);
+            }
+        }
+
+        if let Some(uid) = best_uid {
+            label_to_user_id.insert(lbl, uid);
+        }
+    }
+
+    label_to_user_id
 }
 
 fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
