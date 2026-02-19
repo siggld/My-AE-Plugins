@@ -1723,27 +1723,43 @@ impl Plugin {
             let raw_labels = compute_ccl(&mask, width, height);
 
             // ─── Step3: Source Temp Color によるアンカーベース ID マッピング ──
-            // ccl_label → user_id (slot_index + 1 で 1〜32 の範囲。0 は背景予約)
-            let mut label_to_user_id: std::collections::HashMap<u32, u32> =
-                std::collections::HashMap::new();
-            if !tracking_targets.is_empty() {
-                for y in 0..height {
-                    for x in 0..width {
-                        let lbl = raw_labels[y * width + x];
-                        if lbl == 0 || label_to_user_id.contains_key(&lbl) {
-                            continue;
-                        }
-                        let px = read_pixel_f32(&in_layer, in_world_type, x, y);
-                        for (slot_idx, src_color, _, range) in &tracking_targets {
-                            if color_distance_f32(&px, src_color) <= *range {
-                                // user_id は 1-based (スロット 0 → ID 1)
-                                label_to_user_id.insert(lbl, (*slot_idx as u32) + 1);
-                                break;
+            // 競合解決ルール: 1つの島に複数の Source Color がヒットした場合、
+            //   島の任意ピクセルとの色差が最小のスロットを優先する。
+            // user_id = slot_index + 1 (1〜32。0 は背景予約)
+            //
+            // 中間テーブル: label → (best_user_id, best_dist_so_far)
+            // 全ピクセルを走査し、各島ごとに最小距離スロットを確定する。
+            let label_to_user_id: std::collections::HashMap<u32, u32> = {
+                let mut label_best: std::collections::HashMap<u32, (u32, f32)> =
+                    std::collections::HashMap::new();
+                if !tracking_targets.is_empty() {
+                    for y in 0..height {
+                        for x in 0..width {
+                            let lbl = raw_labels[y * width + x];
+                            if lbl == 0 {
+                                continue;
+                            }
+                            let px = read_pixel_f32(&in_layer, in_world_type, x, y);
+                            for (slot_idx, src_color, _, range) in &tracking_targets {
+                                let dist = color_distance_f32(&px, src_color);
+                                if dist <= *range {
+                                    let uid = (*slot_idx as u32) + 1;
+                                    // この島にまだ候補がないか、より近い色差なら更新
+                                    let entry = label_best.entry(lbl).or_insert((uid, f32::MAX));
+                                    if dist < entry.1 {
+                                        *entry = (uid, dist);
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
+                // 最小距離のスロットだけを残す（距離情報は不要なので捨てる）
+                label_best
+                    .into_iter()
+                    .map(|(lbl, (uid, _))| (lbl, uid))
+                    .collect()
+            };
 
             // ─── Step4: 最終ラベル配列を構築 ───────────────────────
             // user_id 1〜32   : ユーザー指定スロットに紐づいた島（安定色）
