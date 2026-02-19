@@ -1213,78 +1213,8 @@ fn update_params_ui_visibility(
         }
     }
 
-    // ─── SortMaskIndex / GradMaskIndex ポップアップをレイヤーの実際のマスク名で更新 ──
-    // PF_PathQuerySuite は UpdateParamsUi では使用不可のため、
-    // AEGP (PFInterface + Mask + Stream) を使用してマスク名を取得する。
-    // AEGP スイートは UpdateParamsUi でも動作する。
-    //
-    // 注意: AE では PF_UpdateParamUI でポップアップの選択肢「数」を変更できない。
-    // 常に初期定義と同じ件数（MASK_POPUP_SLOTS = 4）を保持する。
-    {
-        const MASK_POPUP_SLOTS: usize = 4;
-        let mask_names: Vec<String> = if !in_data.is_premiere() {
-            let aegp_names: Option<Vec<String>> = (|| -> Option<Vec<String>> {
-                let pf_iface = ae::aegp::suites::PFInterface::new().ok()?;
-                let layer = pf_iface.effect_layer(in_data.effect_ref()).ok()?;
-                let mask_suite = ae::aegp::suites::Mask::new().ok()?;
-                let stream_suite = ae::aegp::suites::Stream::new().ok()?;
-                let dyn_suite = ae::aegp::suites::DynamicStream::new().ok()?;
-                let num = mask_suite.layer_num_masks(layer).ok()? as usize;
-                let names: Vec<String> = (0..MASK_POPUP_SLOTS)
-                    .map(|i| -> String {
-                        if i < num {
-                            // マスクの Outline ストリームを取得し、
-                            // その親ストリーム（マスクグループ）の名前を取得する。
-                            // これがマスクの表示名（例: "マスク 2"）になる。
-                            let maybe_name: Option<String> = (|| -> Option<String> {
-                                let mask_ref =
-                                    mask_suite.layer_mask_by_index(layer, i as i32).ok()?;
-                                let mask_stream = stream_suite
-                                    .new_mask_stream(
-                                        &mask_ref,
-                                        plugin_id,
-                                        ae::aegp::MaskStream::Outline,
-                                    )
-                                    .ok()?;
-                                let parent_stream = dyn_suite
-                                    .new_parent_stream_ref(&mask_stream, plugin_id)
-                                    .ok()?;
-                                stream_suite
-                                    .stream_name(&parent_stream, plugin_id, false)
-                                    .ok()
-                            })();
-                            maybe_name.unwrap_or_else(|| format!("Mask {}", i + 1))
-                        } else {
-                            format!("Mask {}", i + 1)
-                        }
-                    })
-                    .collect();
-                Some(names)
-            })();
-            aegp_names.unwrap_or_else(|| {
-                (1..=MASK_POPUP_SLOTS)
-                    .map(|i| format!("Mask {}", i))
-                    .collect()
-            })
-        } else {
-            (1..=MASK_POPUP_SLOTS)
-                .map(|i| format!("Mask {}", i))
-                .collect()
-        };
-        let options_ref: Vec<&str> = mask_names.iter().map(|s| s.as_str()).collect();
-        {
-            let mut p = params.cloned();
-            let mut popup = p.get_mut(Params::SortMaskIndex)?;
-            popup.as_popup_mut()?.set_options(&options_ref);
-            popup.update_param_ui()?;
-        }
-        {
-            let mut p = params.cloned();
-            let mut popup = p.get_mut(Params::GradMaskIndex)?;
-            popup.as_popup_mut()?.set_options(&options_ref);
-            popup.update_param_ui()?;
-        }
-    }
+    // SortMaskIndex / GradMaskIndex は PathDef のため、
+    // AE が自動的にレイヤーの実際のマスク名を表示する。手動更新は不要。
 
     Ok(())
 }
@@ -1418,7 +1348,7 @@ impl AdobePluginGlobal for Plugin {
             Params::IslandTrackGroupStart,
             Params::IslandTrackGroupEnd,
             "Island Tracking & Temp Colors",
-            true,
+            false,
             |params| {
                 params.add(
                     Params::TrackingPath,
@@ -1483,9 +1413,8 @@ impl AdobePluginGlobal for Plugin {
                 params.add_with_flags(
                     Params::SortMaskIndex,
                     "Sort Mask",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["Mask 1", "Mask 2", "Mask 3", "Mask 4"]);
-                        d.set_default(1);
+                    PathDef::setup(|d| {
+                        d.set_default(1); // 1-based: 1 = 最初のマスク
                     }),
                     ParamFlag::empty(),
                     ParamUIFlags::NONE,
@@ -1652,9 +1581,8 @@ impl AdobePluginGlobal for Plugin {
                 params.add_with_flags(
                     Params::GradMaskIndex,
                     "Grad Mask",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["Mask 1", "Mask 2", "Mask 3", "Mask 4"]);
-                        d.set_default(1);
+                    PathDef::setup(|d| {
+                        d.set_default(1); // 1-based: 1 = 最初のマスク
                     }),
                     ParamFlag::empty(),
                     ParamUIFlags::NONE,
@@ -2337,22 +2265,19 @@ fn sort_by_mask_path(
     in_data: ae::InData,
     raw_labels: &[u32],
     width: usize,
-    mask_index: i32,
+    path_id: ae::sys::PF_PathID,
 ) -> Option<std::collections::HashMap<u32, u32>> {
     // PF_PathQuerySuite は AE 専用（Premiere では使用不可）
     if in_data.is_premiere() {
         return None;
     }
-
-    let path_query = ae::pf::suites::PathQuery::new().ok()?;
-    let effect_ref = in_data.effect_ref();
-
-    let num_paths = path_query.num_paths(effect_ref).ok()?;
-    if mask_index >= num_paths {
+    // PathDef が NONE の場合はソートしない
+    if path_id == ae::sys::PF_PathID_NONE as ae::sys::PF_PathID {
         return None;
     }
 
-    let path_id = path_query.path_info(effect_ref, mask_index).ok()?;
+    let path_query = ae::pf::suites::PathQuery::new().ok()?;
+    let effect_ref = in_data.effect_ref();
     let path_outline = path_query
         .checkout_path(
             effect_ref,
@@ -2627,13 +2552,12 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_angle().ok().map(|ad| ad.value()))
             .unwrap_or(0.0);
-        // Mask Path ソート用マスクインデックス（popup 値は 1-based → 0-based に変換）
-        let sort_mask_index: i32 = params
+        // Mask Path ソート用マスク PF_PathID（PathDef から直接取得）
+        let sort_path_id: ae::sys::PF_PathID = params
             .get(Params::SortMaskIndex)
             .ok()
-            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
-            .unwrap_or(1)
-            - 1;
+            .and_then(|p| p.as_path().ok().map(|pd| pd.path_id()))
+            .unwrap_or(ae::sys::PF_PathID_NONE as ae::sys::PF_PathID);
 
         // TempColor をグレースケール表示するか（ソート順の視覚確認用）
         let grayscale_temp_color: bool = params
@@ -2660,12 +2584,12 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_point().ok().map(|pt| pt.value()))
             .unwrap_or((0.5, 0.5));
-        let grad_mask_index: i32 = params
+        // Gradient Mask Path 用マスク PF_PathID（PathDef から直接取得）
+        let grad_path_id: ae::sys::PF_PathID = params
             .get(Params::GradMaskIndex)
             .ok()
-            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
-            .unwrap_or(1)
-            - 1;
+            .and_then(|p| p.as_path().ok().map(|pd| pd.path_id()))
+            .unwrap_or(ae::sys::PF_PathID_NONE as ae::sys::PF_PathID);
         let master_bias: f32 = params
             .get(Params::MasterBias)
             .ok()
@@ -2740,7 +2664,7 @@ impl Plugin {
             let sort_id_map: Option<std::collections::HashMap<u32, u32>> = match island_sort {
                 1 => None,
                 // Mask Path: PF_PathQuerySuite でマスクパスを取得して弧長順にソート
-                9 => sort_by_mask_path(_in_data, &raw_labels, width, sort_mask_index),
+                9 => sort_by_mask_path(_in_data, &raw_labels, width, sort_path_id),
                 // 重心・面積ベースの空間ソート（2〜8）
                 _ => {
                     let mut sum_x: std::collections::HashMap<u32, u64> =
@@ -2982,17 +2906,15 @@ impl Plugin {
                 if _in_data.is_premiere() {
                     return None;
                 }
-                let pq = ae::pf::suites::PathQuery::new().ok()?;
-                let effect_ref = _in_data.effect_ref();
-                let num_paths = pq.num_paths(effect_ref).ok()?;
-                if grad_mask_index >= num_paths {
+                if grad_path_id == ae::sys::PF_PathID_NONE as ae::sys::PF_PathID {
                     return None;
                 }
-                let pid = pq.path_info(effect_ref, grad_mask_index).ok()?;
+                let pq = ae::pf::suites::PathQuery::new().ok()?;
+                let effect_ref = _in_data.effect_ref();
                 let po = pq
                     .checkout_path(
                         effect_ref,
-                        pid,
+                        grad_path_id,
                         _in_data.current_time(),
                         _in_data.time_step(),
                         _in_data.time_scale(),
