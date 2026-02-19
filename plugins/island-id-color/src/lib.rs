@@ -1229,7 +1229,7 @@ fn update_params_ui_visibility(
                 let mask_suite = ae::aegp::suites::Mask::new().ok()?;
                 let stream_suite = ae::aegp::suites::Stream::new().ok()?;
                 let dyn_suite = ae::aegp::suites::DynamicStream::new().ok()?;
-                let num = mask_suite.layer_num_masks(&layer).ok()? as usize;
+                let num = mask_suite.layer_num_masks(layer).ok()? as usize;
                 let names: Vec<String> = (0..MASK_POPUP_SLOTS)
                     .map(|i| -> String {
                         if i < num {
@@ -1238,7 +1238,7 @@ fn update_params_ui_visibility(
                             // これがマスクの表示名（例: "マスク 2"）になる。
                             let maybe_name: Option<String> = (|| -> Option<String> {
                                 let mask_ref =
-                                    mask_suite.layer_mask_by_index(&layer, i as i32).ok()?;
+                                    mask_suite.layer_mask_by_index(layer, i as i32).ok()?;
                                 let mask_stream = stream_suite
                                     .new_mask_stream(
                                         &mask_ref,
