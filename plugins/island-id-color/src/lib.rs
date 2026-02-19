@@ -3036,12 +3036,12 @@ impl Plugin {
                         .iter()
                         .enumerate()
                         .min_by(|a, b| {
-                                let (ax, ay) = a.1;
-                                let (bx, by) = b.1;
-                                let da = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
-                                let db = (bx - cx) * (bx - cx) + (by - cy) * (by - cy);
-                                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-                            })
+                            let (ax, ay) = a.1;
+                            let (bx, by) = b.1;
+                            let da = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
+                            let db = (bx - cx) * (bx - cx) + (by - cy) * (by - cy);
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        })
                         .map(|(i, _)| i)
                         .unwrap_or(0);
                     let prev = best.saturating_sub(1);
@@ -3193,7 +3193,8 @@ impl Plugin {
                                         if (p_max - p_min).abs() < 1.0 {
                                             0.0_f32
                                         } else {
-                                            ((proj - p_min) / (p_max - p_min)).clamp(0.0_f32, 1.0_f32)
+                                            ((proj - p_min) / (p_max - p_min))
+                                                .clamp(0.0_f32, 1.0_f32)
                                         }
                                     }
                                     _ => {
