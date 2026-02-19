@@ -135,6 +135,7 @@ enum Params {
     IslandTrackGroupEnd,
     TrackingPath,
     ShowTempColors,
+    GrayscaleTempColor,
     IslandSort,
     SortAngle,
     SortMaskIndex,
@@ -1171,6 +1172,44 @@ fn update_params_ui_visibility(
         }
     }
 
+    // ─── SortMaskIndex ポップアップをレイヤーの実際のマスク名で更新 ───────────
+    // AE のみ PathQuerySuite / PathDataSuite が利用可能。
+    // Premiere や取得失敗時は "Mask N" フォールバックを使う。
+    // update_param_ui で選択肢数・テキストの両方を変更できる。
+    {
+        let mask_names: Vec<String> = if !in_data.is_premiere() {
+            if let (Ok(pq), Ok(pd_suite)) = (
+                ae::pf::suites::PathQuery::new(),
+                ae::pf::suites::PathData::new(),
+            ) {
+                let effect_ref = in_data.effect_ref();
+                let num = pq.num_paths(effect_ref).unwrap_or(0).max(0);
+                let mut names: Vec<String> = Vec::new();
+                for i in 0..num {
+                    let name = pq
+                        .path_info(effect_ref, i)
+                        .ok()
+                        .and_then(|pid| pd_suite.path_get_name(effect_ref, pid).ok())
+                        .unwrap_or_else(|| format!("Mask {}", i + 1));
+                    names.push(name);
+                }
+                if names.is_empty() {
+                    names.push("Mask 1".to_string());
+                }
+                names
+            } else {
+                (1..=4).map(|i| format!("Mask {}", i)).collect()
+            }
+        } else {
+            (1..=4).map(|i| format!("Mask {}", i)).collect()
+        };
+        let options_ref: Vec<&str> = mask_names.iter().map(|s| s.as_str()).collect();
+        let mut p = params.cloned();
+        let mut popup = p.get_mut(Params::SortMaskIndex)?;
+        popup.as_popup_mut()?.set_options(&options_ref);
+        popup.update_param_ui()?;
+    }
+
     Ok(())
 }
 
@@ -1315,6 +1354,15 @@ impl AdobePluginGlobal for Plugin {
                     "Show Temp Colors",
                     CheckBoxDef::setup(|d| {
                         d.set_default(true);
+                    }),
+                )?;
+                // TempColor を白黒グレースケールで表示するモード。
+                // ソート順を視覚的に確認するために使う（ID小=暗、ID大=明）。
+                params.add(
+                    Params::GrayscaleTempColor,
+                    "Grayscale Temp Color",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
                     }),
                 )?;
                 // ─── 空間ソートモード ──────────────────────────────────
@@ -1818,6 +1866,27 @@ fn island_id_to_color(id: u32) -> PixelF32 {
         red: (id.wrapping_mul(50) % 255) as f32 / 255.0,
         green: (id.wrapping_mul(80) % 255) as f32 / 255.0,
         blue: (id.wrapping_mul(110) % 255) as f32 / 255.0,
+        alpha: 1.0,
+    }
+}
+
+/// アイランドIDをグレースケール値に変換する。
+/// id=1 が最も暗く、id=total が白（1.0）になるよう均等分割する。
+/// ソート順を視覚的に確認するために使う。
+fn island_id_to_grayscale(id: u32, total: u32) -> PixelF32 {
+    if id == 0 {
+        return PixelF32 {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        };
+    }
+    let val = id as f32 / total.max(1) as f32;
+    PixelF32 {
+        red: val,
+        green: val,
+        blue: val,
         alpha: 1.0,
     }
 }
@@ -2441,6 +2510,13 @@ impl Plugin {
             .unwrap_or(1)
             - 1;
 
+        // TempColor をグレースケール表示するか（ソート順の視覚確認用）
+        let grayscale_temp_color: bool = params
+            .get(Params::GrayscaleTempColor)
+            .ok()
+            .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+            .unwrap_or(false);
+
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
             .get(Params::TrackingAlgorithm)
@@ -2631,6 +2707,21 @@ impl Plugin {
             None
         };
 
+        // グレースケール表示用: 確定した仮ラベル配列から distinct な非ゼロ ID 数を数える。
+        let total_islands: u32 = island_labels
+            .as_ref()
+            .map(|l| {
+                let mut seen = std::collections::HashSet::new();
+                for &id in l {
+                    if id != 0 {
+                        seen.insert(id);
+                    }
+                }
+                seen.len() as u32
+            })
+            .unwrap_or(1)
+            .max(1);
+
         let out_wt = out_world_type;
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let px = read_pixel_f32(&in_layer, in_world_type, x as usize, y as usize);
@@ -2670,7 +2761,11 @@ impl Plugin {
                     } else {
                         let idx = y as usize * width + x as usize;
                         let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
-                        let mut color = island_id_to_color(id);
+                        let mut color = if grayscale_temp_color {
+                            island_id_to_grayscale(id, total_islands)
+                        } else {
+                            island_id_to_color(id)
+                        };
                         color.alpha = px.alpha;
                         color
                     }
