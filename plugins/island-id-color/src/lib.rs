@@ -1960,11 +1960,7 @@ fn iou_tracking(
         let area_a = ((a.2 - a.0 + 1) * (a.3 - a.1 + 1)) as f32;
         let area_b = ((b.2 - b.0 + 1) * (b.3 - b.1 + 1)) as f32;
         let union = area_a + area_b - inter;
-        if union <= 0.0 {
-            0.0
-        } else {
-            inter / union
-        }
+        if union <= 0.0 { 0.0 } else { inter / union }
     }
 
     // ── Pass 1: 1スキャンで island_bb と source_bb を同時に収集 ──────────
@@ -1995,7 +1991,8 @@ fn iou_tracking(
     // ── Pass 2: 各島に IoU 最大のスロットを割り当て ────────────────────
     // iou_threshold を最低ラインとし、それを超えるスロットの中から
     // 最高 IoU のスロットを採用する（複数スロット競合時は高 IoU 優先）
-    let mut label_to_user_id: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut label_to_user_id: std::collections::HashMap<u32, u32> =
+        std::collections::HashMap::new();
 
     for (&lbl, ibb) in &island_bb {
         let mut best_uid: Option<u32> = None;
