@@ -1213,36 +1213,43 @@ fn update_params_ui_visibility(
         }
     }
 
-    // ─── SortMaskIndex ポップアップをレイヤーの実際のマスク名で更新 ───────────
+    // ─── SortMaskIndex / GradMaskIndex ポップアップをレイヤーの実際のマスク名で更新 ──
     // AE のみ PathQuerySuite / PathDataSuite が利用可能。
     // Premiere や取得失敗時は "Mask N" フォールバックを使う。
-    // update_param_ui で選択肢数・テキストの両方を変更できる。
+    //
+    // 注意: AE では PF_UpdateParamUI でポップアップの選択肢「数」を変更できない。
+    // そのため、常に初期定義と同じ件数（MASK_POPUP_SLOTS = 4）を保持し、
+    // 存在するマスクのスロットだけ実際の名前に差し替える。
     {
+        const MASK_POPUP_SLOTS: usize = 4;
         let mask_names: Vec<String> = if !in_data.is_premiere() {
             if let (Ok(pq), Ok(pd_suite)) = (
                 ae::pf::suites::PathQuery::new(),
                 ae::pf::suites::PathData::new(),
             ) {
                 let effect_ref = in_data.effect_ref();
-                let num = pq.num_paths(effect_ref).unwrap_or(0).max(0);
-                let mut names: Vec<String> = Vec::new();
-                for i in 0..num {
-                    let name = pq
-                        .path_info(effect_ref, i)
-                        .ok()
-                        .and_then(|pid| pd_suite.path_get_name(effect_ref, pid).ok())
-                        .unwrap_or_else(|| format!("Mask {}", i + 1));
-                    names.push(name);
-                }
-                if names.is_empty() {
-                    names.push("Mask 1".to_string());
-                }
-                names
+                let num = pq.num_paths(effect_ref).unwrap_or(0).max(0) as usize;
+                (0..MASK_POPUP_SLOTS)
+                    .map(|i| {
+                        if i < num {
+                            pq.path_info(effect_ref, i as i32)
+                                .ok()
+                                .and_then(|pid| pd_suite.path_get_name(effect_ref, pid).ok())
+                                .unwrap_or_else(|| format!("Mask {}", i + 1))
+                        } else {
+                            format!("Mask {}", i + 1)
+                        }
+                    })
+                    .collect()
             } else {
-                (1..=4).map(|i| format!("Mask {}", i)).collect()
+                (1..=MASK_POPUP_SLOTS)
+                    .map(|i| format!("Mask {}", i))
+                    .collect()
             }
         } else {
-            (1..=4).map(|i| format!("Mask {}", i)).collect()
+            (1..=MASK_POPUP_SLOTS)
+                .map(|i| format!("Mask {}", i))
+                .collect()
         };
         let options_ref: Vec<&str> = mask_names.iter().map(|s| s.as_str()).collect();
         {
@@ -2731,9 +2738,11 @@ impl Plugin {
                     }
                     // By Angle 用: 角度をラジアンに変換して方向ベクトルを計算
                     // 0° = (1,0)=左→右, 90° = (0,1)=上→下 (スクリーン座標)
+                    // AE AngleDef: 0°=上、時計回り正。
+                    // (sin, cos) で AE 視覚方向と一致: 0°=上→下、90°=右方向、180°=下→上
                     let angle_rad = sort_angle_deg.to_radians();
-                    let dir_x = angle_rad.cos();
-                    let dir_y = angle_rad.sin();
+                    let dir_x = angle_rad.sin();
+                    let dir_y = angle_rad.cos();
 
                     // ソートキーを計算（昇順で並べたときに小さいほど ID=1 に近い）
                     let mut islands: Vec<(u32, f32)> = cnt
@@ -3199,8 +3208,9 @@ impl Plugin {
                                     }
                                     _ => {
                                         // Linear: Master Angle 方向で BB 内線形グラデーション
+                                        // AE AngleDef: 0°=上、時計回り正 → (sin, cos)
                                         let angle_rad = master_angle_deg.to_radians();
-                                        let (dx, dy) = (angle_rad.cos(), angle_rad.sin());
+                                        let (dx, dy) = (angle_rad.sin(), angle_rad.cos());
                                         let projs: [f32; 4] = [
                                             corners[0].0 * dx + corners[0].1 * dy,
                                             corners[1].0 * dx + corners[1].1 * dy,
