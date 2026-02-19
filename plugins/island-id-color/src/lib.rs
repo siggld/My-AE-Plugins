@@ -134,6 +134,10 @@ enum Params {
     IslandTrackGroupEnd,
     TrackingPath,
     ShowTempColors,
+    TrackingAlgorithm,
+    AlgoColorScale,
+    AlgoAreaWeight,
+    AlgoIouThreshold,
     MergeIslandCount,
     EnableMerge0,
     SourceTempColor0,
@@ -811,6 +815,11 @@ fn update_params_ui_visibility(
     let ext_count = popup_to_count(params, Params::ExtractionCount);
     let merge_count = popup_to_count(params, Params::MergeIslandCount);
     let grad_count = popup_to_count(params, Params::GradientSettingsCount);
+    let tracking_algo: i32 = params
+        .get(Params::TrackingAlgorithm)
+        .ok()
+        .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+        .unwrap_or(1);
 
     // Read enable states from original params before any mutation
     let ext_enabled: [bool; EXTRACTION_SETS] = {
@@ -894,6 +903,25 @@ fn update_params_ui_visibility(
                 pd.update_param_ui()?;
             }
         }
+        // アルゴリズム専用パラメータの表示切り替え
+        {
+            let mut pd = p.get_mut(Params::AlgoColorScale)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, tracking_algo != 1);
+            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::AlgoAreaWeight)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, tracking_algo != 2);
+            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::AlgoIouThreshold)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, tracking_algo != 3);
+            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
         for i in 0..GRADIENT_SETS {
             let vis = i < grad_count;
             {
@@ -970,6 +998,43 @@ fn update_params_ui_visibility(
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_tcr)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+        }
+        // アルゴリズム専用パラメータの Hidden 切り替え
+        {
+            let idx = params
+                .index(Params::AlgoColorScale)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    tracking_algo != 1,
+                )?;
+        }
+        {
+            let idx = params
+                .index(Params::AlgoAreaWeight)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    tracking_algo != 2,
+                )?;
+        }
+        {
+            let idx = params
+                .index(Params::AlgoIouThreshold)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    tracking_algo != 3,
+                )?;
         }
         for i in 0..GRADIENT_SETS {
             let hidden = i >= grad_count;
@@ -1190,6 +1255,63 @@ impl AdobePluginGlobal for Plugin {
                     CheckBoxDef::setup(|d| {
                         d.set_default(true);
                     }),
+                )?;
+                // ─── アルゴリズム選択 ─────────────────────────────────
+                // 3種のマッチング手法を切り替え。選択に応じて専用スライダーを表示。
+                params.add_with_flags(
+                    Params::TrackingAlgorithm,
+                    "Tracking Algorithm",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["色差マッチング", "面積考慮", "矩形重複 (IoU)"]);
+                        d.set_default(1);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                // algo=1 用: 色差スケール倍率（100% = TrackingColorRange をそのまま使用）
+                params.add_with_flags(
+                    Params::AlgoColorScale,
+                    "Color Scale (%)",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(500.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(100.0);
+                        d.set_precision(0);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::NONE,
+                )?;
+                // algo=2 用: 面積差スコアに対する重み（0=色差のみ, 100=面積のみ）
+                params.add_with_flags(
+                    Params::AlgoAreaWeight,
+                    "Area Weight (%)",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(0);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::INVISIBLE,
+                )?;
+                // algo=3 用: マッチを認める最小 IoU（0〜100%）
+                params.add_with_flags(
+                    Params::AlgoIouThreshold,
+                    "IoU Threshold (%)",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(30.0);
+                        d.set_precision(0);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::INVISIBLE,
                 )?;
                 params.add_with_flags(
                     Params::MergeIslandCount,
@@ -1585,6 +1707,133 @@ fn island_id_to_color(id: u32) -> PixelF32 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// トラッキングアルゴリズム
+// ---------------------------------------------------------------------------
+// すべての関数は CCL 仮ラベル → user_id (1〜32) のマッピングを返す。
+// 競合解決: 1島に複数スロットがマッチした場合はスコア最小（最近接）を優先する。
+//
+// 【設計方針】
+// 3アルゴリズムはいずれも「Source Temp Color スロット ↔ CCL 島」の
+// 類似度スコアを計算するもので、1フレーム内で完結する（時系列不要）。
+//   1. color_match_tracking : 色差最小（現行ロジック）
+//   2. area_weighted_tracking: 色差 + 面積差の重み付きスコア（TODO）
+//   3. iou_tracking          : Source Temp Color ピクセルの BB と島 BB の IoU（TODO）
+
+/// アルゴリズム1: 色差マッチング（最小色差スロット優先）
+///
+/// `color_scale` は TrackingColorRange に対する倍率（1.0 = 100%）。
+/// 1.0 より大きくすると許容範囲が広がり、小さくすると厳しくなる。
+fn color_match_tracking(
+    raw_labels: &[u32],
+    in_layer: &Layer,
+    in_world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    tracking_targets: &[(usize, PixelF32, PixelF32, f32)],
+    color_scale: f32,
+) -> std::collections::HashMap<u32, u32> {
+    // 中間テーブル: label → (best_user_id, best_dist_so_far)
+    let mut label_best: std::collections::HashMap<u32, (u32, f32)> =
+        std::collections::HashMap::new();
+    if !tracking_targets.is_empty() {
+        for y in 0..height {
+            for x in 0..width {
+                let lbl = raw_labels[y * width + x];
+                if lbl == 0 {
+                    continue;
+                }
+                let px = read_pixel_f32(in_layer, in_world_type, x, y);
+                for (slot_idx, src_color, _, range) in tracking_targets {
+                    let effective_range = range * color_scale.max(0.0);
+                    let dist = color_distance_f32(&px, src_color);
+                    if dist <= effective_range {
+                        let uid = (*slot_idx as u32) + 1;
+                        let entry = label_best.entry(lbl).or_insert((uid, f32::MAX));
+                        if dist < entry.1 {
+                            *entry = (uid, dist);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    label_best
+        .into_iter()
+        .map(|(lbl, (uid, _))| (lbl, uid))
+        .collect()
+}
+
+/// アルゴリズム2: 面積考慮マッチング
+///
+/// スコア = (1 - area_weight) * 色差スコア + area_weight * 面積差スコア
+/// `area_weight` = 0.0 なら色差のみ（color_match_tracking と同等）
+/// `area_weight` = 1.0 なら面積差のみ
+///
+/// TODO: 面積差スコアを実装する。
+/// 現在は color_match_tracking にフォールバックする。
+fn area_weighted_tracking(
+    raw_labels: &[u32],
+    in_layer: &Layer,
+    in_world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    tracking_targets: &[(usize, PixelF32, PixelF32, f32)],
+    area_weight: f32,
+) -> std::collections::HashMap<u32, u32> {
+    // TODO: 各島のピクセル数と Source Temp Color マッチピクセル数の差をスコアに加算する。
+    // 実装例:
+    //   island_pixel_count[lbl] = 島のピクセル数
+    //   source_match_count[slot_idx] = Source Color にマッチするピクセル数
+    //   area_score = |island_pixel_count - source_match_count| / island_pixel_count
+    //   combined_score = (1.0 - area_weight) * color_dist + area_weight * area_score
+    let _ = area_weight; // TODO: 面積スコアに使用予定
+    color_match_tracking(
+        raw_labels,
+        in_layer,
+        in_world_type,
+        width,
+        height,
+        tracking_targets,
+        1.0,
+    )
+}
+
+/// アルゴリズム3: 矩形重複（IoU）マッチング
+///
+/// Source Temp Color にマッチするピクセル群のバウンディングボックスと
+/// 各 CCL 島のバウンディングボックスの IoU (Intersection over Union) を計算し、
+/// `iou_threshold` 以上の IoU を持つ島のうち最大 IoU のスロットを採用する。
+///
+/// TODO: IoU 計算を実装する。
+/// 現在は color_match_tracking にフォールバックする。
+fn iou_tracking(
+    raw_labels: &[u32],
+    in_layer: &Layer,
+    in_world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    tracking_targets: &[(usize, PixelF32, PixelF32, f32)],
+    iou_threshold: f32,
+) -> std::collections::HashMap<u32, u32> {
+    // TODO: 実装手順
+    //   1. tracking_targets の各 slot に対して Source Color マッチピクセルの
+    //      (min_x, min_y, max_x, max_y) を計算 → source_bb[slot_idx]
+    //   2. raw_labels の各アイランドの (min_x, min_y, max_x, max_y) を計算 → island_bb[lbl]
+    //   3. IoU(source_bb, island_bb) を計算
+    //   4. iou_threshold を超える組み合わせのうち IoU 最大のスロットを各島に割り当て
+    let _ = iou_threshold; // TODO: IoU 計算に使用予定
+    color_match_tracking(
+        raw_labels,
+        in_layer,
+        in_world_type,
+        width,
+        height,
+        tracking_targets,
+        1.0,
+    )
+}
+
 fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
     let dr = a.red - b.red;
     let dg = a.green - b.green;
@@ -1705,6 +1954,31 @@ impl Plugin {
             }
         }
 
+        // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
+        let tracking_algo: i32 = params
+            .get(Params::TrackingAlgorithm)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(1);
+        let algo_color_scale: f32 = params
+            .get(Params::AlgoColorScale)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(100.0) as f32
+            / 100.0;
+        let algo_area_weight: f32 = params
+            .get(Params::AlgoAreaWeight)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(50.0) as f32
+            / 100.0;
+        let algo_iou_threshold: f32 = params
+            .get(Params::AlgoIouThreshold)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(30.0) as f32
+            / 100.0;
+
         // Temp Color モードの場合のみ CCL を実行
         let island_labels: Option<Vec<u32>> = if output_mode == 3 {
             // ─── Step1: 2値マスクを構築 ─────────────────────────────
@@ -1722,43 +1996,38 @@ impl Plugin {
             // ─── Step2: CCL（仮ラベル） ─────────────────────────────
             let raw_labels = compute_ccl(&mask, width, height);
 
-            // ─── Step3: Source Temp Color によるアンカーベース ID マッピング ──
-            // 競合解決ルール: 1つの島に複数の Source Color がヒットした場合、
-            //   島の任意ピクセルとの色差が最小のスロットを優先する。
-            // user_id = slot_index + 1 (1〜32。0 は背景予約)
-            //
-            // 中間テーブル: label → (best_user_id, best_dist_so_far)
-            // 全ピクセルを走査し、各島ごとに最小距離スロットを確定する。
-            let label_to_user_id: std::collections::HashMap<u32, u32> = {
-                let mut label_best: std::collections::HashMap<u32, (u32, f32)> =
-                    std::collections::HashMap::new();
-                if !tracking_targets.is_empty() {
-                    for y in 0..height {
-                        for x in 0..width {
-                            let lbl = raw_labels[y * width + x];
-                            if lbl == 0 {
-                                continue;
-                            }
-                            let px = read_pixel_f32(&in_layer, in_world_type, x, y);
-                            for (slot_idx, src_color, _, range) in &tracking_targets {
-                                let dist = color_distance_f32(&px, src_color);
-                                if dist <= *range {
-                                    let uid = (*slot_idx as u32) + 1;
-                                    // この島にまだ候補がないか、より近い色差なら更新
-                                    let entry = label_best.entry(lbl).or_insert((uid, f32::MAX));
-                                    if dist < entry.1 {
-                                        *entry = (uid, dist);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // 最小距離のスロットだけを残す（距離情報は不要なので捨てる）
-                label_best
-                    .into_iter()
-                    .map(|(lbl, (uid, _))| (lbl, uid))
-                    .collect()
+            // ─── Step3: アルゴリズムに基づく ID マッピング ─────────────
+            // アルゴリズム選択ポップアップに応じて3種の関数をディスパッチする。
+            // すべての関数は ccl_label → user_id (1〜32) の HashMap を返す。
+            let label_to_user_id: std::collections::HashMap<u32, u32> = match tracking_algo {
+                2 => area_weighted_tracking(
+                    &raw_labels,
+                    &in_layer,
+                    in_world_type,
+                    width,
+                    height,
+                    &tracking_targets,
+                    algo_area_weight,
+                ),
+                3 => iou_tracking(
+                    &raw_labels,
+                    &in_layer,
+                    in_world_type,
+                    width,
+                    height,
+                    &tracking_targets,
+                    algo_iou_threshold,
+                ),
+                // 1 またはデフォルト: 色差マッチング
+                _ => color_match_tracking(
+                    &raw_labels,
+                    &in_layer,
+                    in_world_type,
+                    width,
+                    height,
+                    &tracking_targets,
+                    algo_color_scale,
+                ),
             };
 
             // ─── Step4: 最終ラベル配列を構築 ───────────────────────
