@@ -1257,18 +1257,18 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 // ─── アルゴリズム選択 ─────────────────────────────────
-                // 3種のマッチング手法を切り替え。選択に応じて専用スライダーを表示。
+                // Three matching methods: selector switches the dedicated slider shown below.
                 params.add_with_flags(
                     Params::TrackingAlgorithm,
                     "Tracking Algorithm",
                     PopupDef::setup(|d| {
-                        d.set_options(&["色差マッチング", "面積考慮", "矩形重複 (IoU)"]);
+                        d.set_options(&["Color Match", "Area Weighted", "IoU Overlap"]);
                         d.set_default(1);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
                 )?;
-                // algo=1 用: 色差スケール倍率（100% = TrackingColorRange をそのまま使用）
+                // algo=1: color-distance scale multiplier (100% = use TrackingColorRange as-is)
                 params.add_with_flags(
                     Params::AlgoColorScale,
                     "Color Scale (%)",
@@ -1283,7 +1283,7 @@ impl AdobePluginGlobal for Plugin {
                     ParamFlag::empty(),
                     ParamUIFlags::NONE,
                 )?;
-                // algo=2 用: 面積差スコアに対する重み（0=色差のみ, 100=面積のみ）
+                // algo=2: weight for area-difference score (0=color only, 100=area only)
                 params.add_with_flags(
                     Params::AlgoAreaWeight,
                     "Area Weight (%)",
@@ -1298,7 +1298,7 @@ impl AdobePluginGlobal for Plugin {
                     ParamFlag::empty(),
                     ParamUIFlags::INVISIBLE,
                 )?;
-                // algo=3 用: マッチを認める最小 IoU（0〜100%）
+                // algo=3: minimum IoU required to accept a match (0-100%)
                 params.add_with_flags(
                     Params::AlgoIouThreshold,
                     "IoU Threshold (%)",
@@ -1764,14 +1764,18 @@ fn color_match_tracking(
         .collect()
 }
 
-/// アルゴリズム2: 面積考慮マッチング
+/// Algorithm 2: Area-Weighted Matching
 ///
-/// スコア = (1 - area_weight) * 色差スコア + area_weight * 面積差スコア
-/// `area_weight` = 0.0 なら色差のみ（color_match_tracking と同等）
-/// `area_weight` = 1.0 なら面積差のみ
+/// For each island, compute a combined score using color match count and area similarity:
 ///
-/// TODO: 面積差スコアを実装する。
-/// 現在は color_match_tracking にフォールバックする。
+///   color_match_score = source_match_count   (pixels in island that match source color)
+///   area_score        = 1.0 - |island_pixel_count - source_match_count| / island_pixel_count
+///                     = source_match_count / island_pixel_count   (simplified, since count <= total)
+///   final_score       = (1 - area_weight) * color_match_score
+///                     + area_weight * (color_match_score * area_score)
+///
+/// The island with the highest final_score is assigned to that source slot (user_id).
+/// When area_weight = 0.0, behavior equals color_match_tracking.
 fn area_weighted_tracking(
     raw_labels: &[u32],
     in_layer: &Layer,
@@ -1781,22 +1785,79 @@ fn area_weighted_tracking(
     tracking_targets: &[(usize, PixelF32, PixelF32, f32)],
     area_weight: f32,
 ) -> std::collections::HashMap<u32, u32> {
-    // TODO: 各島のピクセル数と Source Temp Color マッチピクセル数の差をスコアに加算する。
-    // 実装例:
-    //   island_pixel_count[lbl] = 島のピクセル数
-    //   source_match_count[slot_idx] = Source Color にマッチするピクセル数
-    //   area_score = |island_pixel_count - source_match_count| / island_pixel_count
-    //   combined_score = (1.0 - area_weight) * color_dist + area_weight * area_score
-    let _ = area_weight; // TODO: 面積スコアに使用予定
-    color_match_tracking(
-        raw_labels,
-        in_layer,
-        in_world_type,
-        width,
-        height,
-        tracking_targets,
-        1.0,
-    )
+    if tracking_targets.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    let n_slots = tracking_targets.len();
+
+    // Pass 1: collect per-island statistics in a single scan.
+    //   island_pixel_count[lbl]          = total pixels in island
+    //   island_slot_matches[lbl][slot_pos] = pixels in island matching slot's source color
+    let mut island_pixel_count: std::collections::HashMap<u32, u32> =
+        std::collections::HashMap::new();
+    let mut island_slot_matches: std::collections::HashMap<u32, Vec<u32>> =
+        std::collections::HashMap::new();
+
+    for y in 0..height {
+        for x in 0..width {
+            let lbl = raw_labels[y * width + x];
+            if lbl == 0 {
+                continue;
+            }
+            *island_pixel_count.entry(lbl).or_insert(0) += 1;
+
+            let px = read_pixel_f32(in_layer, in_world_type, x, y);
+            let matches = island_slot_matches
+                .entry(lbl)
+                .or_insert_with(|| vec![0u32; n_slots]);
+            for (slot_pos, (_, src_color, _, range)) in tracking_targets.iter().enumerate() {
+                if color_distance_f32(&px, src_color) <= *range {
+                    matches[slot_pos] += 1;
+                }
+            }
+        }
+    }
+
+    // Pass 2: compute final scores and assign best slot to each island.
+    let mut label_to_user_id: std::collections::HashMap<u32, u32> =
+        std::collections::HashMap::new();
+
+    for (lbl, matches) in &island_slot_matches {
+        let total = *island_pixel_count.get(lbl).unwrap_or(&0);
+        if total == 0 {
+            continue; // ゼロ除算ガード
+        }
+        let total_f = total as f32;
+
+        let mut best_uid: Option<u32> = None;
+        let mut best_score = -1.0_f32;
+
+        for (slot_pos, &match_count) in matches.iter().enumerate() {
+            if match_count == 0 {
+                continue; // マッチなし → このスロットは対象外
+            }
+            let (slot_idx, _, _, _) = tracking_targets[slot_pos];
+            let uid = (slot_idx as u32) + 1;
+
+            let color_match_score = match_count as f32;
+            // area_score = source_match_count / island_pixel_count  (0.0〜1.0)
+            // match_count <= total が保証されるのでクランプ不要だが念のため max(0)
+            let area_score = (color_match_score / total_f).min(1.0_f32);
+            let final_score = (1.0 - area_weight) * color_match_score
+                + area_weight * (color_match_score * area_score);
+
+            if final_score > best_score {
+                best_score = final_score;
+                best_uid = Some(uid);
+            }
+        }
+
+        if let Some(uid) = best_uid {
+            label_to_user_id.insert(*lbl, uid);
+        }
+    }
+
+    label_to_user_id
 }
 
 /// アルゴリズム3: 矩形重複（IoU）マッチング
