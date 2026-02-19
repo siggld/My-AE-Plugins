@@ -278,6 +278,8 @@ enum Params {
     GradientSettingsCount,
     MasterGradType,
     MasterAngle,
+    GradCenterPoint,
+    GradMaskIndex,
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
@@ -830,6 +832,11 @@ fn update_params_ui_visibility(
         .ok()
         .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
         .unwrap_or(1);
+    let master_grad_type: i32 = params
+        .get(Params::MasterGradType)
+        .ok()
+        .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+        .unwrap_or(1);
 
     // Read enable states from original params before any mutation
     let ext_enabled: [bool; EXTRACTION_SETS] = {
@@ -941,6 +948,16 @@ fn update_params_ui_visibility(
         {
             let mut pd = p.get_mut(Params::SortMaskIndex)?;
             pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, island_sort != 9);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::GradCenterPoint)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, master_grad_type != 2);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::GradMaskIndex)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, master_grad_type != 3);
             pd.update_param_ui()?;
         }
         for i in 0..GRADIENT_SETS {
@@ -1081,6 +1098,30 @@ fn update_params_ui_visibility(
                     island_sort != 9,
                 )?;
         }
+        {
+            let idx = params
+                .index(Params::GradCenterPoint)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    master_grad_type != 2,
+                )?;
+        }
+        {
+            let idx = params
+                .index(Params::GradMaskIndex)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    master_grad_type != 3,
+                )?;
+        }
         for i in 0..GRADIENT_SETS {
             let hidden = i >= grad_count;
             let idx_en = params
@@ -1204,10 +1245,18 @@ fn update_params_ui_visibility(
             (1..=4).map(|i| format!("Mask {}", i)).collect()
         };
         let options_ref: Vec<&str> = mask_names.iter().map(|s| s.as_str()).collect();
-        let mut p = params.cloned();
-        let mut popup = p.get_mut(Params::SortMaskIndex)?;
-        popup.as_popup_mut()?.set_options(&options_ref);
-        popup.update_param_ui()?;
+        {
+            let mut p = params.cloned();
+            let mut popup = p.get_mut(Params::SortMaskIndex)?;
+            popup.as_popup_mut()?.set_options(&options_ref);
+            popup.update_param_ui()?;
+        }
+        {
+            let mut p = params.cloned();
+            let mut popup = p.get_mut(Params::GradMaskIndex)?;
+            popup.as_popup_mut()?.set_options(&options_ref);
+            popup.update_param_ui()?;
+        }
     }
 
     Ok(())
@@ -1395,13 +1444,8 @@ impl AdobePluginGlobal for Plugin {
                 params.add_with_flags(
                     Params::SortAngle,
                     "Sort Angle",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(360.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(360.0);
+                    AngleDef::setup(|d| {
                         d.set_default(0.0);
-                        d.set_precision(1);
                     }),
                     ParamFlag::empty(),
                     ParamUIFlags::NONE,
@@ -1555,15 +1599,39 @@ impl AdobePluginGlobal for Plugin {
             "Gradient Render",
             true,
             |params| {
-                params.add(
+                params.add_with_flags(
                     Params::MasterGradType,
                     "Master Grad Type",
                     PopupDef::setup(|d| {
-                        d.set_options(&["Linear", "Radial"]);
+                        d.set_options(&["Linear", "Radial", "Mask Path"]);
                         d.set_default(1);
                     }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
                 )?;
                 params.add(Params::MasterAngle, "Master Angle", AngleDef::setup(|_| {}))?;
+                // Radial モード時のみ表示。グラデーションの中心座標（0.0=左/上、1.0=右/下）。
+                params.add_with_flags(
+                    Params::GradCenterPoint,
+                    "Grad Center Point",
+                    PointDef::setup(|d| {
+                        d.set_default_x(0.5);
+                        d.set_default_y(0.5);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::NONE,
+                )?;
+                // Mask Path モード時のみ表示。グラデーション方向に使うマスクを選択。
+                params.add_with_flags(
+                    Params::GradMaskIndex,
+                    "Grad Mask",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["Mask 1", "Mask 2", "Mask 3", "Mask 4"]);
+                        d.set_default(1);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::NONE,
+                )?;
                 params.add(
                     Params::MasterBias,
                     "Master Bias",
@@ -1889,6 +1957,35 @@ fn island_id_to_grayscale(id: u32, total: u32) -> PixelF32 {
         blue: val,
         alpha: 1.0,
     }
+}
+
+// ---------------------------------------------------------------------------
+// グラデーションユーティリティ
+// ---------------------------------------------------------------------------
+
+/// t に bias（0.0-1.0, 0.5 = linear）を適用する。
+/// t^(ln(0.5)/ln(bias)) によって中間値を前後にシフトする。
+fn apply_bias(t: f32, bias: f32) -> f32 {
+    if bias <= 0.01 {
+        return 0.0;
+    }
+    if bias >= 0.99 {
+        return 1.0;
+    }
+    if (bias - 0.5).abs() < 0.01 {
+        return t;
+    }
+    t.powf((0.5_f32).ln() / bias.ln())
+}
+
+/// 決定論的な擬似乱数ノイズ（-1.0 〜 1.0）をピクセル座標から生成する。
+fn pixel_noise(x: usize, y: usize) -> f32 {
+    let h = (x as u32)
+        .wrapping_mul(2654435761)
+        .wrapping_add((y as u32).wrapping_mul(2246822519))
+        .wrapping_mul(1664525)
+        .wrapping_add(1013904223);
+    (h as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
 
 // ---------------------------------------------------------------------------
@@ -2500,8 +2597,8 @@ impl Plugin {
         let sort_angle_deg: f32 = params
             .get(Params::SortAngle)
             .ok()
-            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
-            .unwrap_or(0.0) as f32;
+            .and_then(|p| p.as_angle().ok().map(|ad| ad.value()))
+            .unwrap_or(0.0);
         // Mask Path ソート用マスクインデックス（popup 値は 1-based → 0-based に変換）
         let sort_mask_index: i32 = params
             .get(Params::SortMaskIndex)
@@ -2516,6 +2613,49 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
             .unwrap_or(false);
+
+        // ─── Gradient Render パラメータ ───────────────────────────────
+        // 1=Linear, 2=Radial, 3=Mask Path
+        let master_grad_type: i32 = params
+            .get(Params::MasterGradType)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(1);
+        let master_angle_deg: f32 = params
+            .get(Params::MasterAngle)
+            .ok()
+            .and_then(|p| p.as_angle().ok().map(|ad| ad.value()))
+            .unwrap_or(0.0);
+        // GradCenterPoint: 0.0=左/上, 1.0=右/下（正規化座標）
+        let grad_center_point: (f32, f32) = params
+            .get(Params::GradCenterPoint)
+            .ok()
+            .and_then(|p| p.as_point().ok().map(|pt| pt.value()))
+            .unwrap_or((0.5, 0.5));
+        let grad_mask_index: i32 = params
+            .get(Params::GradMaskIndex)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(1)
+            - 1;
+        let master_bias: f32 = params
+            .get(Params::MasterBias)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(50.0) as f32
+            / 100.0;
+        let master_offset: f32 = params
+            .get(Params::MasterOffset)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(0.0) as f32
+            / 100.0;
+        let master_noise: f32 = params
+            .get(Params::MasterNoiseAmount)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(0.0) as f32
+            / 100.0;
 
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
@@ -2542,8 +2682,8 @@ impl Plugin {
             .unwrap_or(30.0) as f32
             / 100.0;
 
-        // Temp Color モードの場合のみ CCL を実行
-        let island_labels: Option<Vec<u32>> = if output_mode == 3 {
+        // Temp Color / Final Gradient モードの場合のみ CCL を実行
+        let island_labels: Option<Vec<u32>> = if output_mode == 3 || output_mode == 4 {
             // ─── Step1: 2値マスクを構築 ─────────────────────────────
             // 注意: AE のマスク（ストレートアルファ）は alpha=0 でも RGB が残る。
             // alpha が実質 0 のピクセルは InvertExtraction の設定に関わらず
@@ -2722,6 +2862,209 @@ impl Plugin {
             .unwrap_or(1)
             .max(1);
 
+        // ─── Final Gradient 用の事前計算 ──────────────────────────────────
+        // per-island グラデーション設定: (enabled, start_color, end_color, invert)
+        let grad_count_final =
+            popup_to_count(params, Params::GradientSettingsCount).min(GRADIENT_SETS);
+        let white_f32 = PixelF32 {
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+        };
+        let black_f32 = PixelF32 {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 1.0,
+        };
+        let grad_slots: Vec<(bool, PixelF32, PixelF32, bool)> = if output_mode == 4 {
+            (0..GRADIENT_SETS)
+                .map(|i| {
+                    if i >= grad_count_final {
+                        return (false, white_f32, black_f32, false);
+                    }
+                    let enabled = params
+                        .get(GRADIENT_ENABLE[i])
+                        .ok()
+                        .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                        .unwrap_or(false);
+                    let start = params
+                        .get(GRADIENT_START_COLOR[i])
+                        .ok()
+                        .and_then(|p| p.as_color().ok().map(|cd| target_color_to_f32(&cd.value())))
+                        .unwrap_or(white_f32);
+                    let end = params
+                        .get(GRADIENT_END_COLOR[i])
+                        .ok()
+                        .and_then(|p| p.as_color().ok().map(|cd| target_color_to_f32(&cd.value())))
+                        .unwrap_or(black_f32);
+                    let invert = params
+                        .get(GRADIENT_INVERT[i])
+                        .ok()
+                        .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+                        .unwrap_or(false);
+                    (enabled, start, end, invert)
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        // アイランドごとのバウンディングボックス: (x_min, x_max, y_min, y_max)
+        let island_bb: std::collections::HashMap<u32, (usize, usize, usize, usize)> =
+            if output_mode == 4 {
+                let mut bb: std::collections::HashMap<u32, (usize, usize, usize, usize)> =
+                    std::collections::HashMap::new();
+                if let Some(ref labels) = island_labels {
+                    for yr in 0..height {
+                        for xr in 0..width {
+                            let id = labels[yr * width + xr];
+                            if id == 0 {
+                                continue;
+                            }
+                            let e = bb.entry(id).or_insert((xr, xr, yr, yr));
+                            if xr < e.0 {
+                                e.0 = xr;
+                            }
+                            if xr > e.1 {
+                                e.1 = xr;
+                            }
+                            if yr < e.2 {
+                                e.2 = yr;
+                            }
+                            if yr > e.3 {
+                                e.3 = yr;
+                            }
+                        }
+                    }
+                }
+                bb
+            } else {
+                std::collections::HashMap::new()
+            };
+
+        // Mask Path モード: アイランド重心の最近傍パス点における接線方向 (tx, ty)
+        let island_grad_tangent: std::collections::HashMap<u32, (f32, f32)> = if output_mode == 4
+            && master_grad_type == 3
+        {
+            (|| -> Option<std::collections::HashMap<u32, (f32, f32)>> {
+                if _in_data.is_premiere() {
+                    return None;
+                }
+                let pq = ae::pf::suites::PathQuery::new().ok()?;
+                let effect_ref = _in_data.effect_ref();
+                let num_paths = pq.num_paths(effect_ref).ok()?;
+                if grad_mask_index >= num_paths {
+                    return None;
+                }
+                let pid = pq.path_info(effect_ref, grad_mask_index).ok()?;
+                let po = pq
+                    .checkout_path(
+                        effect_ref,
+                        pid,
+                        _in_data.current_time(),
+                        _in_data.time_step(),
+                        _in_data.time_scale(),
+                    )
+                    .ok()??;
+                let n_segs = po.num_segments().ok()?;
+                if n_segs < 1 {
+                    return None;
+                }
+                let nv = n_segs + 1;
+                let mut verts: Vec<(f64, f64, f64, f64, f64, f64)> =
+                    Vec::with_capacity(nv as usize);
+                for i in 0..nv {
+                    match po.vertex(i) {
+                        Ok(v) => {
+                            verts.push((v.x, v.y, v.tan_out_x, v.tan_out_y, v.tan_in_x, v.tan_in_y))
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if verts.len() < 2 {
+                    return None;
+                }
+                // Bezier パスをポリラインにサンプリング
+                const TSPG: usize = 64;
+                let cap = verts.len().saturating_sub(1) * TSPG + 1;
+                let mut pts: Vec<(f32, f32)> = Vec::with_capacity(cap);
+                for seg in 0..(verts.len() - 1) {
+                    let (ax0, ay0, oxt, oyt, _, _) = verts[seg];
+                    let (ax1, ay1, _, _, ixt, iyt) = verts[seg + 1];
+                    for k in 0..TSPG {
+                        let t = k as f32 / TSPG as f32;
+                        let u = 1.0 - t;
+                        let sx = u * u * u * ax0 as f32
+                            + 3.0 * u * u * t * oxt as f32
+                            + 3.0 * u * t * t * ixt as f32
+                            + t * t * t * ax1 as f32;
+                        let sy = u * u * u * ay0 as f32
+                            + 3.0 * u * u * t * oyt as f32
+                            + 3.0 * u * t * t * iyt as f32
+                            + t * t * t * ay1 as f32;
+                        pts.push((sx, sy));
+                    }
+                }
+                let (ex, ey, _, _, _, _) = verts[verts.len() - 1];
+                pts.push((ex as f32, ey as f32));
+                if pts.len() < 2 {
+                    return None;
+                }
+                // island_labels から各アイランドの重心を計算
+                let mut sxm: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+                let mut sym: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+                let mut cnm: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+                if let Some(ref labels) = island_labels {
+                    for (ii, &id) in labels.iter().enumerate() {
+                        if id == 0 {
+                            continue;
+                        }
+                        *cnm.entry(id).or_insert(0) += 1;
+                        *sxm.entry(id).or_insert(0.0) += (ii % width) as f64;
+                        *sym.entry(id).or_insert(0.0) += (ii / width) as f64;
+                    }
+                }
+                // 重心の最近傍パス点で接線方向を計算
+                let mut tmap: std::collections::HashMap<u32, (f32, f32)> =
+                    std::collections::HashMap::new();
+                for (&id, &c) in &cnm {
+                    let cx = (sxm[&id] / c as f64) as f32;
+                    let cy = (sym[&id] / c as f64) as f32;
+                    let best = pts
+                        .iter()
+                        .enumerate()
+                        .min_by(|a, b| {
+                                let (ax, ay) = a.1;
+                                let (bx, by) = b.1;
+                                let da = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
+                                let db = (bx - cx) * (bx - cx) + (by - cy) * (by - cy);
+                                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    let prev = best.saturating_sub(1);
+                    let next = (best + 1).min(pts.len() - 1);
+                    let (tx, ty) = if prev == next {
+                        (1.0_f32, 0.0_f32)
+                    } else {
+                        let (px, py) = pts[prev];
+                        let (nx, ny) = pts[next];
+                        let dx = nx - px;
+                        let dy = ny - py;
+                        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+                        (dx / len, dy / len)
+                    };
+                    tmap.insert(id, (tx, ty));
+                }
+                Some(tmap)
+            })()
+            .unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
         let out_wt = out_world_type;
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let px = read_pixel_f32(&in_layer, in_world_type, x as usize, y as usize);
@@ -2770,7 +3113,131 @@ impl Plugin {
                         color
                     }
                 }
-                4 => px,
+                4 => {
+                    // Final Gradient モード
+                    // alpha_threshold 未満は透明として扱う
+                    if px.alpha < alpha_threshold {
+                        PixelF32 {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: 0.0,
+                        }
+                    } else {
+                        let idx = y as usize * width + x as usize;
+                        let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
+                        if id == 0 {
+                            PixelF32 {
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            }
+                        } else {
+                            let slot = (id as usize).saturating_sub(1);
+                            let (enabled, start, end, invert) = grad_slots
+                                .get(slot)
+                                .copied()
+                                .unwrap_or((false, white_f32, black_f32, false));
+                            if !enabled {
+                                PixelF32 {
+                                    red: 0.0,
+                                    green: 0.0,
+                                    blue: 0.0,
+                                    alpha: 0.0,
+                                }
+                            } else {
+                                let (x_min, x_max, y_min, y_max) = island_bb
+                                    .get(&id)
+                                    .copied()
+                                    .unwrap_or((x as usize, x as usize, y as usize, y as usize));
+                                let corners = [
+                                    (x_min as f32, y_min as f32),
+                                    (x_max as f32, y_min as f32),
+                                    (x_min as f32, y_max as f32),
+                                    (x_max as f32, y_max as f32),
+                                ];
+                                // グラデーション t 値を計算（各モード）
+                                let t_raw = match master_grad_type {
+                                    2 => {
+                                        // Radial: 指定中心点からの距離で正規化
+                                        let cx = grad_center_point.0 * width as f32;
+                                        let cy = grad_center_point.1 * height as f32;
+                                        let r_max = corners
+                                            .iter()
+                                            .map(|&(bx, by)| {
+                                                let dx = bx - cx;
+                                                let dy = by - cy;
+                                                (dx * dx + dy * dy).sqrt()
+                                            })
+                                            .fold(1.0_f32, f32::max);
+                                        let dx = x as f32 - cx;
+                                        let dy = y as f32 - cy;
+                                        ((dx * dx + dy * dy).sqrt() / r_max).clamp(0.0, 1.0)
+                                    }
+                                    3 => {
+                                        // Mask Path: 島重心の接線方向で BB 内線形グラデーション
+                                        let (tx, ty) = island_grad_tangent
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or((1.0, 0.0));
+                                        let projs: [f32; 4] = [
+                                            corners[0].0 * tx + corners[0].1 * ty,
+                                            corners[1].0 * tx + corners[1].1 * ty,
+                                            corners[2].0 * tx + corners[2].1 * ty,
+                                            corners[3].0 * tx + corners[3].1 * ty,
+                                        ];
+                                        let p_min = projs.iter().copied().fold(f32::MAX, f32::min);
+                                        let p_max = projs.iter().copied().fold(f32::MIN, f32::max);
+                                        let proj = x as f32 * tx + y as f32 * ty;
+                                        if (p_max - p_min).abs() < 1.0 {
+                                            0.0_f32
+                                        } else {
+                                            ((proj - p_min) / (p_max - p_min)).clamp(0.0_f32, 1.0_f32)
+                                        }
+                                    }
+                                    _ => {
+                                        // Linear: Master Angle 方向で BB 内線形グラデーション
+                                        let angle_rad = master_angle_deg.to_radians();
+                                        let (dx, dy) = (angle_rad.cos(), angle_rad.sin());
+                                        let projs: [f32; 4] = [
+                                            corners[0].0 * dx + corners[0].1 * dy,
+                                            corners[1].0 * dx + corners[1].1 * dy,
+                                            corners[2].0 * dx + corners[2].1 * dy,
+                                            corners[3].0 * dx + corners[3].1 * dy,
+                                        ];
+                                        let p_min = projs.iter().copied().fold(f32::MAX, f32::min);
+                                        let p_max = projs.iter().copied().fold(f32::MIN, f32::max);
+                                        let proj = x as f32 * dx + y as f32 * dy;
+                                        if (p_max - p_min).abs() < 1.0 {
+                                            0.0
+                                        } else {
+                                            ((proj - p_min) / (p_max - p_min)).clamp(0.0, 1.0)
+                                        }
+                                    }
+                                };
+                                // ノイズ → オフセット → バイアス → 反転
+                                let t_noisy = if master_noise > 0.0 {
+                                    (t_raw + pixel_noise(x as usize, y as usize) * master_noise)
+                                        .clamp(0.0, 1.0)
+                                } else {
+                                    t_raw
+                                };
+                                let t_off = (t_noisy + master_offset).clamp(0.0, 1.0);
+                                let t_biased = apply_bias(t_off, master_bias);
+                                let t_final = if invert { 1.0 - t_biased } else { t_biased };
+                                // 色補間（入力アルファを乗算）
+                                PixelF32 {
+                                    red: start.red + (end.red - start.red) * t_final,
+                                    green: start.green + (end.green - start.green) * t_final,
+                                    blue: start.blue + (end.blue - start.blue) * t_final,
+                                    alpha: (start.alpha + (end.alpha - start.alpha) * t_final)
+                                        * px.alpha,
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => px,
             };
             match out_wt {
