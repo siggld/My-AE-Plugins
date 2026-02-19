@@ -2372,7 +2372,13 @@ impl Plugin {
                 3 => {
                     let idx = y as usize * width + x as usize;
                     let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
-                    island_id_to_color(id)
+                    // 入力ピクセルの alpha を引き継ぐ。
+                    // island_id_to_color は alpha=1.0 固定を返すが、
+                    // トラックマットやフェザリングで半透明になったピクセルは
+                    // 元の alpha をそのまま使うことで正しく合成される。
+                    let mut color = island_id_to_color(id);
+                    color.alpha = px.alpha;
+                    color
                 }
                 4 => px,
                 _ => px,
