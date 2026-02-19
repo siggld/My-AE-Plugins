@@ -136,6 +136,8 @@ enum Params {
     TrackingPath,
     ShowTempColors,
     IslandSort,
+    SortAngle,
+    SortMaskIndex,
     TrackingAlgorithm,
     AlgoColorScale,
     AlgoAreaWeight,
@@ -822,6 +824,11 @@ fn update_params_ui_visibility(
         .ok()
         .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
         .unwrap_or(1);
+    let island_sort: i32 = params
+        .get(Params::IslandSort)
+        .ok()
+        .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+        .unwrap_or(1);
 
     // Read enable states from original params before any mutation
     let ext_enabled: [bool; EXTRACTION_SETS] = {
@@ -922,6 +929,17 @@ fn update_params_ui_visibility(
             let mut pd = p.get_mut(Params::AlgoIouThreshold)?;
             pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, tracking_algo != 3);
             pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::SortAngle)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, island_sort != 8);
+            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::SortMaskIndex)?;
+            pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, island_sort != 9);
             pd.update_param_ui()?;
         }
         for i in 0..GRADIENT_SETS {
@@ -1036,6 +1054,30 @@ fn update_params_ui_visibility(
                     ae::aegp::DynamicStreamFlags::Hidden,
                     false,
                     tracking_algo != 3,
+                )?;
+        }
+        {
+            let idx = params
+                .index(Params::SortAngle)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    island_sort != 8,
+                )?;
+        }
+        {
+            let idx = params
+                .index(Params::SortMaskIndex)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    island_sort != 9,
                 )?;
         }
         for i in 0..GRADIENT_SETS {
@@ -1182,7 +1224,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(50.0);
-                        d.set_default(10.0);
+                        d.set_default(2.0);
                         d.set_precision(1);
                     }),
                     ParamFlag::START_COLLAPSED,
@@ -1291,10 +1333,42 @@ impl AdobePluginGlobal for Plugin {
                             "Bottom to Top",
                             "Largest First",
                             "Smallest First",
+                            "By Angle",
+                            "Mask Path",
                         ]);
                         d.set_default(1);
                     }),
                     ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                // Island Sort = "By Angle" のときのみ表示される方向角度。
+                // 0° = 左→右、90° = 上→下（スクリーン座標）、180° = 右→左、270° = 下→上。
+                // 弧状に並ぶアイランドは弧の接線方向に合わせることで安定ソートが得られる。
+                params.add_with_flags(
+                    Params::SortAngle,
+                    "Sort Angle",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(360.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(360.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                    ParamFlag::empty(),
+                    ParamUIFlags::NONE,
+                )?;
+                // Island Sort = "Mask Path" のときのみ表示。
+                // レイヤーに複数マスクがある場合、どのマスクをソートパスとして使うかを選ぶ。
+                // マスクのモードは "None" にすることで実際の切り抜きには影響しない。
+                params.add_with_flags(
+                    Params::SortMaskIndex,
+                    "Sort Mask",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["Mask 1", "Mask 2", "Mask 3", "Mask 4"]);
+                        d.set_default(1);
+                    }),
+                    ParamFlag::empty(),
                     ParamUIFlags::NONE,
                 )?;
                 // ─── アルゴリズム選択 ─────────────────────────────────
@@ -2055,6 +2129,170 @@ fn iou_tracking(
     label_to_user_id
 }
 
+/// レイヤーに設定されたマスクパスに沿ってアイランドを弧長順にソートし、
+/// 安定した ID マッピング（ラベル → sort_id）を返す。
+///
+/// アルゴリズム:
+/// 1. PF_PathQuerySuite でレイヤーのマスクパスを取得
+/// 2. 各セグメントを SAMPLES_PER_SEG 点でサンプリングして累積弧長列を作成
+/// 3. 各アイランドの重心に対し、パス上の最近傍サンプル点を探し
+///    その累積弧長をソートキーとして使用
+/// 4. 弧長が小さい順（A → E 方向）に ID 1, 2, ... を付与
+///
+/// マスクが存在しない、取得できないなどの場合は None を返す。
+fn sort_by_mask_path(
+    in_data: ae::InData,
+    raw_labels: &[u32],
+    width: usize,
+    mask_index: i32,
+) -> Option<std::collections::HashMap<u32, u32>> {
+    // PF_PathQuerySuite は AE 専用（Premiere では使用不可）
+    if in_data.is_premiere() {
+        return None;
+    }
+
+    let path_query = ae::pf::suites::PathQuery::new().ok()?;
+    let effect_ref = in_data.effect_ref();
+
+    let num_paths = path_query.num_paths(effect_ref).ok()?;
+    if mask_index >= num_paths {
+        return None;
+    }
+
+    let path_id = path_query.path_info(effect_ref, mask_index).ok()?;
+    let path_outline = path_query
+        .checkout_path(
+            effect_ref,
+            path_id,
+            in_data.current_time(),
+            in_data.time_step(),
+            in_data.time_scale(),
+        )
+        .ok()??;
+
+    let num_segs = path_outline.num_segments().ok()?;
+    if num_segs < 1 {
+        return None;
+    }
+
+    // 頂点を座標タプルとして収集（開いたパス: num_segs+1 頂点）
+    // (anchor_x, anchor_y, tan_out_x, tan_out_y, tan_in_x, tan_in_y) — すべて f64
+    let num_verts = num_segs + 1;
+    let mut verts: Vec<(f64, f64, f64, f64, f64, f64)> = Vec::with_capacity(num_verts as usize);
+    for i in 0..num_verts {
+        match path_outline.vertex(i) {
+            Ok(v) => verts.push((v.x, v.y, v.tan_out_x, v.tan_out_y, v.tan_in_x, v.tan_in_y)),
+            Err(_) => break,
+        }
+    }
+    if verts.len() < 2 {
+        return None;
+    }
+
+    // 各セグメントを cubic Bezier としてサンプリング、累積弧長を記録
+    // P0 = vertex[i].{anchor_x, anchor_y}
+    // P1 = vertex[i].{tan_out_x, tan_out_y}  (絶対座標)
+    // P2 = vertex[i+1].{tan_in_x, tan_in_y}  (絶対座標)
+    // P3 = vertex[i+1].{anchor_x, anchor_y}
+    const SAMPLES_PER_SEG: usize = 64;
+    let total_cap = verts.len().saturating_sub(1) * SAMPLES_PER_SEG + 1;
+    let mut path_pts: Vec<(f32, f32)> = Vec::with_capacity(total_cap);
+    let mut cum_lens: Vec<f32> = Vec::with_capacity(total_cap);
+    let mut total_len = 0.0_f32;
+
+    let n_segs = verts.len() - 1;
+    for seg in 0..n_segs {
+        let (ax0, ay0, oxt, oyt, _, _) = verts[seg];
+        let (ax1, ay1, _, _, ixt, iyt) = verts[seg + 1];
+        let p0x = ax0 as f32;
+        let p0y = ay0 as f32;
+        let p1x = oxt as f32;
+        let p1y = oyt as f32;
+        let p2x = ixt as f32;
+        let p2y = iyt as f32;
+        let p3x = ax1 as f32;
+        let p3y = ay1 as f32;
+
+        for k in 0..SAMPLES_PER_SEG {
+            let t = k as f32 / SAMPLES_PER_SEG as f32;
+            let u = 1.0 - t;
+            let sx =
+                u * u * u * p0x + 3.0 * u * u * t * p1x + 3.0 * u * t * t * p2x + t * t * t * p3x;
+            let sy =
+                u * u * u * p0y + 3.0 * u * u * t * p1y + 3.0 * u * t * t * p2y + t * t * t * p3y;
+
+            if let Some(&(px, py)) = path_pts.last() {
+                let dx = sx - px;
+                let dy = sy - py;
+                total_len += (dx * dx + dy * dy).sqrt();
+            }
+            path_pts.push((sx, sy));
+            cum_lens.push(total_len);
+        }
+    }
+    // 最終頂点を追加
+    {
+        let (ex64, ey64, _, _, _, _) = verts[verts.len() - 1];
+        let ex = ex64 as f32;
+        let ey = ey64 as f32;
+        if let Some(&(px, py)) = path_pts.last() {
+            let dx = ex - px;
+            let dy = ey - py;
+            total_len += (dx * dx + dy * dy).sqrt();
+        }
+        path_pts.push((ex, ey));
+        cum_lens.push(total_len);
+    }
+    if path_pts.len() < 2 {
+        return None;
+    }
+
+    // アイランドの重心を計算
+    let mut sum_x: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut sum_y: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut cnt: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for (idx, &lbl) in raw_labels.iter().enumerate() {
+        if lbl == 0 {
+            continue;
+        }
+        *cnt.entry(lbl).or_insert(0) += 1;
+        *sum_x.entry(lbl).or_insert(0.0) += (idx % width) as f64;
+        *sum_y.entry(lbl).or_insert(0.0) += (idx / width) as f64;
+    }
+
+    // 各重心をパスに射影してソートキー（弧長）を取得
+    let mut keys: Vec<(u32, f32)> = cnt
+        .keys()
+        .map(|&lbl| {
+            let n = *cnt.get(&lbl).unwrap_or(&1) as f64;
+            let cx = (*sum_x.get(&lbl).unwrap_or(&0.0) / n) as f32;
+            let cy = (*sum_y.get(&lbl).unwrap_or(&0.0) / n) as f32;
+
+            let (best_idx, _) = path_pts
+                .iter()
+                .enumerate()
+                .map(|(i, &(px, py))| {
+                    let dx = cx - px;
+                    let dy = cy - py;
+                    (i, dx * dx + dy * dy)
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .unwrap_or((0, 0.0));
+
+            (lbl, cum_lens[best_idx])
+        })
+        .collect();
+
+    keys.sort_by(|a, b| a.1.total_cmp(&b.1));
+
+    Some(
+        keys.iter()
+            .enumerate()
+            .map(|(i, &(lbl, _))| (lbl, (i + 1) as u32))
+            .collect(),
+    )
+}
+
 fn color_distance_f32(a: &PixelF32, b: &PixelF32) -> f32 {
     let dr = a.red - b.red;
     let dg = a.green - b.green;
@@ -2104,7 +2342,7 @@ impl Plugin {
             .get(Params::AlphaThreshold)
             .ok()
             .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
-            .unwrap_or(10.0) as f32
+            .unwrap_or(2.0) as f32
             / 100.0;
         let invert_extraction: bool = params
             .get(Params::InvertExtraction)
@@ -2183,12 +2421,25 @@ impl Plugin {
             }
         }
 
-        // 空間ソートモードを読み取る（1=Off, 2=L→R, 3=R→L, 4=T→B, 5=B→T, 6=Largest, 7=Smallest）
+        // 空間ソートモードを読み取る（1=Off, 2=L→R, 3=R→L, 4=T→B, 5=B→T, 6=Largest, 7=Smallest, 8=By Angle）
         let island_sort: i32 = params
             .get(Params::IslandSort)
             .ok()
             .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
             .unwrap_or(1);
+        // By Angle ソート用の方向角度（0° = 左→右、90° = 上→下）
+        let sort_angle_deg: f32 = params
+            .get(Params::SortAngle)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(0.0) as f32;
+        // Mask Path ソート用マスクインデックス（popup 値は 1-based → 0-based に変換）
+        let sort_mask_index: i32 = params
+            .get(Params::SortMaskIndex)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(1)
+            - 1;
 
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
@@ -2242,49 +2493,62 @@ impl Plugin {
             // 各島の重心・面積を1パスで収集し、選択基準でソートして
             // スキャン順に依存しない安定 ID（1..N）を付与する。
             // Off のときは None → 下記 Step3 の色ベーストラッキングを使用。
-            let sort_id_map: Option<std::collections::HashMap<u32, u32>> = if island_sort != 1 {
-                let mut sum_x: std::collections::HashMap<u32, u64> =
-                    std::collections::HashMap::new();
-                let mut sum_y: std::collections::HashMap<u32, u64> =
-                    std::collections::HashMap::new();
-                let mut cnt: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-                for (idx, &lbl) in raw_labels.iter().enumerate() {
-                    if lbl == 0 {
-                        continue;
+            let sort_id_map: Option<std::collections::HashMap<u32, u32>> = match island_sort {
+                1 => None,
+                // Mask Path: PF_PathQuerySuite でマスクパスを取得して弧長順にソート
+                9 => sort_by_mask_path(_in_data, &raw_labels, width, sort_mask_index),
+                // 重心・面積ベースの空間ソート（2〜8）
+                _ => {
+                    let mut sum_x: std::collections::HashMap<u32, u64> =
+                        std::collections::HashMap::new();
+                    let mut sum_y: std::collections::HashMap<u32, u64> =
+                        std::collections::HashMap::new();
+                    let mut cnt: std::collections::HashMap<u32, u32> =
+                        std::collections::HashMap::new();
+                    for (idx, &lbl) in raw_labels.iter().enumerate() {
+                        if lbl == 0 {
+                            continue;
+                        }
+                        *cnt.entry(lbl).or_insert(0) += 1;
+                        *sum_x.entry(lbl).or_insert(0) += (idx % width) as u64;
+                        *sum_y.entry(lbl).or_insert(0) += (idx / width) as u64;
                     }
-                    *cnt.entry(lbl).or_insert(0) += 1;
-                    *sum_x.entry(lbl).or_insert(0) += (idx % width) as u64;
-                    *sum_y.entry(lbl).or_insert(0) += (idx / width) as u64;
+                    // By Angle 用: 角度をラジアンに変換して方向ベクトルを計算
+                    // 0° = (1,0)=左→右, 90° = (0,1)=上→下 (スクリーン座標)
+                    let angle_rad = sort_angle_deg.to_radians();
+                    let dir_x = angle_rad.cos();
+                    let dir_y = angle_rad.sin();
+
+                    // ソートキーを計算（昇順で並べたときに小さいほど ID=1 に近い）
+                    let mut islands: Vec<(u32, f32)> = cnt
+                        .keys()
+                        .map(|&lbl| {
+                            let n = *cnt.get(&lbl).unwrap_or(&1) as f32;
+                            let cx = *sum_x.get(&lbl).unwrap_or(&0) as f32 / n;
+                            let cy = *sum_y.get(&lbl).unwrap_or(&0) as f32 / n;
+                            let key = match island_sort {
+                                2 => cx,  // Left→Right
+                                3 => -cx, // Right→Left
+                                4 => cy,  // Top→Bottom
+                                5 => -cy, // Bottom→Top
+                                6 => -n,  // Largest First
+                                7 => n,   // Smallest First
+                                // By Angle: 重心を方向ベクトルに射影
+                                8 => cx * dir_x + cy * dir_y,
+                                _ => cx,
+                            };
+                            (lbl, key)
+                        })
+                        .collect();
+                    islands.sort_by(|a, b| a.1.total_cmp(&b.1));
+                    Some(
+                        islands
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &(lbl, _))| (lbl, (i + 1) as u32))
+                            .collect(),
+                    )
                 }
-                // ソートキーを計算（昇順で並べたときに小さいほど ID=1 に近い）
-                let mut islands: Vec<(u32, f32)> = cnt
-                    .keys()
-                    .map(|&lbl| {
-                        let n = *cnt.get(&lbl).unwrap_or(&1) as f32;
-                        let cx = *sum_x.get(&lbl).unwrap_or(&0) as f32 / n;
-                        let cy = *sum_y.get(&lbl).unwrap_or(&0) as f32 / n;
-                        let key = match island_sort {
-                            2 => cx,  // Left→Right
-                            3 => -cx, // Right→Left
-                            4 => cy,  // Top→Bottom
-                            5 => -cy, // Bottom→Top
-                            6 => -n,  // Largest First
-                            7 => n,   // Smallest First
-                            _ => cx,  // fallback: L→R
-                        };
-                        (lbl, key)
-                    })
-                    .collect();
-                islands.sort_by(|a, b| a.1.total_cmp(&b.1));
-                Some(
-                    islands
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &(lbl, _))| (lbl, (i + 1) as u32))
-                        .collect(),
-                )
-            } else {
-                None
             };
 
             // ─── Step3: アルゴリズムに基づく ID マッピング ─────────────
