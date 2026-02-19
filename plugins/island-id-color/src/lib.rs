@@ -134,6 +134,7 @@ enum Params {
     IslandTrackGroupEnd,
     TrackingPath,
     ShowTempColors,
+    IslandSort,
     TrackingAlgorithm,
     AlgoColorScale,
     AlgoAreaWeight,
@@ -1256,6 +1257,28 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(true);
                     }),
                 )?;
+                // ─── 空間ソートモード ──────────────────────────────────
+                // Island Sort が Off 以外のとき、CCL 後の島を重心/面積でソートして
+                // スキャン順によるチラつきを解消する。
+                // Off のときは下記 Tracking Algorithm による色ベーストラッキングを使用。
+                params.add_with_flags(
+                    Params::IslandSort,
+                    "Island Sort",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Off",
+                            "Left to Right",
+                            "Right to Left",
+                            "Top to Bottom",
+                            "Bottom to Top",
+                            "Largest First",
+                            "Smallest First",
+                        ]);
+                        d.set_default(1);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
                 // ─── アルゴリズム選択 ─────────────────────────────────
                 // Three matching methods: selector switches the dedicated slider shown below.
                 params.add_with_flags(
@@ -2134,6 +2157,13 @@ impl Plugin {
             }
         }
 
+        // 空間ソートモードを読み取る（1=Off, 2=L→R, 3=R→L, 4=T→B, 5=B→T, 6=Largest, 7=Smallest）
+        let island_sort: i32 = params
+            .get(Params::IslandSort)
+            .ok()
+            .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
+            .unwrap_or(1);
+
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
             .get(Params::TrackingAlgorithm)
@@ -2176,67 +2206,125 @@ impl Plugin {
             // ─── Step2: CCL（仮ラベル） ─────────────────────────────
             let raw_labels = compute_ccl(&mask, width, height);
 
-            // ─── Step3: アルゴリズムに基づく ID マッピング ─────────────
-            // アルゴリズム選択ポップアップに応じて3種の関数をディスパッチする。
-            // すべての関数は ccl_label → user_id (1〜32) の HashMap を返す。
-            let label_to_user_id: std::collections::HashMap<u32, u32> = match tracking_algo {
-                2 => area_weighted_tracking(
-                    &raw_labels,
-                    &in_layer,
-                    in_world_type,
-                    width,
-                    height,
-                    &tracking_targets,
-                    algo_area_weight,
-                ),
-                3 => iou_tracking(
-                    &raw_labels,
-                    &in_layer,
-                    in_world_type,
-                    width,
-                    height,
-                    &tracking_targets,
-                    algo_iou_threshold,
-                ),
-                // 1 またはデフォルト: 色差マッチング
-                _ => color_match_tracking(
-                    &raw_labels,
-                    &in_layer,
-                    in_world_type,
-                    width,
-                    height,
-                    &tracking_targets,
-                    algo_color_scale,
-                ),
+            // ─── Step2.5: 空間ソート（Island Sort != Off のとき）────────
+            // 各島の重心・面積を1パスで収集し、選択基準でソートして
+            // スキャン順に依存しない安定 ID（1..N）を付与する。
+            // Off のときは None → 下記 Step3 の色ベーストラッキングを使用。
+            let sort_id_map: Option<std::collections::HashMap<u32, u32>> = if island_sort != 1 {
+                let mut sum_x: std::collections::HashMap<u32, u64> =
+                    std::collections::HashMap::new();
+                let mut sum_y: std::collections::HashMap<u32, u64> =
+                    std::collections::HashMap::new();
+                let mut cnt: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+                for (idx, &lbl) in raw_labels.iter().enumerate() {
+                    if lbl == 0 {
+                        continue;
+                    }
+                    *cnt.entry(lbl).or_insert(0) += 1;
+                    *sum_x.entry(lbl).or_insert(0) += (idx % width) as u64;
+                    *sum_y.entry(lbl).or_insert(0) += (idx / width) as u64;
+                }
+                // ソートキーを計算（昇順で並べたときに小さいほど ID=1 に近い）
+                let mut islands: Vec<(u32, f32)> = cnt
+                    .keys()
+                    .map(|&lbl| {
+                        let n = *cnt.get(&lbl).unwrap_or(&1) as f32;
+                        let cx = *sum_x.get(&lbl).unwrap_or(&0) as f32 / n;
+                        let cy = *sum_y.get(&lbl).unwrap_or(&0) as f32 / n;
+                        let key = match island_sort {
+                            2 => cx,  // Left→Right
+                            3 => -cx, // Right→Left
+                            4 => cy,  // Top→Bottom
+                            5 => -cy, // Bottom→Top
+                            6 => -n,  // Largest First
+                            7 => n,   // Smallest First
+                            _ => cx,  // fallback: L→R
+                        };
+                        (lbl, key)
+                    })
+                    .collect();
+                islands.sort_by(|a, b| a.1.total_cmp(&b.1));
+                Some(
+                    islands
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &(lbl, _))| (lbl, (i + 1) as u32))
+                        .collect(),
+                )
+            } else {
+                None
             };
 
-            // ─── Step4: 最終ラベル配列を構築 ───────────────────────
-            // user_id 1〜32   : ユーザー指定スロットに紐づいた島（安定色）
-            // user_id 33+     : 自動割り当て（その他のノイズ・未追跡島）
-            let mut next_untracked = (MERGE_ISLAND_SETS as u32) + 1; // 33
-            let mut untracked_remap: std::collections::HashMap<u32, u32> =
-                std::collections::HashMap::new();
-
-            let remapped: Vec<u32> = raw_labels
-                .iter()
-                .map(|&lbl| {
-                    if lbl == 0 {
-                        0
-                    } else if let Some(&uid) = label_to_user_id.get(&lbl) {
-                        uid
-                    } else {
-                        *untracked_remap.entry(lbl).or_insert_with(|| {
-                            let id = next_untracked;
-                            next_untracked += 1;
-                            id
-                        })
-                    }
-                })
-                .collect();
+            // ─── Step3: アルゴリズムに基づく ID マッピング ─────────────
+            // sort_id_map がある場合はソート結果を直接使用（Step3 をスキップ）。
+            // ない場合はアルゴリズムポップアップに応じて3種の関数をディスパッチ。
+            let remapped: Vec<u32> = if let Some(ref smap) = sort_id_map {
+                // 空間ソートモード: 全島を位置順 ID で確定
+                raw_labels
+                    .iter()
+                    .map(|&lbl| {
+                        if lbl == 0 {
+                            0
+                        } else {
+                            *smap.get(&lbl).unwrap_or(&0)
+                        }
+                    })
+                    .collect()
+            } else {
+                // 色ベーストラッキングモード
+                let label_to_user_id: std::collections::HashMap<u32, u32> = match tracking_algo {
+                    2 => area_weighted_tracking(
+                        &raw_labels,
+                        &in_layer,
+                        in_world_type,
+                        width,
+                        height,
+                        &tracking_targets,
+                        algo_area_weight,
+                    ),
+                    3 => iou_tracking(
+                        &raw_labels,
+                        &in_layer,
+                        in_world_type,
+                        width,
+                        height,
+                        &tracking_targets,
+                        algo_iou_threshold,
+                    ),
+                    _ => color_match_tracking(
+                        &raw_labels,
+                        &in_layer,
+                        in_world_type,
+                        width,
+                        height,
+                        &tracking_targets,
+                        algo_color_scale,
+                    ),
+                };
+                // ─── Step4: user_id 1〜32 + auto 33+ ───────────────────
+                let mut next_untracked = (MERGE_ISLAND_SETS as u32) + 1;
+                let mut untracked_remap: std::collections::HashMap<u32, u32> =
+                    std::collections::HashMap::new();
+                raw_labels
+                    .iter()
+                    .map(|&lbl| {
+                        if lbl == 0 {
+                            0
+                        } else if let Some(&uid) = label_to_user_id.get(&lbl) {
+                            uid
+                        } else {
+                            *untracked_remap.entry(lbl).or_insert_with(|| {
+                                let id = next_untracked;
+                                next_untracked += 1;
+                                id
+                            })
+                        }
+                    })
+                    .collect()
+            };
 
             // ─── 将来の Target 置換に向けたマッピング構造を準備 ────
-            // user_id → Target Temp Color。
-            // 現時点は未使用だが、OutputMode "Final Gradient" 等で活用予定。
+            // user_id → Target Temp Color（OutputMode "Final Gradient" 等で活用予定）
             let _island_to_target: std::collections::HashMap<u32, PixelF32> = tracking_targets
                 .iter()
                 .map(|(slot_idx, _, tgt_color, _)| ((*slot_idx as u32) + 1, *tgt_color))
