@@ -129,6 +129,7 @@ enum Params {
     TargetColor31,
     ColorRange31,
     ChokeSpread,
+    AlphaThreshold,
 
     IslandTrackGroupStart,
     IslandTrackGroupEnd,
@@ -1170,6 +1171,23 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
+                // トラックマットや合成後のピクセルに残る半透明成分を除外するための
+                // alpha 閾値。0% = 完全透明のみ除外、5% = alpha 5% 未満を透明扱い。
+                // トラックマットのソフトエッジが誤抽出される場合は値を上げる。
+                params.add_with_flags(
+                    Params::AlphaThreshold,
+                    "Alpha Threshold (%)",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(50.0);
+                        d.set_default(10.0);
+                        d.set_precision(1);
+                    }),
+                    ParamFlag::START_COLLAPSED,
+                    ParamUIFlags::NONE,
+                )?;
                 params.add(
                     Params::InvertExtraction,
                     "Invert Extraction",
@@ -2080,6 +2098,14 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_popup().ok().map(|pd| pd.value()))
             .unwrap_or(1);
+        // Alpha Threshold: この値未満の alpha を持つピクセルは透明扱いにして
+        // CCL 抽出対象から除外する。トラックマットのソフトエッジ誤検出を防ぐ。
+        let alpha_threshold: f32 = params
+            .get(Params::AlphaThreshold)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
+            .unwrap_or(10.0) as f32
+            / 100.0;
         let invert_extraction: bool = params
             .get(Params::InvertExtraction)
             .ok()
@@ -2199,9 +2225,7 @@ impl Plugin {
             for y in 0..height {
                 for x in 0..width {
                     let px = read_pixel_f32(&in_layer, in_world_type, x, y);
-                    // alpha が閾値未満のピクセルは透明なので抽出対象外
-                    if px.alpha < 1e-3_f32 {
-                        // mask[y * width + x] は false のまま
+                    if px.alpha < alpha_threshold {
                         continue;
                     }
                     let extracted = extraction_targets
@@ -2370,15 +2394,22 @@ impl Plugin {
                     }
                 }
                 3 => {
-                    let idx = y as usize * width + x as usize;
-                    let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
-                    // 入力ピクセルの alpha を引き継ぐ。
-                    // island_id_to_color は alpha=1.0 固定を返すが、
-                    // トラックマットやフェザリングで半透明になったピクセルは
-                    // 元の alpha をそのまま使うことで正しく合成される。
-                    let mut color = island_id_to_color(id);
-                    color.alpha = px.alpha;
-                    color
+                    // alpha_threshold 未満は完全透明として扱い、
+                    // 誤抽出ピクセルが TempColor として表示されないようにする。
+                    if px.alpha < alpha_threshold {
+                        PixelF32 {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: 0.0,
+                        }
+                    } else {
+                        let idx = y as usize * width + x as usize;
+                        let id = island_labels.as_ref().map(|l| l[idx]).unwrap_or(0);
+                        let mut color = island_id_to_color(id);
+                        color.alpha = px.alpha;
+                        color
+                    }
                 }
                 4 => px,
                 _ => px,
