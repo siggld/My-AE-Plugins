@@ -930,13 +930,13 @@ fn update_params_ui_visibility(
         arr
     };
     let grad_enabled: [bool; GRADIENT_SETS] = {
-        let mut arr = [true; GRADIENT_SETS];
+        let mut arr = [false; GRADIENT_SETS];
         for i in 0..GRADIENT_SETS {
             arr[i] = params
                 .get(GRADIENT_ENABLE[i])
                 .ok()
                 .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                .unwrap_or(true);
+                .unwrap_or(false);
         }
         arr
     };
@@ -1200,6 +1200,18 @@ fn update_params_ui_visibility(
                     master_grad_type != 3,
                 )?;
         }
+        {
+            let idx = params
+                .index(Params::MasterAngle)
+                .ok_or(ae::Error::InvalidIndex)? as i32;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx)?
+                .set_dynamic_stream_flag(
+                    ae::aegp::DynamicStreamFlags::Hidden,
+                    false,
+                    master_grad_type != 1,
+                )?;
+        }
         for i in 0..GRADIENT_SETS {
             let hidden = i >= grad_count;
             let idx_en = params
@@ -1303,6 +1315,11 @@ fn update_params_ui_visibility(
         {
             let mut pd = p.get_mut(Params::IslandNumberSize)?;
             pd.set_ui_flag(ae::ParamUIFlags::DISABLED, !show_island_numbers);
+            pd.update_param_ui()?;
+        }
+        {
+            let mut pd = p.get_mut(Params::MasterAngle)?;
+            pd.set_ui_flag(ae::ParamUIFlags::DISABLED, master_grad_type != 1);
             pd.update_param_ui()?;
         }
     }
@@ -1761,7 +1778,7 @@ impl AdobePluginGlobal for Plugin {
                         GRADIENT_ENABLE[i],
                         &format!("Enable Gradient {n} (Island #{n})"),
                         CheckBoxDef::setup(|d| {
-                            d.set_default(true);
+                            d.set_default(false);
                         }),
                         ParamFlag::SUPERVISE,
                         if hidden {
@@ -3422,7 +3439,7 @@ impl Plugin {
                             let (enabled, start, end, invert, opacity) = grad_slots
                                 .get(slot)
                                 .copied()
-                                .unwrap_or((true, white_f32, black_f32, false, 1.0));
+                                .unwrap_or((false, white_f32, black_f32, false, 1.0));
                             // 無効時はデフォルト色（白→黒）で表示し、全アイランドを表示する
                             let (start, end, invert, opacity) = if enabled {
                                 (start, end, invert, opacity)
@@ -3443,20 +3460,16 @@ impl Plugin {
                                 // グラデーション t 値を計算（各モード）
                                 let t_raw = match master_grad_type {
                                     2 => {
-                                        // Radial: 指定中心点からの距離で正規化
-                                        let cx = grad_center_point.0 * width as f32;
-                                        let cy = grad_center_point.1 * height as f32;
-                                        let r_max = corners
-                                            .iter()
-                                            .map(|&(bx, by)| {
-                                                let dx = bx - cx;
-                                                let dy = by - cy;
-                                                (dx * dx + dy * dy).sqrt()
-                                            })
-                                            .fold(1.0_f32, f32::max);
+                                        // Radial: 島の重心を中心に、BB 対角の半分を最大半径とする放射状グラデーション
+                                        let cx = (x_min + x_max) as f32 / 2.0;
+                                        let cy = (y_min + y_max) as f32 / 2.0;
+                                        let w = (x_max - x_min) as f32;
+                                        let h = (y_max - y_min) as f32;
+                                        let r_max = (0.5 * (w * w + h * h).sqrt()).max(1e-6);
                                         let dx = x as f32 - cx;
                                         let dy = y as f32 - cy;
-                                        ((dx * dx + dy * dy).sqrt() / r_max).clamp(0.0, 1.0)
+                                        let d = (dx * dx + dy * dy).sqrt();
+                                        (d / r_max).clamp(0.0, 1.0)
                                     }
                                     3 => {
                                         // Mask Path: 島重心の接線方向で BB 内線形グラデーション
@@ -3513,16 +3526,17 @@ impl Plugin {
                                 let t_off = (t_noisy + master_offset).clamp(0.0, 1.0);
                                 let t_biased = apply_bias(t_off, master_bias);
                                 let t_final = if invert { 1.0 - t_biased } else { t_biased };
-                                // 色補間（入力アルファ・スロット不透明度を乗算）
-                                let base_alpha = (start.alpha
-                                    + (end.alpha - start.alpha) * t_final)
-                                    * px.alpha
-                                    * opacity;
+                                // RGB: Start/End の線形補間のみ（Alpha に干渉させない）
+                                let out_r = start.red + (end.red - start.red) * t_final;
+                                let out_g = start.green + (end.green - start.green) * t_final;
+                                let out_b = start.blue + (end.blue - start.blue) * t_final;
+                                // Alpha: 入力ピクセルの Alpha × スロットの Opacity のみ
+                                let out_alpha = px.alpha * opacity;
                                 PixelF32 {
-                                    red: start.red + (end.red - start.red) * t_final,
-                                    green: start.green + (end.green - start.green) * t_final,
-                                    blue: start.blue + (end.blue - start.blue) * t_final,
-                                    alpha: base_alpha,
+                                    red: out_r,
+                                    green: out_g,
+                                    blue: out_b,
+                                    alpha: out_alpha,
                                 }
                             }
                         }
