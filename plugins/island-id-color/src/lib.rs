@@ -283,134 +283,167 @@ enum Params {
     MasterBias,
     MasterOffset,
     MasterNoiseAmount,
+    ShowIslandNumbers,
     EnableGradientColor0,
     StartColor0,
     EndColor0,
     InvertGradient0,
+    GradientOpacity0,
     EnableGradientColor1,
     StartColor1,
     EndColor1,
     InvertGradient1,
+    GradientOpacity1,
     EnableGradientColor2,
     StartColor2,
     EndColor2,
     InvertGradient2,
+    GradientOpacity2,
     EnableGradientColor3,
     StartColor3,
     EndColor3,
     InvertGradient3,
+    GradientOpacity3,
     EnableGradientColor4,
     StartColor4,
     EndColor4,
     InvertGradient4,
+    GradientOpacity4,
     EnableGradientColor5,
     StartColor5,
     EndColor5,
     InvertGradient5,
+    GradientOpacity5,
     EnableGradientColor6,
     StartColor6,
     EndColor6,
     InvertGradient6,
+    GradientOpacity6,
     EnableGradientColor7,
     StartColor7,
     EndColor7,
     InvertGradient7,
+    GradientOpacity7,
     EnableGradientColor8,
     StartColor8,
     EndColor8,
     InvertGradient8,
+    GradientOpacity8,
     EnableGradientColor9,
     StartColor9,
     EndColor9,
     InvertGradient9,
+    GradientOpacity9,
     EnableGradientColor10,
     StartColor10,
     EndColor10,
     InvertGradient10,
+    GradientOpacity10,
     EnableGradientColor11,
     StartColor11,
     EndColor11,
     InvertGradient11,
+    GradientOpacity11,
     EnableGradientColor12,
     StartColor12,
     EndColor12,
     InvertGradient12,
+    GradientOpacity12,
     EnableGradientColor13,
     StartColor13,
     EndColor13,
     InvertGradient13,
+    GradientOpacity13,
     EnableGradientColor14,
     StartColor14,
     EndColor14,
     InvertGradient14,
+    GradientOpacity14,
     EnableGradientColor15,
     StartColor15,
     EndColor15,
     InvertGradient15,
+    GradientOpacity15,
     EnableGradientColor16,
     StartColor16,
     EndColor16,
     InvertGradient16,
+    GradientOpacity16,
     EnableGradientColor17,
     StartColor17,
     EndColor17,
     InvertGradient17,
+    GradientOpacity17,
     EnableGradientColor18,
     StartColor18,
     EndColor18,
     InvertGradient18,
+    GradientOpacity18,
     EnableGradientColor19,
     StartColor19,
     EndColor19,
     InvertGradient19,
+    GradientOpacity19,
     EnableGradientColor20,
     StartColor20,
     EndColor20,
     InvertGradient20,
+    GradientOpacity20,
     EnableGradientColor21,
     StartColor21,
     EndColor21,
     InvertGradient21,
+    GradientOpacity21,
     EnableGradientColor22,
     StartColor22,
     EndColor22,
     InvertGradient22,
+    GradientOpacity22,
     EnableGradientColor23,
     StartColor23,
     EndColor23,
     InvertGradient23,
+    GradientOpacity23,
     EnableGradientColor24,
     StartColor24,
     EndColor24,
     InvertGradient24,
+    GradientOpacity24,
     EnableGradientColor25,
     StartColor25,
     EndColor25,
     InvertGradient25,
+    GradientOpacity25,
     EnableGradientColor26,
     StartColor26,
     EndColor26,
     InvertGradient26,
+    GradientOpacity26,
     EnableGradientColor27,
     StartColor27,
     EndColor27,
     InvertGradient27,
+    GradientOpacity27,
     EnableGradientColor28,
     StartColor28,
     EndColor28,
     InvertGradient28,
+    GradientOpacity28,
     EnableGradientColor29,
     StartColor29,
     EndColor29,
     InvertGradient29,
+    GradientOpacity29,
     EnableGradientColor30,
     StartColor30,
     EndColor30,
     InvertGradient30,
+    GradientOpacity30,
     EnableGradientColor31,
     StartColor31,
     EndColor31,
     InvertGradient31,
+    GradientOpacity31,
 }
 
 #[derive(Default)]
@@ -799,6 +832,40 @@ const GRADIENT_INVERT: [Params; GRADIENT_SETS] = [
     Params::InvertGradient30,
     Params::InvertGradient31,
 ];
+const GRADIENT_OPACITY: [Params; GRADIENT_SETS] = [
+    Params::GradientOpacity0,
+    Params::GradientOpacity1,
+    Params::GradientOpacity2,
+    Params::GradientOpacity3,
+    Params::GradientOpacity4,
+    Params::GradientOpacity5,
+    Params::GradientOpacity6,
+    Params::GradientOpacity7,
+    Params::GradientOpacity8,
+    Params::GradientOpacity9,
+    Params::GradientOpacity10,
+    Params::GradientOpacity11,
+    Params::GradientOpacity12,
+    Params::GradientOpacity13,
+    Params::GradientOpacity14,
+    Params::GradientOpacity15,
+    Params::GradientOpacity16,
+    Params::GradientOpacity17,
+    Params::GradientOpacity18,
+    Params::GradientOpacity19,
+    Params::GradientOpacity20,
+    Params::GradientOpacity21,
+    Params::GradientOpacity22,
+    Params::GradientOpacity23,
+    Params::GradientOpacity24,
+    Params::GradientOpacity25,
+    Params::GradientOpacity26,
+    Params::GradientOpacity27,
+    Params::GradientOpacity28,
+    Params::GradientOpacity29,
+    Params::GradientOpacity30,
+    Params::GradientOpacity31,
+];
 
 fn popup_to_count(params: &ae::Parameters<Params>, key: Params) -> usize {
     let val = params
@@ -982,6 +1049,11 @@ fn update_params_ui_visibility(
                 pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
                 pd.update_param_ui()?;
             }
+            {
+                let mut pd = p.get_mut(GRADIENT_OPACITY[i])?;
+                pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, !vis);
+                pd.update_param_ui()?;
+            }
         }
     } else {
         // After Effects: INVISIBLE is not supported via update_param_ui.
@@ -1136,6 +1208,9 @@ fn update_params_ui_visibility(
             let idx_iv = params
                 .index(GRADIENT_INVERT[i])
                 .ok_or(ae::Error::InvalidIndex)? as i32;
+            let idx_op = params
+                .index(GRADIENT_OPACITY[i])
+                .ok_or(ae::Error::InvalidIndex)? as i32;
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_en)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
@@ -1147,6 +1222,9 @@ fn update_params_ui_visibility(
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
             aegp_eff
                 .new_stream_by_index(plugin_id, idx_iv)?
+                .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
+            aegp_eff
+                .new_stream_by_index(plugin_id, idx_op)?
                 .set_dynamic_stream_flag(ae::aegp::DynamicStreamFlags::Hidden, false, hidden)?;
         }
     }
@@ -1206,6 +1284,11 @@ fn update_params_ui_visibility(
                 }
                 {
                     let mut pd = p.get_mut(GRADIENT_INVERT[i])?;
+                    pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
+                    pd.update_param_ui()?;
+                }
+                {
+                    let mut pd = p.get_mut(GRADIENT_OPACITY[i])?;
                     pd.set_ui_flag(ae::ParamUIFlags::DISABLED, sub_disabled);
                     pd.update_param_ui()?;
                 }
@@ -1623,6 +1706,13 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
+                params.add(
+                    Params::ShowIslandNumbers,
+                    "Show Island Numbers",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                )?;
                 params.add_with_flags(
                     Params::GradientSettingsCount,
                     "Gradient Settings Count",
@@ -1643,12 +1733,12 @@ impl AdobePluginGlobal for Plugin {
                 for i in 0..GRADIENT_SETS {
                     let n = i + 1;
                     let hidden = i >= INITIAL_GRADIENT;
-                    let enable_default = i == 0;
+                    // 全アイランドを初期表示するためデフォルトでチェックON
                     params.add_with_flags(
                         GRADIENT_ENABLE[i],
-                        &format!("Enable Gradient Color {n}"),
-                        CheckBoxDef::setup(move |d| {
-                            d.set_default(enable_default);
+                        &format!("Enable Gradient {n} (Island #{n})"),
+                        CheckBoxDef::setup(|d| {
+                            d.set_default(true);
                         }),
                         ParamFlag::SUPERVISE,
                         if hidden {
@@ -1686,6 +1776,24 @@ impl AdobePluginGlobal for Plugin {
                         &format!("Invert Gradient {n}"),
                         CheckBoxDef::setup(|d| {
                             d.set_default(false);
+                        }),
+                        ParamFlag::empty(),
+                        if hidden {
+                            ParamUIFlags::INVISIBLE
+                        } else {
+                            ParamUIFlags::NONE
+                        },
+                    )?;
+                    params.add_with_flags(
+                        GRADIENT_OPACITY[i],
+                        &format!("Opacity {n} (%)"),
+                        FloatSliderDef::setup(|d| {
+                            d.set_valid_min(0.0);
+                            d.set_valid_max(100.0);
+                            d.set_slider_min(0.0);
+                            d.set_slider_max(100.0);
+                            d.set_default(100.0);
+                            d.set_precision(0);
                         }),
                         ParamFlag::empty(),
                         if hidden {
@@ -1934,8 +2042,7 @@ fn apply_bias(t: f32, bias: f32) -> f32 {
 }
 
 /// 決定論的な擬似乱数ノイズ（-1.0 〜 1.0）をピクセル座標から生成する。
-/// グラデーションのゆらぎには `perlin_noise_2d` を使用する。
-#[allow(dead_code)]
+/// グラデーションの Master Noise はグレイン状の細かいノイズとして使用。
 fn pixel_noise(x: usize, y: usize) -> f32 {
     let h = (x as u32)
         .wrapping_mul(2654435761)
@@ -1946,7 +2053,8 @@ fn pixel_noise(x: usize, y: usize) -> f32 {
 }
 
 /// グラデーション用 Perlin 風 2D ノイズ（ゆらぎ）。決定論的、戻り値はおおよそ [-1, 1]。
-/// `scale` が小さいほどなだらか（例: 0.02 で約 50px スケールのゆらぎ）。
+/// 現在は Master Noise にグレイン状ノイズを使用するため未使用。
+#[allow(dead_code)]
 fn perlin_noise_2d(x: f32, y: f32) -> f32 {
     fn hash2(u: i32, v: i32) -> u32 {
         let h = (u as u32)
@@ -1984,9 +2092,81 @@ fn perlin_noise_2d(x: f32, y: f32) -> f32 {
     (nx0 + sy * (nx1 - nx0)).clamp(-1.0, 1.0)
 }
 
-/// グラデーション t に適用する Perlin ゆらぎの空間スケール（ピクセルあたり）。
-/// 小さいほどなだらか（例: 0.02 → 約 50px 周期）。
+/// グラデーション t に適用する Perlin ゆらぎの空間スケール（perlin_noise_2d 用）。現在未使用。
+#[allow(dead_code)]
 const GRADIENT_NOISE_SCALE: f32 = 0.02;
+
+// ---------------------------------------------------------------------------
+// 島番号表示用 5x7 ビットマップフォント（0-9）
+// ---------------------------------------------------------------------------
+/// 各数字 0-9 は 7 行 x 5 ビット。下位 5 ビットを使用。
+const ISLAND_NUM_FONT: [[u8; 7]; 10] = [
+    [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // 0
+    [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // 1
+    [0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111], // 2
+    [0b11111, 0b00001, 0b00001, 0b01110, 0b00001, 0b10001, 0b01110], // 3
+    [0b10001, 0b10001, 0b10001, 0b11111, 0b00001, 0b00001, 0b00001], // 4
+    [0b11111, 0b10000, 0b10000, 0b01110, 0b00001, 0b10001, 0b01110], // 5
+    [0b01110, 0b10001, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110], // 6
+    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000], // 7
+    [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110], // 8
+    [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b10001, 0b01110], // 9
+];
+
+const ISLAND_NUM_DIGIT_W: i32 = 5;
+const ISLAND_NUM_DIGIT_H: i32 = 7;
+const ISLAND_NUM_GAP: i32 = 1;
+const ISLAND_NUM_CHAR_W: i32 = ISLAND_NUM_DIGIT_W + ISLAND_NUM_GAP;
+
+/// 島番号表示時、ピクセル (px, py) が番号描画領域なら白ピクセルを返す。
+/// `centroids`: (island_id, cx, cy) のリスト。id は 1-based 表示番号。
+fn island_number_pixel(
+    px: i32,
+    py: i32,
+    centroids: &[(u32, f32, f32)],
+) -> Option<PixelF32> {
+    let white = PixelF32 {
+        red: 1.0,
+        green: 1.0,
+        blue: 1.0,
+        alpha: 1.0,
+    };
+    for &(id, cx, cy) in centroids.iter() {
+        let s = id.to_string();
+        let num_digits = s.len() as i32;
+        let total_w = num_digits * ISLAND_NUM_CHAR_W;
+        let left = (cx - total_w as f32 / 2.0).floor() as i32;
+        let top = (cy - ISLAND_NUM_DIGIT_H as f32 / 2.0).floor() as i32;
+        let local_x = px - left;
+        let local_y = py - top;
+        if !(0..ISLAND_NUM_DIGIT_H).contains(&local_y) {
+            continue;
+        }
+        if local_x < 0 {
+            continue;
+        }
+        let digit_index = local_x / ISLAND_NUM_CHAR_W;
+        if digit_index >= num_digits {
+            continue;
+        }
+        let dx = local_x % ISLAND_NUM_CHAR_W;
+        if dx >= ISLAND_NUM_DIGIT_W {
+            continue;
+        }
+        let dy = local_y as usize;
+        let digit_char = s.chars().nth(digit_index as usize)?;
+        let digit_value = (digit_char as u8).wrapping_sub(b'0');
+        if digit_value > 9 {
+            continue;
+        }
+        let row = ISLAND_NUM_FONT[digit_value as usize][dy];
+        let bit = (row >> (4 - dx)) & 1;
+        if bit != 0 {
+            return Some(white);
+        }
+    }
+    None
+}
 
 // ---------------------------------------------------------------------------
 // トラッキングアルゴリズム
@@ -2653,6 +2833,11 @@ impl Plugin {
             .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value()))
             .unwrap_or(0.0) as f32
             / 100.0;
+        let show_island_numbers: bool = params
+            .get(Params::ShowIslandNumbers)
+            .ok()
+            .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+            .unwrap_or(false);
 
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
@@ -2877,17 +3062,18 @@ impl Plugin {
             blue: 0.0,
             alpha: 1.0,
         };
-        let grad_slots: Vec<(bool, PixelF32, PixelF32, bool)> = if output_mode == 4 {
+        // (enabled, start, end, invert, opacity 0..1). 無効時もデフォルトで表示するため enabled は色の適用可否に使用。
+        let grad_slots: Vec<(bool, PixelF32, PixelF32, bool, f32)> = if output_mode == 4 {
             (0..GRADIENT_SETS)
                 .map(|i| {
                     if i >= grad_count_final {
-                        return (false, white_f32, black_f32, false);
+                        return (false, white_f32, black_f32, false, 1.0);
                     }
                     let enabled = params
                         .get(GRADIENT_ENABLE[i])
                         .ok()
                         .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
-                        .unwrap_or(false);
+                        .unwrap_or(true);
                     let start = params
                         .get(GRADIENT_START_COLOR[i])
                         .ok()
@@ -2903,7 +3089,13 @@ impl Plugin {
                         .ok()
                         .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
                         .unwrap_or(false);
-                    (enabled, start, end, invert)
+                    let opacity = params
+                        .get(GRADIENT_OPACITY[i])
+                        .ok()
+                        .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value() as f32 / 100.0))
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0);
+                    (enabled, start, end, invert, opacity)
                 })
                 .collect()
         } else {
@@ -2942,6 +3134,22 @@ impl Plugin {
             } else {
                 std::collections::HashMap::new()
             };
+
+        // 島番号表示用: 各島の重心 (id, cx, cy)。Final Gradient かつ Show Island Numbers のときのみ使用。
+        let island_centroids: Vec<(u32, f32, f32)> = if output_mode == 4 && show_island_numbers {
+            island_bb
+                .iter()
+                .map(|(&id, &(x_min, x_max, y_min, y_max))| {
+                    (
+                        id,
+                        (x_min + x_max) as f32 / 2.0,
+                        (y_min + y_max) as f32 / 2.0,
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
 
         // Mask Path モード: アイランド重心の最近傍パス点における接線方向 (tx, ty)
         let island_grad_tangent: std::collections::HashMap<u32, (f32, f32)> = if output_mode == 4
@@ -3132,18 +3340,17 @@ impl Plugin {
                             }
                         } else {
                             let slot = (id as usize).saturating_sub(1);
-                            let (enabled, start, end, invert) = grad_slots
+                            let (enabled, start, end, invert, opacity) = grad_slots
                                 .get(slot)
                                 .copied()
-                                .unwrap_or((false, white_f32, black_f32, false));
-                            if !enabled {
-                                PixelF32 {
-                                    red: 0.0,
-                                    green: 0.0,
-                                    blue: 0.0,
-                                    alpha: 0.0,
-                                }
+                                .unwrap_or((true, white_f32, black_f32, false, 1.0));
+                            // 無効時はデフォルト色（白→黒）で表示し、全アイランドを表示する
+                            let (start, end, invert, opacity) = if enabled {
+                                (start, end, invert, opacity)
                             } else {
+                                (white_f32, black_f32, false, 1.0)
+                            };
+                            {
                                 let (x_min, x_max, y_min, y_max) = island_bb
                                     .get(&id)
                                     .copied()
@@ -3215,32 +3422,38 @@ impl Plugin {
                                         }
                                     }
                                 };
-                                // Perlin ゆらぎ → オフセット → バイアス → 反転
+                                // グレイン状ノイズ → オフセット → バイアス → 反転
                                 let t_noisy = if master_noise > 0.0 {
-                                    let nx = perlin_noise_2d(
-                                        x as f32 * GRADIENT_NOISE_SCALE,
-                                        y as f32 * GRADIENT_NOISE_SCALE,
-                                    ) * master_noise;
-                                    (t_raw + nx).clamp(0.0, 1.0)
+                                    (t_raw + pixel_noise(x as usize, y as usize) * master_noise)
+                                        .clamp(0.0, 1.0)
                                 } else {
                                     t_raw
                                 };
                                 let t_off = (t_noisy + master_offset).clamp(0.0, 1.0);
                                 let t_biased = apply_bias(t_off, master_bias);
                                 let t_final = if invert { 1.0 - t_biased } else { t_biased };
-                                // 色補間（入力アルファを乗算）
+                                // 色補間（入力アルファ・スロット不透明度を乗算）
+                                let base_alpha = (start.alpha
+                                    + (end.alpha - start.alpha) * t_final)
+                                    * px.alpha
+                                    * opacity;
                                 PixelF32 {
                                     red: start.red + (end.red - start.red) * t_final,
                                     green: start.green + (end.green - start.green) * t_final,
                                     blue: start.blue + (end.blue - start.blue) * t_final,
-                                    alpha: (start.alpha + (end.alpha - start.alpha) * t_final)
-                                        * px.alpha,
+                                    alpha: base_alpha,
                                 }
                             }
                         }
                     }
                 }
                 _ => px,
+            };
+            // 島番号表示: Final Gradient 時かつチェックONなら番号ピクセルで上書き
+            let out_px = if output_mode == 4 && show_island_numbers {
+                island_number_pixel(x, y, &island_centroids).unwrap_or(out_px)
+            } else {
+                out_px
             };
             match out_wt {
                 ae::aegp::WorldType::U8 => dst.set_from_u8(out_px.to_pixel8()),
