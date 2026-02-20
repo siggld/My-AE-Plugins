@@ -942,7 +942,7 @@ fn update_params_ui_visibility(
         {
             let mut pd = p.get_mut(Params::SortAngle)?;
             pd.set_ui_flag(ae::ParamUIFlags::INVISIBLE, island_sort != 8);
-            pd.set_flag(ae::ParamFlag::START_COLLAPSED, true);
+            // START_COLLAPSED は設定しない（親グループ「Island Tracking & Temp Colors」を初期展開のままにする）
             pd.update_param_ui()?;
         }
         {
@@ -1934,6 +1934,8 @@ fn apply_bias(t: f32, bias: f32) -> f32 {
 }
 
 /// 決定論的な擬似乱数ノイズ（-1.0 〜 1.0）をピクセル座標から生成する。
+/// グラデーションのゆらぎには `perlin_noise_2d` を使用する。
+#[allow(dead_code)]
 fn pixel_noise(x: usize, y: usize) -> f32 {
     let h = (x as u32)
         .wrapping_mul(2654435761)
@@ -1942,6 +1944,49 @@ fn pixel_noise(x: usize, y: usize) -> f32 {
         .wrapping_add(1013904223);
     (h as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
+
+/// グラデーション用 Perlin 風 2D ノイズ（ゆらぎ）。決定論的、戻り値はおおよそ [-1, 1]。
+/// `scale` が小さいほどなだらか（例: 0.02 で約 50px スケールのゆらぎ）。
+fn perlin_noise_2d(x: f32, y: f32) -> f32 {
+    fn hash2(u: i32, v: i32) -> u32 {
+        let h = (u as u32)
+            .wrapping_mul(374761393)
+            .wrapping_add((v as u32).wrapping_mul(668265263))
+            .wrapping_add(0x9e3779b9u32);
+        h.wrapping_mul(1664525).wrapping_add(1013904223)
+    }
+    fn grad2(h: u32) -> (f32, f32) {
+        let u = (h & 0x3FF) as f32 / 1023.0 - 0.5;
+        let v = ((h >> 10) & 0x3FF) as f32 / 1023.0 - 0.5;
+        let r = (u * u + v * v).sqrt().max(1e-6);
+        (u / r, v / r)
+    }
+    fn smooth5(t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+    }
+    let x0 = x.floor() as i32;
+    let y0 = y.floor() as i32;
+    let sx = smooth5(x - x0 as f32);
+    let sy = smooth5(y - y0 as f32);
+    let g00 = grad2(hash2(x0, y0));
+    let g10 = grad2(hash2(x0 + 1, y0));
+    let g01 = grad2(hash2(x0, y0 + 1));
+    let g11 = grad2(hash2(x0 + 1, y0 + 1));
+    let dx = x - x0 as f32;
+    let dy = y - y0 as f32;
+    let n00 = g00.0 * dx + g00.1 * dy;
+    let n10 = g10.0 * (dx - 1.0) + g10.1 * dy;
+    let n01 = g01.0 * dx + g01.1 * (dy - 1.0);
+    let n11 = g11.0 * (dx - 1.0) + g11.1 * (dy - 1.0);
+    let nx0 = n00 + sx * (n10 - n00);
+    let nx1 = n01 + sx * (n11 - n01);
+    (nx0 + sy * (nx1 - nx0)).clamp(-1.0, 1.0)
+}
+
+/// グラデーション t に適用する Perlin ゆらぎの空間スケール（ピクセルあたり）。
+/// 小さいほどなだらか（例: 0.02 → 約 50px 周期）。
+const GRADIENT_NOISE_SCALE: f32 = 0.02;
 
 // ---------------------------------------------------------------------------
 // トラッキングアルゴリズム
@@ -3170,10 +3215,13 @@ impl Plugin {
                                         }
                                     }
                                 };
-                                // ノイズ → オフセット → バイアス → 反転
+                                // Perlin ゆらぎ → オフセット → バイアス → 反転
                                 let t_noisy = if master_noise > 0.0 {
-                                    (t_raw + pixel_noise(x as usize, y as usize) * master_noise)
-                                        .clamp(0.0, 1.0)
+                                    let nx = perlin_noise_2d(
+                                        x as f32 * GRADIENT_NOISE_SCALE,
+                                        y as f32 * GRADIENT_NOISE_SCALE,
+                                    ) * master_noise;
+                                    (t_raw + nx).clamp(0.0, 1.0)
                                 } else {
                                     t_raw
                                 };
