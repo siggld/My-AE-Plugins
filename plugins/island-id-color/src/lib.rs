@@ -2874,8 +2874,8 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_angle().ok().map(|ad| ad.value()))
             .unwrap_or(0.0);
-        // GradCenterPoint: 0.0=左/上, 1.0=右/下（正規化座標）
-        let grad_center_point: (f32, f32) = params
+        // GradCenterPoint: 0.0=左/上, 1.0=右/下（正規化座標）（Radial は島重心を使用するため未使用）
+        let _grad_center_point: (f32, f32) = params
             .get(Params::GradCenterPoint)
             .ok()
             .and_then(|p| p.as_point().ok().map(|pt| pt.value()))
