@@ -284,6 +284,7 @@ enum Params {
     MasterOffset,
     MasterNoiseAmount,
     ShowIslandNumbers,
+    IslandNumberSize,
     EnableGradientColor0,
     StartColor0,
     EndColor0,
@@ -939,6 +940,11 @@ fn update_params_ui_visibility(
         }
         arr
     };
+    let show_island_numbers: bool = params
+        .get(Params::ShowIslandNumbers)
+        .ok()
+        .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
+        .unwrap_or(false);
 
     if in_data.is_premiere() {
         // Premiere Pro: INVISIBLE flag is honored via update_param_ui
@@ -1293,6 +1299,11 @@ fn update_params_ui_visibility(
                     pd.update_param_ui()?;
                 }
             }
+        }
+        {
+            let mut pd = p.get_mut(Params::IslandNumberSize)?;
+            pd.set_ui_flag(ae::ParamUIFlags::DISABLED, !show_island_numbers);
+            pd.update_param_ui()?;
         }
     }
 
@@ -1713,6 +1724,18 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(false);
                     }),
                 )?;
+                params.add(
+                    Params::IslandNumberSize,
+                    "Island Number Size",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(1.0);
+                        d.set_valid_max(10.0);
+                        d.set_slider_min(1.0);
+                        d.set_slider_max(10.0);
+                        d.set_default(2.0);
+                        d.set_precision(1);
+                    }),
+                )?;
                 params.add_with_flags(
                     Params::GradientSettingsCount,
                     "Gradient Settings Count",
@@ -2041,15 +2064,13 @@ fn apply_bias(t: f32, bias: f32) -> f32 {
     t.powf((0.5_f32).ln() / bias.ln())
 }
 
-/// 決定論的な擬似乱数ノイズ（-1.0 〜 1.0）をピクセル座標から生成する。
-/// グラデーションの Master Noise はグレイン状の細かいノイズとして使用。
-fn pixel_noise(x: usize, y: usize) -> f32 {
-    let h = (x as u32)
-        .wrapping_mul(2654435761)
-        .wrapping_add((y as u32).wrapping_mul(2246822519))
-        .wrapping_mul(1664525)
-        .wrapping_add(1013904223);
-    (h as f32 / u32::MAX as f32) * 2.0 - 1.0
+/// ホワイトノイズ（-1.0 〜 1.0）をピクセル座標と時間シードから生成する。
+/// sin+fract によりモアレ・縞を抑え、AE 標準ノイズに近いランダムな見た目にする。
+fn pixel_noise(x: usize, y: usize, time_seed: f32) -> f32 {
+    let fx = x as f32;
+    let fy = y as f32;
+    let dot = fx * 12.9898 + fy * 78.233 + time_seed * 37.719;
+    ((dot.sin() * 43_758.547).fract().abs() * 2.0) - 1.0
 }
 
 /// グラデーション用 Perlin 風 2D ノイズ（ゆらぎ）。決定論的、戻り値はおおよそ [-1, 1]。
@@ -2139,43 +2160,60 @@ const ISLAND_NUM_GAP: i32 = 1;
 const ISLAND_NUM_CHAR_W: i32 = ISLAND_NUM_DIGIT_W + ISLAND_NUM_GAP;
 
 /// 島番号表示時、ピクセル (px, py) が番号描画領域なら白ピクセルを返す。
-/// `centroids`: (island_id, cx, cy) のリスト。id は 1-based 表示番号。
-fn island_number_pixel(px: i32, py: i32, centroids: &[(u32, f32, f32)]) -> Option<PixelF32> {
+/// `centroids`: (island_id, cx, cy) のリスト。id は 1-based 表示番号（スロット+1）。
+/// `scale`: 5x7 ビットマップの拡大倍率（1.0～10.0）。ニアレストネイバー的にピクセルを拡張。
+fn island_number_pixel(
+    px: i32,
+    py: i32,
+    centroids: &[(u32, f32, f32)],
+    scale: f32,
+) -> Option<PixelF32> {
     let white = PixelF32 {
         red: 1.0,
         green: 1.0,
         blue: 1.0,
         alpha: 1.0,
     };
+    let scale = scale.max(0.1);
     for &(id, cx, cy) in centroids.iter() {
         let s = id.to_string();
         let num_digits = s.len() as i32;
-        let total_w = num_digits * ISLAND_NUM_CHAR_W;
-        let left = (cx - total_w as f32 / 2.0).floor() as i32;
-        let top = (cy - ISLAND_NUM_DIGIT_H as f32 / 2.0).floor() as i32;
-        let local_x = px - left;
-        let local_y = py - top;
-        if !(0..ISLAND_NUM_DIGIT_H).contains(&local_y) {
+        let total_w_logical = num_digits * ISLAND_NUM_CHAR_W;
+        let total_w_px = total_w_logical as f32 * scale;
+        let h_px = ISLAND_NUM_DIGIT_H as f32 * scale;
+        let left_px = cx - total_w_px / 2.0;
+        let top_px = cy - h_px / 2.0;
+        let local_px = px as f32 - left_px;
+        let local_py = py as f32 - top_px;
+        if local_py < 0.0 || local_py >= h_px {
             continue;
         }
-        if local_x < 0 {
+        if local_px < 0.0 {
             continue;
         }
-        let digit_index = local_x / ISLAND_NUM_CHAR_W;
-        if digit_index >= num_digits {
+        let logical_x = local_px / scale;
+        let logical_y = local_py / scale;
+        if logical_y < 0.0 || logical_y >= ISLAND_NUM_DIGIT_H as f32 {
             continue;
         }
-        let dx = local_x % ISLAND_NUM_CHAR_W;
-        if dx >= ISLAND_NUM_DIGIT_W {
+        let digit_index = (logical_x / ISLAND_NUM_CHAR_W as f32).floor() as i32;
+        if digit_index < 0 || digit_index >= num_digits {
             continue;
         }
-        let dy = local_y as usize;
+        let dx = (logical_x - digit_index as f32 * ISLAND_NUM_CHAR_W as f32).floor() as i32;
+        let dy = logical_y.floor() as i32;
+        if !(0..ISLAND_NUM_DIGIT_W).contains(&dx) {
+            continue;
+        }
+        if !(0..ISLAND_NUM_DIGIT_H).contains(&dy) {
+            continue;
+        }
         let digit_char = s.chars().nth(digit_index as usize)?;
         let digit_value = (digit_char as u8).wrapping_sub(b'0');
         if digit_value > 9 {
             continue;
         }
-        let row = ISLAND_NUM_FONT[digit_value as usize][dy];
+        let row = ISLAND_NUM_FONT[digit_value as usize][dy as usize];
         let bit = (row >> (4 - dx)) & 1;
         if bit != 0 {
             return Some(white);
@@ -2854,6 +2892,12 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_checkbox().ok().map(|cb| cb.value()))
             .unwrap_or(false);
+        let island_number_size: f32 = params
+            .get(Params::IslandNumberSize)
+            .ok()
+            .and_then(|p| p.as_float_slider().ok().map(|fs| fs.value() as f32))
+            .unwrap_or(2.0)
+            .clamp(1.0, 10.0);
 
         // アルゴリズム選択とアルゴリズム専用パラメータを読み取る
         let tracking_algo: i32 = params
@@ -3013,10 +3057,32 @@ impl Plugin {
                         algo_color_scale,
                     ),
                 };
-                // ─── Step4: user_id 1〜32 + auto 33+ ───────────────────
-                let mut next_untracked = (MERGE_ISLAND_SETS as u32) + 1;
+                // ─── Step4: 全島をスロット 1..32 に割り当て（33+ フォールバック廃止）────
+                // トラッキングでマッチした島は label_to_user_id の uid を使用。
+                // マッチしなかった島は、1..32 の未使用スロットに順に割り当てる。
+                let used_slots: std::collections::HashSet<u32> =
+                    label_to_user_id.values().copied().collect();
+                let available_slots: Vec<u32> = (1..=GRADIENT_SETS as u32)
+                    .filter(|s| !used_slots.contains(s))
+                    .collect();
+                let mut untracked_labels: Vec<u32> = raw_labels
+                    .iter()
+                    .filter(|&&lbl| lbl != 0 && !label_to_user_id.contains_key(&lbl))
+                    .copied()
+                    .collect();
+                untracked_labels.sort_unstable();
+                untracked_labels.dedup();
                 let mut untracked_remap: std::collections::HashMap<u32, u32> =
                     std::collections::HashMap::new();
+                for (i, &lbl) in untracked_labels.iter().enumerate() {
+                    let slot = if i < available_slots.len() {
+                        available_slots[i]
+                    } else {
+                        // 島数が 32 を超える場合、あふれは最後のスロットで表示
+                        GRADIENT_SETS as u32
+                    };
+                    untracked_remap.insert(lbl, slot);
+                }
                 raw_labels
                     .iter()
                     .map(|&lbl| {
@@ -3025,11 +3091,7 @@ impl Plugin {
                         } else if let Some(&uid) = label_to_user_id.get(&lbl) {
                             uid
                         } else {
-                            *untracked_remap.entry(lbl).or_insert_with(|| {
-                                let id = next_untracked;
-                                next_untracked += 1;
-                                id
-                            })
+                            *untracked_remap.get(&lbl).unwrap_or(&1)
                         }
                     })
                     .collect()
@@ -3286,6 +3348,7 @@ impl Plugin {
             std::collections::HashMap::new()
         };
 
+        let noise_time = _in_data.current_time() as f32;
         let out_wt = out_world_type;
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let px = read_pixel_f32(&in_layer, in_world_type, x as usize, y as usize);
@@ -3440,7 +3503,9 @@ impl Plugin {
                                 };
                                 // グレイン状ノイズ → オフセット → バイアス → 反転
                                 let t_noisy = if master_noise > 0.0 {
-                                    (t_raw + pixel_noise(x as usize, y as usize) * master_noise)
+                                    (t_raw
+                                        + pixel_noise(x as usize, y as usize, noise_time)
+                                            * master_noise)
                                         .clamp(0.0, 1.0)
                                 } else {
                                     t_raw
@@ -3467,7 +3532,7 @@ impl Plugin {
             };
             // 島番号表示: Final Gradient 時かつチェックONなら番号ピクセルで上書き
             let out_px = if output_mode == 4 && show_island_numbers {
-                island_number_pixel(x, y, &island_centroids).unwrap_or(out_px)
+                island_number_pixel(x, y, &island_centroids, island_number_size).unwrap_or(out_px)
             } else {
                 out_px
             };
