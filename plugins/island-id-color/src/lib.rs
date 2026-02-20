@@ -2874,8 +2874,8 @@ impl Plugin {
             .ok()
             .and_then(|p| p.as_angle().ok().map(|ad| ad.value()))
             .unwrap_or(0.0);
-        // GradCenterPoint: 0.0=左/上, 1.0=右/下（正規化座標）（Radial は島重心を使用するため未使用）
-        let _grad_center_point: (f32, f32) = params
+        // GradCenterPoint: 0.0=左/上, 1.0=右/下（正規化座標）。Radial 時はこの点から各島へ放射し投影で t を算出。
+        let grad_center_point: (f32, f32) = params
             .get(Params::GradCenterPoint)
             .ok()
             .and_then(|p| p.as_point().ok().map(|pt| pt.value()))
@@ -3365,6 +3365,41 @@ impl Plugin {
             std::collections::HashMap::new()
         };
 
+        // Radial: Grad Center Point から各島の重心への角度で投影し、島内 proj_min..proj_max で t を正規化
+        // (cos_theta, sin_theta, proj_min, proj_max) を島ごとに事前計算
+        let island_radial_proj: std::collections::HashMap<u32, (f32, f32, f32, f32)> =
+            if output_mode == 4 && master_grad_type == 2 {
+                let center_x = grad_center_point.0 * width as f32;
+                let center_y = grad_center_point.1 * height as f32;
+                island_bb
+                    .iter()
+                    .map(|(&id, &(x_min, x_max, y_min, y_max))| {
+                        let cx = (x_min + x_max) as f32 / 2.0;
+                        let cy = (y_min + y_max) as f32 / 2.0;
+                        let theta = (cy - center_y).atan2(cx - center_x);
+                        let cos_t = theta.cos();
+                        let sin_t = theta.sin();
+                        let corners = [
+                            (x_min as f32, y_min as f32),
+                            (x_max as f32, y_min as f32),
+                            (x_min as f32, y_max as f32),
+                            (x_max as f32, y_max as f32),
+                        ];
+                        let projs: [f32; 4] = [
+                            corners[0].0 * cos_t + corners[0].1 * sin_t,
+                            corners[1].0 * cos_t + corners[1].1 * sin_t,
+                            corners[2].0 * cos_t + corners[2].1 * sin_t,
+                            corners[3].0 * cos_t + corners[3].1 * sin_t,
+                        ];
+                        let proj_min = projs.iter().copied().fold(f32::MAX, f32::min);
+                        let proj_max = projs.iter().copied().fold(f32::MIN, f32::max);
+                        (id, (cos_t, sin_t, proj_min, proj_max))
+                    })
+                    .collect()
+            } else {
+                std::collections::HashMap::new()
+            };
+
         let noise_time = _in_data.current_time() as f32;
         let out_wt = out_world_type;
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
@@ -3460,16 +3495,19 @@ impl Plugin {
                                 // グラデーション t 値を計算（各モード）
                                 let t_raw = match master_grad_type {
                                     2 => {
-                                        // Radial: 島の重心を中心に、BB 対角の半分を最大半径とする放射状グラデーション
-                                        let cx = (x_min + x_max) as f32 / 2.0;
-                                        let cy = (y_min + y_max) as f32 / 2.0;
-                                        let w = (x_max - x_min) as f32;
-                                        let h = (y_max - y_min) as f32;
-                                        let r_max = (0.5 * (w * w + h * h).sqrt()).max(1e-6);
-                                        let dx = x as f32 - cx;
-                                        let dy = y as f32 - cy;
-                                        let d = (dx * dx + dy * dy).sqrt();
-                                        (d / r_max).clamp(0.0, 1.0)
+                                        // Radial: Grad Center Point から島重心への放射線方向に投影し、
+                                        // 島に最初に触れた点(proj_min)～最後に触れた点(proj_max)で t を正規化
+                                        let (cos_t, sin_t, proj_min, proj_max) = island_radial_proj
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or((1.0, 0.0, 0.0, 1.0));
+                                        let proj = x as f32 * cos_t + y as f32 * sin_t;
+                                        if (proj_max - proj_min).abs() < 1e-6 {
+                                            0.0_f32
+                                        } else {
+                                            ((proj - proj_min) / (proj_max - proj_min))
+                                                .clamp(0.0_f32, 1.0_f32)
+                                        }
                                     }
                                     3 => {
                                         // Mask Path: 島重心の接線方向で BB 内線形グラデーション
