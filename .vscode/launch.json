@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Build, Deploy & Launch AE",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "C:\\Program Files\\Adobe\\Adobe After Effects 2024\\Support Files\\After Effects.exe",
+      "args": [],
+      "cwd": "C:\\Program Files\\Adobe\\Adobe After Effects 2024\\Support Files",
+      "preLaunchTask": "Build & Deploy island_id_color",
+      "presentation": { "hidden": false }
+    },
+    {
+      "name": "Attach to After Effects",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "symbolSearchPath": "${env:LOCALAPPDATA}\\AEPluginBuild\\release"
+    }
+  ]
+}

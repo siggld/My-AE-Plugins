@@ -1,0 +1,21 @@
+[package]
+name = "pipl"
+version = "0.1.1"
+authors = ["Adrian "]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+exclude = ["tests"]
+description = "Library for building Adobe's PiPL plugin info resource (Windows: BigEndian for AE compatibility)"
+repository = "https://github.com/virtualritz/after-effects/"
+
+[lib]
+name = "pipl"
+
+[dependencies]
+bitflags = "2.9"
+byteorder = "1.5"
+pretty-hex = "0.4"
+winres = "0.1"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+plist = "1.7.2"

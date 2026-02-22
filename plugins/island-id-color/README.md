@@ -8,6 +8,8 @@ This is the After Effects plugin **AOD_IslandIdColor**, which provides the **Isl
 
 See the [main README](../../README.md) for instructions on how to build the plugin.
 
+**Windows:** Use **Visual Studio 2022** (Community or Build Tools with C++ workload) for building. This matches GitHub CI (windows-latest). Other MSVC versions may produce binaries that crash AE on startup; in that case use the pre-built `.aex` from [GitHub Releases](https://github.com/Aodaruma/aodaruma-ae-plugin/releases).
+
 ## UI layout (skeleton)
 
 - **Output Mode**: Original / Extraction (Alpha) / Temp Color (Island ID) / Final Gradient

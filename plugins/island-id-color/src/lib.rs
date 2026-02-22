@@ -1,10 +1,14 @@
 #![allow(clippy::drop_non_drop, clippy::question_mark, dead_code)]
 
 use after_effects as ae;
-use std::env;
 
 use ae::pf::*;
 use utils::ToPixel;
+
+/// true のとき params_setup はパラメータを一切追加せず return（起動クラッシュ切り分け用）
+const CRASH_TEST_SKIP_PARAMS: bool = false;
+/// true のとき handle_command は全コマンドを無視（起動クラッシュ切り分け用）
+const CRASH_TEST_MINIMAL_HANDLER: bool = false;
 
 const EXTRACTION_SETS: usize = 32;
 const MERGE_ISLAND_SETS: usize = 32;
@@ -1061,9 +1065,10 @@ fn update_params_ui_visibility(
                 pd.update_param_ui()?;
             }
         }
-    } else {
+    } else if plugin_id != 0 {
         // After Effects: INVISIBLE is not supported via update_param_ui.
         // Use AEGP DynamicStreamFlags::Hidden to show/hide parameters.
+        // Guard: skip AEGP when not yet registered (avoids AE startup crash).
         let effect = in_data.effect();
         let aegp_eff = effect.aegp_effect(plugin_id)?;
 
@@ -1326,6 +1331,8 @@ fn update_params_ui_visibility(
 
     // SortMaskIndex / GradMaskIndex は PathDef のため、
     // AE が自動的にレイヤーの実際のマスク名を表示する。手動更新は不要。
+    // AEGP 登録は UpdateParamsUi で初回のみ行い、ここでは未登録(plugin_id==0)時は
+    // 上記の AEGP ブロックをスキップするガードで未登録状態での AEGP 操作を防止する。
 
     Ok(())
 }
@@ -1337,6 +1344,9 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
+        if CRASH_TEST_SKIP_PARAMS {
+            return Ok(());
+        }
         params.add(
             Params::OutputMode,
             "Output Mode",
@@ -1857,6 +1867,9 @@ impl AdobePluginGlobal for Plugin {
         mut out_data: OutData,
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
+        if CRASH_TEST_MINIMAL_HANDLER {
+            return Ok(());
+        }
         match cmd {
             ae::Command::About => {
                 out_data.set_return_msg(
@@ -1874,19 +1887,18 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag2(OutFlags2::SupportsGetFlattenedSequenceData, true);
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
-                if let Ok(suite) = ae::aegp::suites::Utility::new()
-                    && let Ok(id) = suite.register_with_aegp("AOD_IslandIdColor")
-                {
-                    self.my_id = id;
-                }
             }
             ae::Command::UpdateParamsUi => {
+                if self.my_id == 0 {
+                    return Ok(());
+                }
                 update_params_ui_visibility(in_data, self.my_id, params)?;
             }
             ae::Command::Render {
                 in_layer,
                 out_layer,
             } => {
+                self.ensure_aegp_registered();
                 self.do_render(in_data, in_layer, out_data, out_layer, params)?;
             }
             ae::Command::SmartPreRender { mut extra } => {
@@ -1906,6 +1918,7 @@ impl AdobePluginGlobal for Plugin {
                 }
             }
             ae::Command::SmartRender { extra } => {
+                self.ensure_aegp_registered();
                 let cb = extra.callbacks();
                 let in_layer_opt = cb.checkout_layer_pixels(0)?;
                 let out_layer_opt = cb.checkout_output()?;
@@ -2734,6 +2747,18 @@ fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: u
 }
 
 impl Plugin {
+    /// AEGP 登録は Render/SmartRender で初回のみ行う。起動スキャン中の UpdateParamsUi で呼ぶとクラッシュする。
+    fn ensure_aegp_registered(&mut self) {
+        if self.my_id != 0 {
+            return;
+        }
+        if let Ok(suite) = ae::aegp::suites::Utility::new()
+            && let Ok(id) = suite.register_with_aegp("AOD_IslandIdColor")
+        {
+            self.my_id = id;
+        }
+    }
+
     fn do_render(
         &self,
         _in_data: InData,

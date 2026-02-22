@@ -80,6 +80,7 @@ Prerequisites:
 - Rust toolchain and cargo
 - cargo-generate
 - just (recommended)
+- **Windows:** Visual Studio 2022 (Community or Build Tools, C++ workload). See [Environment setup review](docs/ENV_SETUP_REVIEW.md) for details and how this differs from C/C++ AE plugin projects.
 
 Build all plugins:
 
