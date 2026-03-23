@@ -688,7 +688,7 @@ pub enum Property {
 
 pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
     #[rustfmt::skip]
- fn padding_4(x: u32) -> u32 { if x % 4 != 0 { 4 - x % 4 } else { 0 } }
+ fn padding_4(x: u32) -> u32 { if !x.is_multiple_of(4) { 4 - x % 4 } else { 0 } }
 
     fn write(
         buffer: &mut Vec<u8>,
@@ -1215,6 +1215,7 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
                     buffer.write_u32::<ByteOrder>(spec_version_minor)?;
                     buffer.write_u32::<ByteOrder>(filter_params_version)?;
                     #[rustfmt::skip]
+ #[allow(clippy::identity_op)]
  let flags: u32 = if randomness { 1u32 << 0 } else { 0 } | // ANIM_FF_HAS_RANDOMNESS (AE only)
  if !geometric { 1u32 << 1 } else { 0 } | // ANIM_FF_NON_GEOMETRIC (AE only)
  if fg_animatable { 1u32 << 2 } else { 0 } | // ANIM_FF_FG_ANIMATABLE (AE only)
