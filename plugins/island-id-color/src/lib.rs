@@ -8,15 +8,29 @@ use utils::ToPixel;
 
 // #region agent log
 fn agent_log(location: &str, message: &str, data: &str) {
-    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     let data_esc = data.replace('\\', "\\\\").replace('"', "\\\"");
-    let line = format!(r#"{{"sessionId":"d01594","location":"{}","message":"{}","data":{{"info":"{}"}},"timestamp":{},"hypothesisId":"H1"}}\n"#, location, message, data_esc, ts);
+    let line = format!(
+        r#"{{"sessionId":"d01594","location":"{}","message":"{}","data":{{"info":"{}"}},"timestamp":{},"hypothesisId":"H1"}}\n"#,
+        location, message, data_esc, ts
+    );
     let paths = [
-        std::env::var("LOCALAPPDATA").ok().map(|s| format!("{}\\debug-d01594.log", s)),
-        std::env::var("TEMP").ok().map(|s| format!("{}\\debug-d01594.log", s)),
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .map(|s| format!("{}\\debug-d01594.log", s)),
+        std::env::var("TEMP")
+            .ok()
+            .map(|s| format!("{}\\debug-d01594.log", s)),
     ];
     for p in paths.into_iter().flatten() {
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open(&p).and_then(|mut f| f.write_all(line.as_bytes()));
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&p)
+            .and_then(|mut f| f.write_all(line.as_bytes()));
     }
 }
 // #endregion
@@ -1889,7 +1903,11 @@ impl AdobePluginGlobal for Plugin {
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         // #region agent log
-        agent_log("lib.rs:handle_command", "handle_command entered", &format!("{:?}", cmd));
+        agent_log(
+            "lib.rs:handle_command",
+            "handle_command entered",
+            &format!("{:?}", cmd),
+        );
         // #endregion
         if CRASH_TEST_MINIMAL_HANDLER {
             return Ok(());
