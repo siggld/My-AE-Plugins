@@ -8,3 +8,7 @@ new-plugin = [
 ]
 # workspace の members を触られたくないならこれも足す（必要なら）
 # new-plugin = ["generate", "--path", "templates/plugin", "--destination", "plugins", "--no-workspace"]
+
+# ローカルビルド .aex で AE がクラッシュする場合の試行用: CRT を静的リンクする（有効にする場合は下のコメントを外す）
+# [target.x86_64-pc-windows-msvc]
+# rustflags = ["-C", "target-feature=+crt-static"]

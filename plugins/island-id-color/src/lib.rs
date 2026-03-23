@@ -1,9 +1,30 @@
 #![allow(clippy::drop_non_drop, clippy::question_mark, dead_code)]
 
 use after_effects as ae;
+use std::io::Write;
 
 use ae::pf::*;
 use utils::ToPixel;
+
+// #region agent log
+fn agent_log(location: &str, message: &str, data: &str) {
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let data_esc = data.replace('\\', "\\\\").replace('"', "\\\"");
+    let line = format!(r#"{{"sessionId":"d01594","location":"{}","message":"{}","data":{{"info":"{}"}},"timestamp":{},"hypothesisId":"H1"}}\n"#, location, message, data_esc, ts);
+    let paths = [
+        std::env::var("LOCALAPPDATA").ok().map(|s| format!("{}\\debug-d01594.log", s)),
+        std::env::var("TEMP").ok().map(|s| format!("{}\\debug-d01594.log", s)),
+    ];
+    for p in paths.into_iter().flatten() {
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open(&p).and_then(|mut f| f.write_all(line.as_bytes()));
+    }
+}
+// #endregion
+
+#[ctor::ctor]
+fn agent_log_dll_load() {
+    agent_log("lib.rs:ctor", "DLL load", "island_id_color cdylib loaded");
+}
 
 /// true のとき params_setup はパラメータを一切追加せず return（起動クラッシュ切り分け用）
 const CRASH_TEST_SKIP_PARAMS: bool = false;
@@ -1867,6 +1888,9 @@ impl AdobePluginGlobal for Plugin {
         mut out_data: OutData,
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
+        // #region agent log
+        agent_log("lib.rs:handle_command", "handle_command entered", &format!("{:?}", cmd));
+        // #endregion
         if CRASH_TEST_MINIMAL_HANDLER {
             return Ok(());
         }

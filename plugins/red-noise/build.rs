@@ -67,7 +67,7 @@ fn main() {
             // set up from https://docs.rs/pipl/latest/pipl/struct.OutFlags2.html
             OutFlags2::FloatColorAware
             | OutFlags2::SupportsThreadedRendering
-            // | OutFlags2::SupportsGetFlattenedSequenceData
+            | OutFlags2::SupportsGetFlattenedSequenceData
             | OutFlags2::AutomaticWideTimeInput
             | OutFlags2::SupportsSmartRender
             // | OutFlags2::SupportsGpuRenderF32
