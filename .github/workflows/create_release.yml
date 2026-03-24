@@ -18,6 +18,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
   NO_INSTALL: "1"
+  # Optional (repository variable): comma-separated plugin folder names under plugins/, e.g. vector-curve-blur,red-noise.
+  # If empty/unset, `just release` builds every plugin that has a Justfile.
+  RELEASE_PLUGINS: ${{ vars.RELEASE_PLUGINS }}
 
 
 jobs:
