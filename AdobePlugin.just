@@ -65,9 +65,11 @@ create_bundle profile TargetDir:
     # Perform signing - as of AE and PR 25.2 all macos plugins require a signature or else
     # they will fail to load with error code "2685337601" - see your "Plugin Loading.log" for details
     if [ -n "$DEV_CERT" ]; then
-       codesign --options runtime --timestamp -strict --sign "$DEV_CERT" {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
+       # Developer cert: timestamped hardened signature
+       codesign --options runtime --timestamp --strict --sign "$DEV_CERT" {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
     else
-       codesign --options runtime --timestamp -strict --sign - {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
+       # Ad-hoc signature: do not request timestamp
+       codesign --options runtime --strict --sign - {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
        echo "Note: Using ad-hoc signature. For distribution, a valid Apple Developer certificate is recommended."
     fi
 
