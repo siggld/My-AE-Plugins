@@ -1,40 +1,40 @@
 #![allow(clippy::drop_non_drop, clippy::question_mark)]
 
-use after_effects as ae;
 use ae::pf::*;
+use after_effects as ae;
 use std::env;
 use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    ViewMode,          // 1
-    TargetMaskName,    // 2 (Arbitrary: String)
-    AllMasks,          // 3
-    NormalRange,       // 4
-    NormalFalloff,     // 5
-    NormalFalloffBias, // 6
-    PathBlurAmount,    // 7
-    PathBlurOffset,    // 8
-    EnableTaper,       // 9 (SUPERVISE)
-    TaperGroupStart,   // 10
-    StartTaperLength,  // 11
-    StartTaperCurve,   // 12
-    EndTaperLength,    // 13
-    EndTaperCurve,     // 14
-    TaperGroupEnd,     // 15
-    FractalAmount,     // 16
-    FractalScale,      // 17
-    FractalComplexity, // 18
-    Evolution,         // 19
-    ProfileGroupStart,     // 20
-    EnableProfileCurve,    // 21 (SUPERVISE)
-    ProfileMaskName,       // 22 (Arbitrary: String)
-    PositiveScale,         // 23
-    NegativeScale,         // 24
-    LinkScales,            // 25 (SUPERVISE)
-    InvertCurveX,          // 26
-    SwapNormal,            // 27
-    ProfileGroupEnd,       // 28
+    ViewMode,           // 1
+    TargetMaskName,     // 2 (Arbitrary: String)
+    AllMasks,           // 3
+    NormalRange,        // 4
+    NormalFalloff,      // 5
+    NormalFalloffBias,  // 6
+    PathBlurAmount,     // 7
+    PathBlurOffset,     // 8
+    EnableTaper,        // 9 (SUPERVISE)
+    TaperGroupStart,    // 10
+    StartTaperLength,   // 11
+    StartTaperCurve,    // 12
+    EndTaperLength,     // 13
+    EndTaperCurve,      // 14
+    TaperGroupEnd,      // 15
+    FractalAmount,      // 16
+    FractalScale,       // 17
+    FractalComplexity,  // 18
+    Evolution,          // 19
+    ProfileGroupStart,  // 20
+    EnableProfileCurve, // 21 (SUPERVISE)
+    ProfileMaskName,    // 22 (Arbitrary: String)
+    PositiveScale,      // 23
+    NegativeScale,      // 24
+    LinkScales,         // 25 (SUPERVISE)
+    InvertCurveX,       // 26
+    SwapNormal,         // 27
+    ProfileGroupEnd,    // 28
 }
 
 #[derive(Default)]
@@ -42,8 +42,7 @@ struct Plugin {}
 
 ae::define_effect!(Plugin, (), Params);
 
-const PLUGIN_DESCRIPTION: &str =
-    "Path-driven vector blur with taper and slit fractal modulation.";
+const PLUGIN_DESCRIPTION: &str = "Path-driven vector blur with taper and slit fractal modulation.";
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, PartialOrd, Clone, Default)]
 struct MaskNameArb {
@@ -52,11 +51,7 @@ struct MaskNameArb {
 
 impl ae::ArbitraryData<MaskNameArb> for MaskNameArb {
     fn interpolate(&self, other: &Self, v: f64) -> Self {
-        if v < 0.5 {
-            self.clone()
-        } else {
-            other.clone()
-        }
+        if v < 0.5 { self.clone() } else { other.clone() }
     }
 }
 
@@ -400,7 +395,10 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::UpdateParamsUi => {
                 let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
-                let enable_profile = params.get(Params::EnableProfileCurve)?.as_checkbox()?.value();
+                let enable_profile = params
+                    .get(Params::EnableProfileCurve)?
+                    .as_checkbox()?
+                    .value();
                 let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
                 let mut p = params.cloned();
                 for k in [
@@ -481,22 +479,67 @@ impl Plugin {
 
         let view_mode = params.get(Params::ViewMode)?.as_popup()?.value();
         let normal_range = params.get(Params::NormalRange)?.as_float_slider()?.value() as f32;
-        let normal_falloff = params.get(Params::NormalFalloff)?.as_float_slider()?.value() as f32 / 100.0;
-        let normal_bias = params.get(Params::NormalFalloffBias)?.as_float_slider()?.value() as f32;
-        let blur_amount = params.get(Params::PathBlurAmount)?.as_float_slider()?.value() as f32;
-        let path_offset = params.get(Params::PathBlurOffset)?.as_float_slider()?.value() as f32;
+        let normal_falloff = params
+            .get(Params::NormalFalloff)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let normal_bias = params
+            .get(Params::NormalFalloffBias)?
+            .as_float_slider()?
+            .value() as f32;
+        let blur_amount = params
+            .get(Params::PathBlurAmount)?
+            .as_float_slider()?
+            .value() as f32;
+        let path_offset = params
+            .get(Params::PathBlurOffset)?
+            .as_float_slider()?
+            .value() as f32;
         let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
-        let taper_s_len = params.get(Params::StartTaperLength)?.as_float_slider()?.value() as f32 / 100.0;
-        let taper_s_curve = params.get(Params::StartTaperCurve)?.as_float_slider()?.value() as f32;
-        let taper_e_len = params.get(Params::EndTaperLength)?.as_float_slider()?.value() as f32 / 100.0;
-        let taper_e_curve = params.get(Params::EndTaperCurve)?.as_float_slider()?.value() as f32;
-        let fract_amount = params.get(Params::FractalAmount)?.as_float_slider()?.value() as f32 / 100.0;
+        let taper_s_len = params
+            .get(Params::StartTaperLength)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let taper_s_curve = params
+            .get(Params::StartTaperCurve)?
+            .as_float_slider()?
+            .value() as f32;
+        let taper_e_len = params
+            .get(Params::EndTaperLength)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let taper_e_curve = params
+            .get(Params::EndTaperCurve)?
+            .as_float_slider()?
+            .value() as f32;
+        let fract_amount = params
+            .get(Params::FractalAmount)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
         let fract_scale = params.get(Params::FractalScale)?.as_float_slider()?.value() as f32;
-        let fract_complexity = params.get(Params::FractalComplexity)?.as_float_slider()?.value() as i32;
+        let fract_complexity = params
+            .get(Params::FractalComplexity)?
+            .as_float_slider()?
+            .value() as i32;
         let evolution = params.get(Params::Evolution)?.as_angle()?.float_value()? as f32;
-        let enable_profile = params.get(Params::EnableProfileCurve)?.as_checkbox()?.value();
-        let positive_scale = params.get(Params::PositiveScale)?.as_float_slider()?.value() as f32 / 100.0;
-        let mut negative_scale = params.get(Params::NegativeScale)?.as_float_slider()?.value() as f32 / 100.0;
+        let enable_profile = params
+            .get(Params::EnableProfileCurve)?
+            .as_checkbox()?
+            .value();
+        let positive_scale = params
+            .get(Params::PositiveScale)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let mut negative_scale = params
+            .get(Params::NegativeScale)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
         let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
         if link_scales {
             negative_scale = positive_scale;
@@ -524,10 +567,19 @@ impl Plugin {
 
             let mut taper_w = 1.0;
             if enable_taper {
-                taper_w *= taper_factor(nearest.t_norm, taper_s_len, taper_s_curve, taper_e_len, taper_e_curve);
+                taper_w *= taper_factor(
+                    nearest.t_norm,
+                    taper_s_len,
+                    taper_s_curve,
+                    taper_e_len,
+                    taper_e_curve,
+                );
             }
             let evo = evolution * 0.05;
-            let slit_noise = fbm_1d(nearest.distance / fract_scale.max(0.001) + evo, fract_complexity);
+            let slit_noise = fbm_1d(
+                nearest.distance / fract_scale.max(0.001) + evo,
+                fract_complexity,
+            );
             let fract_w = 1.0 + (slit_noise - 0.5) * 2.0 * fract_amount;
             let profile_mul = if enable_profile {
                 profile_multiplier(
@@ -542,7 +594,8 @@ impl Plugin {
             } else {
                 1.0
             };
-            let total_w = (normal_w * taper_w * fract_w * nearest.ambiguity * profile_mul).clamp(0.0, 1.0);
+            let total_w =
+                (normal_w * taper_w * fract_w * nearest.ambiguity * profile_mul).clamp(0.0, 1.0);
 
             let offset_t = (nearest.t_norm + path_offset * 0.01).rem_euclid(1.0);
             let center = sample_on_path(&path_data.samples, offset_t);
@@ -561,13 +614,32 @@ impl Plugin {
 
             if view_mode == 2 {
                 let v = total_w;
-                col = PixelF32 { red: v, green: v * 0.7, blue: 1.0 - v, alpha: 1.0 };
+                col = PixelF32 {
+                    red: v,
+                    green: v * 0.7,
+                    blue: 1.0 - v,
+                    alpha: 1.0,
+                };
             } else if view_mode == 3 {
-                let g = if normal_range <= 0.0001 { 1.0 } else { (d_abs / normal_range).clamp(0.0, 1.0) };
-                col = PixelF32 { red: g, green: g, blue: g, alpha: 1.0 };
+                let g = if normal_range <= 0.0001 {
+                    1.0
+                } else {
+                    (d_abs / normal_range).clamp(0.0, 1.0)
+                };
+                col = PixelF32 {
+                    red: g,
+                    green: g,
+                    blue: g,
+                    alpha: 1.0,
+                };
             } else if view_mode == 4 {
                 let g = slit_noise;
-                col = PixelF32 { red: g, green: g, blue: g, alpha: 1.0 };
+                col = PixelF32 {
+                    red: g,
+                    green: g,
+                    blue: g,
+                    alpha: 1.0,
+                };
             }
 
             match out_world {
@@ -622,10 +694,14 @@ impl Plugin {
                 in_data.current_time(),
                 in_data.time_step(),
                 in_data.time_scale(),
-            )? else {
+            )?
+            else {
                 continue;
             };
-            let name = data_suite.path_get_name(effect_ref, pid).unwrap_or_default().to_lowercase();
+            let name = data_suite
+                .path_get_name(effect_ref, pid)
+                .unwrap_or_default()
+                .to_lowercase();
             let segs = path.num_segments()?;
             if segs <= 0 {
                 continue;
@@ -763,7 +839,11 @@ fn blur_along_tangent(
     };
     let mut wsum = 0.0_f32;
     for i in 0..taps {
-        let tt = if taps <= 1 { 0.0 } else { i as f32 / (taps - 1) as f32 };
+        let tt = if taps <= 1 {
+            0.0
+        } else {
+            i as f32 / (taps - 1) as f32
+        };
         let centered = (tt - 0.5) * 2.0;
         let profile = 1.0 - centered.abs();
         let step = centered * radius * 0.5 * dir;
@@ -848,10 +928,22 @@ fn sample_bilinear(
 
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
     PixelF32 {
-        alpha: lerp(lerp(p00.alpha, p10.alpha, tx), lerp(p01.alpha, p11.alpha, tx), ty),
+        alpha: lerp(
+            lerp(p00.alpha, p10.alpha, tx),
+            lerp(p01.alpha, p11.alpha, tx),
+            ty,
+        ),
         red: lerp(lerp(p00.red, p10.red, tx), lerp(p01.red, p11.red, tx), ty),
-        green: lerp(lerp(p00.green, p10.green, tx), lerp(p01.green, p11.green, tx), ty),
-        blue: lerp(lerp(p00.blue, p10.blue, tx), lerp(p01.blue, p11.blue, tx), ty),
+        green: lerp(
+            lerp(p00.green, p10.green, tx),
+            lerp(p01.green, p11.green, tx),
+            ty,
+        ),
+        blue: lerp(
+            lerp(p00.blue, p10.blue, tx),
+            lerp(p01.blue, p11.blue, tx),
+            ty,
+        ),
     }
 }
 
@@ -958,7 +1050,11 @@ fn profile_multiplier(
         4 => true,
         _ => false,
     };
-    let t = if invert_this_side { 1.0 - t_norm } else { t_norm };
+    let t = if invert_this_side {
+        1.0 - t_norm
+    } else {
+        t_norm
+    };
     let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
     if use_positive {
         (base * positive_scale).max(0.0)
@@ -966,4 +1062,3 @@ fn profile_multiplier(
         (base * negative_scale).max(0.0)
     }
 }
-

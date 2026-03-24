@@ -224,16 +224,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctor"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "dashmap"
 version = "5.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,17 +335,6 @@ checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.1",
-]
-
-[[package]]
-name = "island_id_color"
-version = "0.1.0"
-dependencies = [
- "after-effects",
- "chrono",
- "ctor",
- "pipl",
- "utils",
 ]
 
 [[package]]
@@ -599,16 +578,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "red_noise"
-version = "0.1.0"
-dependencies = [
- "after-effects",
- "chrono",
- "pipl",
- "utils",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -794,16 +763,6 @@ version = "0.1.0"
 dependencies = [
  "after-effects",
  "anyhow",
-]
-
-[[package]]
-name = "uv_distort_pro"
-version = "0.1.0"
-dependencies = [
- "after-effects",
- "chrono",
- "pipl",
- "utils",
 ]
 
 [[package]]
