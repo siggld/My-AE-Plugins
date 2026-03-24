@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["plugins/red-noise", "plugins/uv-distort-pro", "plugins/island-id-color"]
+members = [
+    # 作業していないプラグインは行頭に # をつけてコメントアウトします
+    # "plugins/red-noise",
+    # "plugins/uv-distort-pro",
+    # "plugins/island-id-color",
+    "plugins/vector-curve-blur" # 現在作業中のこれだけを有効にしておきます
+]
 
 # PiPL (25, 31) エラー対策: ローカル crates/pipl を使用（Windows で BigEndian 出力）
 [workspace.package]

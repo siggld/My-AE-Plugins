@@ -1,0 +1,28 @@
+[package]
+name = "vector_curve_blur"
+description = "Path-driven vector blur with taper and slit fractal modulation."
+version = "0.2.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+catch-panics = []
+
+[dependencies]
+after-effects = { workspace = true }
+utils = { path = "../../crates/utils" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+pipl = { workspace = true }
+
+[build-dependencies]
+chrono.workspace = true
+pipl.workspace = true
+
+[lints]
+workspace = true
+

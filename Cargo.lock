@@ -807,6 +807,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vector_curve_blur"
+version = "0.2.0"
+dependencies = [
+ "after-effects",
+ "chrono",
+ "pipl",
+ "serde",
+ "utils",
+]
+
+[[package]]
 name = "virtue"
 version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
