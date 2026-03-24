@@ -599,18 +599,18 @@ impl Plugin {
 
             let offset_t = (nearest.t_norm + path_offset * 0.01).rem_euclid(1.0);
             let center = sample_on_path(&path_data.samples, offset_t);
-            let mut col = blur_along_tangent(
-                &in_layer,
-                in_world,
-                in_w,
-                in_h,
-                center.x,
-                center.y,
-                center.tx,
-                center.ty,
+            let mut col = blur_along_tangent(&TangentBlurParams {
+                layer: &in_layer,
+                world: in_world,
+                width: in_w,
+                height: in_h,
+                center_x: center.x,
+                center_y: center.y,
+                tangent_x: center.tx,
+                tangent_y: center.ty,
                 blur_amount,
-                total_w,
-            );
+                amp: total_w,
+            });
 
             if view_mode == 2 {
                 let v = total_w;
@@ -804,6 +804,19 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
     out
 }
 
+struct TangentBlurParams<'a> {
+    layer: &'a Layer,
+    world: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    center_x: f32,
+    center_y: f32,
+    tangent_x: f32,
+    tangent_y: f32,
+    blur_amount: f32,
+    amp: f32,
+}
+
 fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f32 {
     let mut w = 1.0_f32;
     if s_len > 0.0001 && t < s_len {
@@ -816,20 +829,9 @@ fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f
     w
 }
 
-fn blur_along_tangent(
-    in_layer: &Layer,
-    in_world: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
-    center_x: f32,
-    center_y: f32,
-    tangent_x: f32,
-    tangent_y: f32,
-    blur_amount: f32,
-    amp: f32,
-) -> PixelF32 {
-    let radius = blur_amount.abs().max(0.5);
-    let dir = if blur_amount >= 0.0 { 1.0 } else { -1.0 };
+fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
+    let radius = p.blur_amount.abs().max(0.5);
+    let dir = if p.blur_amount >= 0.0 { 1.0 } else { -1.0 };
     let taps = (radius / 4.0).ceil() as i32 * 2 + 1;
     let mut sum = PixelF32 {
         alpha: 0.0,
@@ -847,9 +849,9 @@ fn blur_along_tangent(
         let centered = (tt - 0.5) * 2.0;
         let profile = 1.0 - centered.abs();
         let step = centered * radius * 0.5 * dir;
-        let sx = center_x + tangent_x * step;
-        let sy = center_y + tangent_y * step;
-        let px = sample_bilinear(in_layer, in_world, width, height, sx, sy);
+        let sx = p.center_x + p.tangent_x * step;
+        let sy = p.center_y + p.tangent_y * step;
+        let px = sample_bilinear(p.layer, p.world, p.width, p.height, sx, sy);
         let w = profile.max(0.0);
         sum.alpha += px.alpha * w;
         sum.red += px.red * w;
@@ -863,13 +865,12 @@ fn blur_along_tangent(
         sum.green /= wsum;
         sum.blue /= wsum;
     }
-    let l = PixelF32 {
+    PixelF32 {
         alpha: sum.alpha,
-        red: sum.red * amp,
-        green: sum.green * amp,
-        blue: sum.blue * amp,
-    };
-    l
+        red: sum.red * p.amp,
+        green: sum.green * p.amp,
+        blue: sum.blue * p.amp,
+    }
 }
 
 fn sample_on_path(samples: &[PathSample], t: f32) -> PathSample {
@@ -965,7 +966,7 @@ fn normalize2(x: f32, y: f32) -> (f32, f32) {
 }
 
 fn hash11(x: f32) -> f32 {
-    (x.sin() * 43758.5453).fract().abs()
+    (x.sin() * 43_758.547_f32).fract().abs()
 }
 
 fn fbm_1d(mut x: f32, octaves: i32) -> f32 {
