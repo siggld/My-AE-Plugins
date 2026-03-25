@@ -7,34 +7,34 @@ use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    ViewMode,           // 1
-    TargetMaskName,     // 2 (Arbitrary: String)
-    AllMasks,           // 3
-    NormalRange,        // 4
-    NormalFalloff,      // 5
-    NormalFalloffBias,  // 6
-    PathBlurAmount,     // 7
-    PathBlurOffset,     // 8
-    EnableTaper,        // 9 (SUPERVISE)
-    TaperGroupStart,    // 10
-    StartTaperLength,   // 11
-    StartTaperCurve,    // 12
-    EndTaperLength,     // 13
-    EndTaperCurve,      // 14
-    TaperGroupEnd,      // 15
-    FractalAmount,      // 16
-    FractalScale,       // 17
-    FractalComplexity,  // 18
-    Evolution,          // 19
-    ProfileGroupStart,  // 20
-    EnableProfileCurve, // 21 (SUPERVISE)
-    ProfileMaskName,    // 22 (Arbitrary: String)
-    PositiveScale,      // 23
-    NegativeScale,      // 24
-    LinkScales,         // 25 (SUPERVISE)
-    InvertCurveX,       // 26
-    SwapNormal,         // 27
-    ProfileGroupEnd,    // 28
+    ViewMode,
+    AllMasks,
+    NormalRange,
+    NormalFalloff,
+    NormalFalloffBias,
+    PathBlurAmount,
+    SplitTangent,
+    NegativeBlurAmount,
+    PathBlurOffset,
+    EnableTaper,
+    TaperGroupStart,
+    StartTaperLength,
+    StartTaperCurve,
+    EndTaperLength,
+    EndTaperCurve,
+    TaperGroupEnd,
+    FractalAmount,
+    FractalScale,
+    FractalComplexity,
+    Evolution,
+    ProfileGroupStart,
+    EnableProfileCurve,
+    PositiveScale,
+    NegativeScale,
+    LinkScales,
+    InvertCurveX,
+    SwapNormal,
+    ProfileGroupEnd,
 }
 
 #[derive(Default)]
@@ -43,17 +43,6 @@ struct Plugin {}
 ae::define_effect!(Plugin, (), Params);
 
 const PLUGIN_DESCRIPTION: &str = "Path-driven vector blur with taper and slit fractal modulation.";
-
-#[derive(serde::Serialize, serde::Deserialize, PartialEq, PartialOrd, Clone, Default)]
-struct MaskNameArb {
-    name: String,
-}
-
-impl ae::ArbitraryData<MaskNameArb> for MaskNameArb {
-    fn interpolate(&self, other: &Self, v: f64) -> Self {
-        if v < 0.5 { self.clone() } else { other.clone() }
-    }
-}
 
 #[derive(Clone, Copy)]
 struct PathSample {
@@ -70,6 +59,7 @@ struct PathSample {
 struct PathData {
     samples: Vec<PathSample>,
     profile_curve: Option<ProfileCurve>,
+    total_arc_len: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -83,6 +73,9 @@ struct ProfileCurve {
     points: Vec<ProfilePoint>,
 }
 
+// ---------------------------------------------------------------------------
+// params_setup & handle_command
+// ---------------------------------------------------------------------------
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
@@ -90,28 +83,21 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        params.add(
+        params.add_with_flags(
             Params::ViewMode,
             "View Mode",
             PopupDef::setup(|d| {
                 d.set_options(&["Final", "Preview Stroke", "Distance Field", "Fractal"]);
                 d.set_default(1);
             }),
-        )?;
-        params.add(
-            Params::TargetMaskName,
-            "Target Mask Name",
-            ArbitraryDef::setup(|d| {
-                let _ = d.set_default(MaskNameArb {
-                    name: "path".to_string(),
-                });
-            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
         )?;
         params.add(
             Params::AllMasks,
             "All Masks",
             CheckBoxDef::setup(|d| {
-                d.set_default(false);
+                d.set_default(true);
             }),
         )?;
         params.add(
@@ -142,21 +128,42 @@ impl AdobePluginGlobal for Plugin {
             Params::NormalFalloffBias,
             "Normal Falloff Bias",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.01);
-                d.set_valid_max(8.0);
-                d.set_slider_min(0.25);
-                d.set_slider_max(4.0);
-                d.set_default(1.0);
-                d.set_precision(2);
+                d.set_valid_min(0.0);
+                d.set_valid_max(300.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(300.0);
+                d.set_default(0.0);
+                d.set_precision(1);
             }),
         )?;
         params.add(
             Params::PathBlurAmount,
             "Path Blur Amount",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1024.0);
+                d.set_valid_min(0.0);
                 d.set_valid_max(1024.0);
-                d.set_slider_min(-200.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(200.0);
+                d.set_default(36.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add_with_flags(
+            Params::SplitTangent,
+            "Split Tangent Direction",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
+        params.add(
+            Params::NegativeBlurAmount,
+            "Negative Blur Amount",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1024.0);
+                d.set_slider_min(0.0);
                 d.set_slider_max(200.0);
                 d.set_default(36.0);
                 d.set_precision(1);
@@ -179,7 +186,7 @@ impl AdobePluginGlobal for Plugin {
             Params::EnableTaper,
             "Enable Taper",
             CheckBoxDef::setup(|d| {
-                d.set_default(true);
+                d.set_default(false);
             }),
             ParamFlag::SUPERVISE,
             ParamUIFlags::NONE,
@@ -190,7 +197,7 @@ impl AdobePluginGlobal for Plugin {
             "Taper",
             true,
             |params| {
-                params.add_with_flags(
+                params.add(
                     Params::StartTaperLength,
                     "Start Taper Length",
                     FloatSliderDef::setup(|d| {
@@ -201,8 +208,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(12.0);
                         d.set_precision(1);
                     }),
-                    ParamFlag::START_COLLAPSED,
-                    ParamUIFlags::NONE,
                 )?;
                 params.add(
                     Params::StartTaperCurve,
@@ -272,11 +277,11 @@ impl AdobePluginGlobal for Plugin {
             Params::FractalComplexity,
             "Fractal Complexity",
             FloatSliderDef::setup(|d| {
-                d.set_valid_min(1.0);
-                d.set_valid_max(8.0);
-                d.set_slider_min(1.0);
-                d.set_slider_max(8.0);
-                d.set_default(4.0);
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(100.0);
+                d.set_default(50.0);
                 d.set_precision(0);
             }),
         )?;
@@ -301,15 +306,6 @@ impl AdobePluginGlobal for Plugin {
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::ProfileMaskName,
-                    "Profile Mask Name",
-                    ArbitraryDef::setup(|d| {
-                        let _ = d.set_default(MaskNameArb {
-                            name: "curve".to_string(),
-                        });
-                    }),
                 )?;
                 params.add(
                     Params::PositiveScale,
@@ -384,17 +380,49 @@ impl AdobePluginGlobal for Plugin {
                     .as_str(),
                 );
             }
-            ae::Command::ArbitraryCallback { mut extra } => {
-                extra.dispatch::<MaskNameArb, Params>(Params::TargetMaskName)?;
-                extra.dispatch::<MaskNameArb, Params>(Params::ProfileMaskName)?;
-            }
             ae::Command::GlobalSetup => {
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag(OutFlags::SendUpdateParamsUi, true);
             }
             ae::Command::UpdateParamsUi => {
-                // TODO: restore after debugging "unsupported preview control" message
+                let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
+                let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
+                let enable_profile =
+                    params.get(Params::EnableProfileCurve)?.as_checkbox()?.value();
+                let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
+                let mut p = params.cloned();
+
+                {
+                    let mut pd = p.get_mut(Params::NegativeBlurAmount)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !split_tangent);
+                    pd.update_param_ui()?;
+                }
+                for k in [
+                    Params::StartTaperLength,
+                    Params::StartTaperCurve,
+                    Params::EndTaperLength,
+                    Params::EndTaperCurve,
+                ] {
+                    let mut pd = p.get_mut(k)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
+                    pd.update_param_ui()?;
+                }
+                for k in [
+                    Params::PositiveScale,
+                    Params::NegativeScale,
+                    Params::LinkScales,
+                    Params::InvertCurveX,
+                    Params::SwapNormal,
+                ] {
+                    let mut pd = p.get_mut(k)?;
+                    let mut disabled = !enable_profile;
+                    if k == Params::NegativeScale && link_scales {
+                        disabled = true;
+                    }
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
+                    pd.update_param_ui()?;
+                }
             }
             ae::Command::Render {
                 in_layer,
@@ -430,6 +458,9 @@ impl AdobePluginGlobal for Plugin {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 impl Plugin {
     fn do_render(
         &self,
@@ -446,68 +477,45 @@ impl Plugin {
         }
 
         let view_mode = params.get(Params::ViewMode)?.as_popup()?.value();
-        let normal_range = params.get(Params::NormalRange)?.as_float_slider()?.value() as f32;
-        let normal_falloff = params
-            .get(Params::NormalFalloff)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let normal_bias = params
-            .get(Params::NormalFalloffBias)?
-            .as_float_slider()?
-            .value() as f32;
-        let blur_amount = params
-            .get(Params::PathBlurAmount)?
-            .as_float_slider()?
-            .value() as f32;
-        let path_offset = params
-            .get(Params::PathBlurOffset)?
-            .as_float_slider()?
-            .value() as f32;
+        let normal_range =
+            params.get(Params::NormalRange)?.as_float_slider()?.value() as f32;
+        let normal_falloff =
+            params.get(Params::NormalFalloff)?.as_float_slider()?.value() as f32 / 100.0;
+        let normal_bias =
+            params.get(Params::NormalFalloffBias)?.as_float_slider()?.value() as f32;
+        let blur_amount =
+            params.get(Params::PathBlurAmount)?.as_float_slider()?.value() as f32;
+        let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
+        let neg_blur_amount = if split_tangent {
+            params.get(Params::NegativeBlurAmount)?.as_float_slider()?.value() as f32
+        } else {
+            blur_amount
+        };
+        let _path_offset =
+            params.get(Params::PathBlurOffset)?.as_float_slider()?.value() as f32;
         let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
-        let taper_s_len = params
-            .get(Params::StartTaperLength)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let taper_s_curve = params
-            .get(Params::StartTaperCurve)?
-            .as_float_slider()?
-            .value() as f32;
-        let taper_e_len = params
-            .get(Params::EndTaperLength)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let taper_e_curve = params
-            .get(Params::EndTaperCurve)?
-            .as_float_slider()?
-            .value() as f32;
-        let fract_amount = params
-            .get(Params::FractalAmount)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let fract_scale = params.get(Params::FractalScale)?.as_float_slider()?.value() as f32;
-        let fract_complexity = params
-            .get(Params::FractalComplexity)?
-            .as_float_slider()?
-            .value() as i32;
-        let evolution = params.get(Params::Evolution)?.as_angle()?.float_value()? as f32;
-        let enable_profile = params
-            .get(Params::EnableProfileCurve)?
-            .as_checkbox()?
-            .value();
-        let positive_scale = params
-            .get(Params::PositiveScale)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let mut negative_scale = params
-            .get(Params::NegativeScale)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
+        let taper_s_len =
+            params.get(Params::StartTaperLength)?.as_float_slider()?.value() as f32 / 100.0;
+        let taper_s_curve =
+            params.get(Params::StartTaperCurve)?.as_float_slider()?.value() as f32;
+        let taper_e_len =
+            params.get(Params::EndTaperLength)?.as_float_slider()?.value() as f32 / 100.0;
+        let taper_e_curve =
+            params.get(Params::EndTaperCurve)?.as_float_slider()?.value() as f32;
+        let fract_amount =
+            params.get(Params::FractalAmount)?.as_float_slider()?.value() as f32 / 100.0;
+        let fract_scale =
+            params.get(Params::FractalScale)?.as_float_slider()?.value() as f32;
+        let fract_complexity =
+            params.get(Params::FractalComplexity)?.as_float_slider()?.value() as f32 / 100.0;
+        let evolution =
+            params.get(Params::Evolution)?.as_angle()?.float_value()? as f32;
+        let enable_profile =
+            params.get(Params::EnableProfileCurve)?.as_checkbox()?.value();
+        let positive_scale =
+            params.get(Params::PositiveScale)?.as_float_slider()?.value() as f32 / 100.0;
+        let mut negative_scale =
+            params.get(Params::NegativeScale)?.as_float_slider()?.value() as f32 / 100.0;
         let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
         if link_scales {
             negative_scale = positive_scale;
@@ -521,35 +529,33 @@ impl Plugin {
         let in_h = in_layer.height();
         let progress_final = out_layer.height() as i32;
 
+        let arc_len = path_data.total_arc_len.max(1.0);
+        let max_blur = blur_amount.max(neg_blur_amount);
+        let edge_zone_t = (max_blur / arc_len).clamp(0.01, 0.5);
+
+        macro_rules! set_dst {
+            ($dst:expr, $col:expr) => {
+                match out_world {
+                    ae::aegp::WorldType::U8 => $dst.set_from_u8($col.to_pixel8()),
+                    ae::aegp::WorldType::U15 => $dst.set_from_u16($col.to_pixel16()),
+                    ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => $dst.set_from_f32($col),
+                }
+            };
+        }
+
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let nearest = nearest_sample(&path_data.samples, xf, yf);
             let d_abs = nearest.distance.abs();
-            let mut normal_w = if normal_range <= 0.0001 {
-                1.0
-            } else {
-                (1.0 - (d_abs / normal_range)).clamp(0.0, 1.0)
-            };
-            normal_w = normal_w.powf(normal_bias.max(0.01)) * normal_falloff;
 
-            let mut taper_w = 1.0;
-            if enable_taper {
-                taper_w *= taper_factor(
-                    nearest.t_norm,
-                    taper_s_len,
-                    taper_s_curve,
-                    taper_e_len,
-                    taper_e_curve,
-                );
-            }
-            let evo = evolution * 0.05;
-            let slit_noise = fbm_1d(
-                nearest.distance / fract_scale.max(0.001) + evo,
-                fract_complexity,
-            );
-            let fract_w = 1.0 + (slit_noise - 0.5) * 2.0 * fract_amount;
-            let profile_mul = if enable_profile {
+            let taper_thickness = if enable_taper {
+                taper_factor(nearest.t_norm, taper_s_len, taper_s_curve, taper_e_len, taper_e_curve)
+            } else {
+                1.0
+            };
+
+            let profile_thickness = if enable_profile {
                 profile_multiplier(
                     path_data.profile_curve.as_ref(),
                     nearest.t_norm,
@@ -562,59 +568,80 @@ impl Plugin {
             } else {
                 1.0
             };
-            let total_w =
-                (normal_w * taper_w * fract_w * nearest.ambiguity * profile_mul).clamp(0.0, 1.0);
 
-            let offset_t = (nearest.t_norm + path_offset * 0.01).rem_euclid(1.0);
-            let center = sample_on_path(&path_data.samples, offset_t);
-            let mut col = blur_along_tangent(&TangentBlurParams {
+            let effective_range = normal_range * taper_thickness * profile_thickness;
+
+            let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
+
+            if d_abs > effective_range || effective_range < 0.001 {
+                set_dst!(dst, original);
+                return Ok(());
+            }
+
+            let falloff_start = effective_range * (1.0 - normal_falloff);
+            let normal_w = if d_abs <= falloff_start {
+                1.0
+            } else {
+                let t = (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
+                t.powf(1.0 + normal_bias / 100.0)
+            };
+
+            let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
+
+            let evo = evolution * 0.05;
+            let voronoi_val = voronoi_2d(
+                xf / fract_scale.max(0.1) + evo,
+                yf / fract_scale.max(0.1),
+                fract_complexity,
+            );
+            let fract_w = 1.0 + (voronoi_val - 0.5) * 2.0 * fract_amount;
+
+            let total_blend =
+                (normal_w * edge_falloff * fract_w * nearest.ambiguity).clamp(0.0, 1.0);
+
+            if view_mode == 2 {
+                let col = PixelF32 {
+                    red: total_blend,
+                    green: total_blend * 0.7,
+                    blue: 1.0 - total_blend,
+                    alpha: 1.0,
+                };
+                set_dst!(dst, col);
+                return Ok(());
+            } else if view_mode == 3 {
+                let g = (d_abs / effective_range.max(0.001)).clamp(0.0, 1.0);
+                let col = PixelF32 { red: g, green: g, blue: g, alpha: 1.0 };
+                set_dst!(dst, col);
+                return Ok(());
+            } else if view_mode == 4 {
+                let col = PixelF32 {
+                    red: voronoi_val,
+                    green: voronoi_val,
+                    blue: voronoi_val,
+                    alpha: 1.0,
+                };
+                set_dst!(dst, col);
+                return Ok(());
+            }
+
+            let cur_pos_amt = blur_amount * edge_falloff;
+            let cur_neg_amt = neg_blur_amount * edge_falloff;
+
+            let blurred = blur_along_tangent(&TangentBlurParams {
                 layer: &in_layer,
                 world: in_world,
                 width: in_w,
                 height: in_h,
-                center_x: center.x,
-                center_y: center.y,
-                tangent_x: center.tx,
-                tangent_y: center.ty,
-                blur_amount,
-                amp: total_w,
+                center_x: xf,
+                center_y: yf,
+                tangent_x: nearest.tx,
+                tangent_y: nearest.ty,
+                positive_amount: cur_pos_amt,
+                negative_amount: cur_neg_amt,
             });
 
-            if view_mode == 2 {
-                let v = total_w;
-                col = PixelF32 {
-                    red: v,
-                    green: v * 0.7,
-                    blue: 1.0 - v,
-                    alpha: 1.0,
-                };
-            } else if view_mode == 3 {
-                let g = if normal_range <= 0.0001 {
-                    1.0
-                } else {
-                    (d_abs / normal_range).clamp(0.0, 1.0)
-                };
-                col = PixelF32 {
-                    red: g,
-                    green: g,
-                    blue: g,
-                    alpha: 1.0,
-                };
-            } else if view_mode == 4 {
-                let g = slit_noise;
-                col = PixelF32 {
-                    red: g,
-                    green: g,
-                    blue: g,
-                    alpha: 1.0,
-                };
-            }
-
-            match out_world {
-                ae::aegp::WorldType::U8 => dst.set_from_u8(col.to_pixel8()),
-                ae::aegp::WorldType::U15 => dst.set_from_u16(col.to_pixel16()),
-                ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => dst.set_from_f32(col),
-            }
+            let col = lerp_pixel(&original, &blurred, total_blend);
+            set_dst!(dst, col);
             Ok(())
         })?;
 
@@ -632,25 +659,16 @@ impl Plugin {
 
         let effect_ref = in_data.effect_ref();
         let query = ae::pf::suites::PathQuery::new()?;
-        let data_suite = ae::pf::suites::PathData::new()?;
         let path_count = query.num_paths(effect_ref)?;
 
         let all_masks = params.get(Params::AllMasks)?.as_checkbox()?.value();
-        let target = params
-            .get(Params::TargetMaskName)?
-            .as_arbitrary()?
-            .value::<MaskNameArb>()?
-            .name
-            .to_lowercase();
-        let profile_target = params
-            .get(Params::ProfileMaskName)?
-            .as_arbitrary()?
-            .value::<MaskNameArb>()?
-            .name
-            .to_lowercase();
+        let enable_profile =
+            params.get(Params::EnableProfileCurve)?.as_checkbox()?.value();
 
         let mut out = PathData::default();
         let mut profile_path_pts: Vec<(f32, f32)> = Vec::new();
+        let mut mask_idx = 0_usize;
+
         for i in 0..path_count {
             let pid = query.path_info(effect_ref, i)?;
             if pid == ae::sys::PF_PathID_NONE as ae::sys::PF_PathID {
@@ -666,10 +684,6 @@ impl Plugin {
             else {
                 continue;
             };
-            let name = data_suite
-                .path_get_name(effect_ref, pid)
-                .unwrap_or_default()
-                .to_lowercase();
             let segs = path.num_segments()?;
             if segs <= 0 {
                 continue;
@@ -681,7 +695,7 @@ impl Plugin {
                 if seg_len <= 0.0001 {
                     continue;
                 }
-                let n = 24_i32.max((seg_len / 6.0) as i32);
+                let n = 24_i32.max((seg_len / 4.0) as i32);
                 for j in 0..=n {
                     let l = seg_len * (j as f32 / n as f32);
                     let (x, y, dx, dy) = prep.eval_deriv1(l as f64)?;
@@ -690,16 +704,23 @@ impl Plugin {
                 }
             }
             if tmp.is_empty() {
+                mask_idx += 1;
                 continue;
             }
-            if name.contains(&profile_target) && profile_path_pts.is_empty() {
-                for (x, y, _, _) in &tmp {
-                    profile_path_pts.push((*x, *y));
+
+            if enable_profile && mask_idx == 1 && profile_path_pts.is_empty() {
+                for &(x, y, _, _) in &tmp {
+                    profile_path_pts.push((x, y));
                 }
-            }
-            if !all_masks && !name.contains(&target) {
+                mask_idx += 1;
                 continue;
             }
+
+            if !all_masks && mask_idx > 0 {
+                mask_idx += 1;
+                continue;
+            }
+
             let last = (tmp.len() - 1) as f32;
             for (idx, (x, y, tx, ty)) in tmp.into_iter().enumerate() {
                 out.samples.push(PathSample {
@@ -712,7 +733,11 @@ impl Plugin {
                     t_norm: if last <= 0.0 { 0.0 } else { idx as f32 / last },
                 });
             }
+            mask_idx += 1;
         }
+
+        out.total_arc_len = compute_arc_length(&out.samples);
+
         if !profile_path_pts.is_empty() {
             out.profile_curve = build_profile_curve(&profile_path_pts);
         }
@@ -720,6 +745,9 @@ impl Plugin {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Nearest-sample search with normal blending (Phase 3c)
+// ---------------------------------------------------------------------------
 #[derive(Clone, Copy)]
 struct Nearest {
     distance: f32,
@@ -730,48 +758,59 @@ struct Nearest {
 }
 
 fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
-    let mut best = f32::MAX;
-    let mut second = f32::MAX;
+    let mut best_d2 = f32::MAX;
+    let mut second_d2 = f32::MAX;
     let mut best_s = samples[0];
     let mut second_s = samples[0];
-    let mut out = Nearest {
-        distance: 0.0,
-        t_norm: 0.0,
-        tx: 1.0,
-        ty: 0.0,
-        ambiguity: 1.0,
-    };
+
     for s in samples {
         let dx = x - s.x;
         let dy = y - s.y;
         let d2 = dx * dx + dy * dy;
-        if d2 < best {
-            second = best;
+        if d2 < best_d2 {
+            second_d2 = best_d2;
             second_s = best_s;
-            best = d2;
+            best_d2 = d2;
             best_s = *s;
-        } else if d2 < second {
-            second = d2;
+        } else if d2 < second_d2 {
+            second_d2 = d2;
             second_s = *s;
         }
     }
+
+    let w = (best_d2 / (best_d2 + second_d2 + 1e-6)).clamp(0.0, 1.0);
+    let blended_tx = best_s.tx * (1.0 - w) + second_s.tx * w;
+    let blended_ty = best_s.ty * (1.0 - w) + second_s.ty * w;
+    let (tx, ty) = normalize2(blended_tx, blended_ty);
+    let nx = -ty;
+    let ny = tx;
+
     let dx = x - best_s.x;
     let dy = y - best_s.y;
-    out.distance = dx * best_s.nx + dy * best_s.ny;
-    out.t_norm = best_s.t_norm;
-    out.tx = best_s.tx;
-    out.ty = best_s.ty;
+    let signed_dist = dx * nx + dy * ny;
 
-    // 近接する別枝（ヘヤピンや鋭角折り返し）の場合にブラー強度を抑える。
-    if second.is_finite() && best.is_finite() {
-        let near_ratio = (best / (second + 1e-6)).clamp(0.0, 1.0);
+    let blended_t = best_s.t_norm * (1.0 - w) + second_s.t_norm * w;
+
+    let mut ambiguity = 1.0_f32;
+    if second_d2.is_finite() && best_d2.is_finite() {
+        let near_ratio = (best_d2 / (second_d2 + 1e-6)).clamp(0.0, 1.0);
         let tangent_sim = (best_s.tx * second_s.tx + best_s.ty * second_s.ty).abs();
         let branch_conflict = (1.0 - tangent_sim).clamp(0.0, 1.0);
-        out.ambiguity = (0.35 + 0.65 * (1.0 - near_ratio * branch_conflict)).clamp(0.35, 1.0);
+        ambiguity = (0.35 + 0.65 * (1.0 - near_ratio * branch_conflict)).clamp(0.35, 1.0);
     }
-    out
+
+    Nearest {
+        distance: signed_dist,
+        t_norm: blended_t,
+        tx,
+        ty,
+        ambiguity,
+    }
 }
 
+// ---------------------------------------------------------------------------
+// Tangent blur with asymmetric support (Phase 2b, 2c)
+// ---------------------------------------------------------------------------
 struct TangentBlurParams<'a> {
     layer: &'a Layer,
     world: ae::aegp::WorldType,
@@ -781,10 +820,60 @@ struct TangentBlurParams<'a> {
     center_y: f32,
     tangent_x: f32,
     tangent_y: f32,
-    blur_amount: f32,
-    amp: f32,
+    positive_amount: f32,
+    negative_amount: f32,
 }
 
+fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
+    let pos_r = p.positive_amount.max(0.0);
+    let neg_r = p.negative_amount.max(0.0);
+    let total = pos_r + neg_r;
+
+    if total < 0.5 {
+        return sample_bilinear(p.layer, p.world, p.width, p.height, p.center_x, p.center_y);
+    }
+
+    let taps = ((total / 4.0).ceil() as i32 * 2 + 1).max(3);
+    let mut sum = PixelF32 { alpha: 0.0, red: 0.0, green: 0.0, blue: 0.0 };
+    let mut wsum = 0.0_f32;
+
+    for i in 0..taps {
+        let t = i as f32 / (taps - 1) as f32;
+        let offset = -neg_r + t * total;
+        let profile = if offset < 0.0 {
+            if neg_r < 0.001 { 0.0 } else { 1.0 - (-offset / neg_r) }
+        } else if pos_r < 0.001 {
+            0.0
+        } else {
+            1.0 - (offset / pos_r)
+        };
+        let w = profile.max(0.0);
+        if w < 1e-6 {
+            continue;
+        }
+
+        let sx = p.center_x + p.tangent_x * offset;
+        let sy = p.center_y + p.tangent_y * offset;
+        let px = sample_bilinear(p.layer, p.world, p.width, p.height, sx, sy);
+        sum.alpha += px.alpha * w;
+        sum.red += px.red * w;
+        sum.green += px.green * w;
+        sum.blue += px.blue * w;
+        wsum += w;
+    }
+
+    if wsum > 0.0 {
+        sum.alpha /= wsum;
+        sum.red /= wsum;
+        sum.green /= wsum;
+        sum.blue /= wsum;
+    }
+    sum
+}
+
+// ---------------------------------------------------------------------------
+// Taper: controls NormalRange thickness at path endpoints (Phase 3b)
+// ---------------------------------------------------------------------------
 fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f32 {
     let mut w = 1.0_f32;
     if s_len > 0.0001 && t < s_len {
@@ -797,164 +886,62 @@ fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f
     w
 }
 
-fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
-    let radius = p.blur_amount.abs().max(0.5);
-    let dir = if p.blur_amount >= 0.0 { 1.0 } else { -1.0 };
-    let taps = (radius / 4.0).ceil() as i32 * 2 + 1;
-    let mut sum = PixelF32 {
-        alpha: 0.0,
-        red: 0.0,
-        green: 0.0,
-        blue: 0.0,
-    };
-    let mut wsum = 0.0_f32;
-    for i in 0..taps {
-        let tt = if taps <= 1 {
-            0.0
-        } else {
-            i as f32 / (taps - 1) as f32
-        };
-        let centered = (tt - 0.5) * 2.0;
-        let profile = 1.0 - centered.abs();
-        let step = centered * radius * 0.5 * dir;
-        let sx = p.center_x + p.tangent_x * step;
-        let sy = p.center_y + p.tangent_y * step;
-        let px = sample_bilinear(p.layer, p.world, p.width, p.height, sx, sy);
-        let w = profile.max(0.0);
-        sum.alpha += px.alpha * w;
-        sum.red += px.red * w;
-        sum.green += px.green * w;
-        sum.blue += px.blue * w;
-        wsum += w;
-    }
-    if wsum > 0.0 {
-        sum.alpha /= wsum;
-        sum.red /= wsum;
-        sum.green /= wsum;
-        sum.blue /= wsum;
-    }
-    PixelF32 {
-        alpha: sum.alpha,
-        red: sum.red * p.amp,
-        green: sum.green * p.amp,
-        blue: sum.blue * p.amp,
+// ---------------------------------------------------------------------------
+// Edge fade: smooth blur falloff at path start/end (Phase 2d)
+// ---------------------------------------------------------------------------
+fn edge_fade(t_norm: f32, zone: f32) -> f32 {
+    if t_norm < zone {
+        (t_norm / zone).clamp(0.0, 1.0)
+    } else if t_norm > 1.0 - zone {
+        ((1.0 - t_norm) / zone).clamp(0.0, 1.0)
+    } else {
+        1.0
     }
 }
 
-fn sample_on_path(samples: &[PathSample], t: f32) -> PathSample {
-    if samples.is_empty() {
-        return PathSample {
-            x: 0.0,
-            y: 0.0,
-            tx: 1.0,
-            ty: 0.0,
-            nx: 0.0,
-            ny: 1.0,
-            t_norm: 0.0,
-        };
-    }
-    let mut best = samples[0];
-    let mut best_d = f32::MAX;
-    for s in samples {
-        let d = (s.t_norm - t).abs();
-        if d < best_d {
-            best = *s;
-            best_d = d;
+// ---------------------------------------------------------------------------
+// Voronoi cellular noise (Phase 3d)
+// ---------------------------------------------------------------------------
+fn hash21(ix: i32, iy: i32) -> f32 {
+    let n = ix.wrapping_mul(127).wrapping_add(iy.wrapping_mul(311));
+    ((n.wrapping_mul(n).wrapping_mul(n.wrapping_mul(15731).wrapping_add(789221)).wrapping_add(1376312589)) as f32
+        / 2147483648.0)
+        .fract()
+        .abs()
+}
+
+fn hash22(ix: i32, iy: i32) -> f32 {
+    let n = ix.wrapping_mul(269).wrapping_add(iy.wrapping_mul(183));
+    ((n.wrapping_mul(n).wrapping_mul(n.wrapping_mul(18397).wrapping_add(294781)).wrapping_add(1847561)) as f32
+        / 2147483648.0)
+        .fract()
+        .abs()
+}
+
+fn voronoi_2d(x: f32, y: f32, sharpness: f32) -> f32 {
+    let ix = x.floor() as i32;
+    let iy = y.floor() as i32;
+    let fx = x - ix as f32;
+    let fy = y - iy as f32;
+    let mut min_dist = f32::MAX;
+
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            let cx = dx as f32 + hash21(ix + dx, iy + dy);
+            let cy = dy as f32 + hash22(ix + dx, iy + dy);
+            let d = ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt();
+            if d < min_dist {
+                min_dist = d;
+            }
         }
     }
-    best
+    let contrast = 1.0 + sharpness * 4.0;
+    (min_dist * contrast).clamp(0.0, 1.0)
 }
 
-fn sample_bilinear(
-    layer: &Layer,
-    world_type: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
-    x: f32,
-    y: f32,
-) -> PixelF32 {
-    if width == 0 || height == 0 {
-        return PixelF32 {
-            alpha: 0.0,
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
-        };
-    }
-    let fx = x.clamp(0.0, (width.saturating_sub(1)) as f32);
-    let fy = y.clamp(0.0, (height.saturating_sub(1)) as f32);
-    let x0 = fx.floor() as usize;
-    let y0 = fy.floor() as usize;
-    let x1 = (x0 + 1).min(width.saturating_sub(1));
-    let y1 = (y0 + 1).min(height.saturating_sub(1));
-    let tx = fx - x0 as f32;
-    let ty = fy - y0 as f32;
-
-    let p00 = read_pixel_f32(layer, world_type, x0, y0);
-    let p10 = read_pixel_f32(layer, world_type, x1, y0);
-    let p01 = read_pixel_f32(layer, world_type, x0, y1);
-    let p11 = read_pixel_f32(layer, world_type, x1, y1);
-
-    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
-    PixelF32 {
-        alpha: lerp(
-            lerp(p00.alpha, p10.alpha, tx),
-            lerp(p01.alpha, p11.alpha, tx),
-            ty,
-        ),
-        red: lerp(lerp(p00.red, p10.red, tx), lerp(p01.red, p11.red, tx), ty),
-        green: lerp(
-            lerp(p00.green, p10.green, tx),
-            lerp(p01.green, p11.green, tx),
-            ty,
-        ),
-        blue: lerp(
-            lerp(p00.blue, p10.blue, tx),
-            lerp(p01.blue, p11.blue, tx),
-            ty,
-        ),
-    }
-}
-
-fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: usize) -> PixelF32 {
-    match world_type {
-        ae::aegp::WorldType::U8 => layer.as_pixel8(x, y).to_pixel32(),
-        ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
-        ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
-    }
-}
-
-fn normalize2(x: f32, y: f32) -> (f32, f32) {
-    let l = (x * x + y * y).sqrt();
-    if l <= 1e-6 {
-        (1.0, 0.0)
-    } else {
-        (x / l, y / l)
-    }
-}
-
-fn hash11(x: f32) -> f32 {
-    (x.sin() * 43_758.547_f32).fract().abs()
-}
-
-fn fbm_1d(mut x: f32, octaves: i32) -> f32 {
-    let mut amp = 0.5_f32;
-    let mut sum = 0.0_f32;
-    let mut norm = 0.0_f32;
-    let oct = octaves.clamp(1, 8);
-    for _ in 0..oct {
-        sum += hash11(x) * amp;
-        norm += amp;
-        amp *= 0.5;
-        x *= 2.03;
-    }
-    if norm <= 0.0 {
-        0.0
-    } else {
-        (sum / norm).clamp(0.0, 1.0)
-    }
-}
-
+// ---------------------------------------------------------------------------
+// Profile curve (Phase 3e): returns thickness multiplier
+// ---------------------------------------------------------------------------
 fn build_profile_curve(points: &[(f32, f32)]) -> Option<ProfileCurve> {
     if points.len() < 2 {
         return None;
@@ -962,13 +949,12 @@ fn build_profile_curve(points: &[(f32, f32)]) -> Option<ProfileCurve> {
     let (sx, sy) = points[0];
     let (ex, ey) = points[points.len() - 1];
     let dx = ex - sx;
-    let mut out: Vec<ProfilePoint> = Vec::with_capacity(points.len());
-
     let y_top = sy.min(ey);
     let y_bottom = sy.max(ey);
     let y_span = (y_bottom - y_top).abs().max(1e-4);
     let x_span = dx.abs();
 
+    let mut out: Vec<ProfilePoint> = Vec::with_capacity(points.len());
     for (idx, (x, y)) in points.iter().enumerate() {
         let x_norm = if x_span <= 1e-4 {
             idx as f32 / (points.len() - 1) as f32
@@ -982,9 +968,7 @@ fn build_profile_curve(points: &[(f32, f32)]) -> Option<ProfileCurve> {
 }
 
 fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
-    let Some(curve) = curve else {
-        return 1.0;
-    };
+    let Some(curve) = curve else { return 1.0 };
     if curve.points.is_empty() {
         return 1.0;
     }
@@ -1019,15 +1003,81 @@ fn profile_multiplier(
         4 => true,
         _ => false,
     };
-    let t = if invert_this_side {
-        1.0 - t_norm
-    } else {
-        t_norm
-    };
+    let t = if invert_this_side { 1.0 - t_norm } else { t_norm };
     let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
     if use_positive {
         (base * positive_scale).max(0.0)
     } else {
         (base * negative_scale).max(0.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Utility functions
+// ---------------------------------------------------------------------------
+fn compute_arc_length(samples: &[PathSample]) -> f32 {
+    let mut len = 0.0_f32;
+    for w in samples.windows(2) {
+        let dx = w[1].x - w[0].x;
+        let dy = w[1].y - w[0].y;
+        len += (dx * dx + dy * dy).sqrt();
+    }
+    len
+}
+
+fn normalize2(x: f32, y: f32) -> (f32, f32) {
+    let l = (x * x + y * y).sqrt();
+    if l <= 1e-6 { (1.0, 0.0) } else { (x / l, y / l) }
+}
+
+fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
+    let s = 1.0 - t;
+    PixelF32 {
+        alpha: a.alpha * s + b.alpha * t,
+        red: a.red * s + b.red * t,
+        green: a.green * s + b.green * t,
+        blue: a.blue * s + b.blue * t,
+    }
+}
+
+fn sample_bilinear(
+    layer: &Layer,
+    world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+) -> PixelF32 {
+    if width == 0 || height == 0 {
+        return PixelF32 { alpha: 0.0, red: 0.0, green: 0.0, blue: 0.0 };
+    }
+    let fx = x.clamp(0.0, (width.saturating_sub(1)) as f32);
+    let fy = y.clamp(0.0, (height.saturating_sub(1)) as f32);
+    let x0 = fx.floor() as usize;
+    let y0 = fy.floor() as usize;
+    let x1 = (x0 + 1).min(width.saturating_sub(1));
+    let y1 = (y0 + 1).min(height.saturating_sub(1));
+    let tx = fx - x0 as f32;
+    let ty = fy - y0 as f32;
+
+    let p00 = read_pixel_f32(layer, world_type, x0, y0);
+    let p10 = read_pixel_f32(layer, world_type, x1, y0);
+    let p01 = read_pixel_f32(layer, world_type, x0, y1);
+    let p11 = read_pixel_f32(layer, world_type, x1, y1);
+
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    PixelF32 {
+        alpha: lerp(lerp(p00.alpha, p10.alpha, tx), lerp(p01.alpha, p11.alpha, tx), ty),
+        red: lerp(lerp(p00.red, p10.red, tx), lerp(p01.red, p11.red, tx), ty),
+        green: lerp(lerp(p00.green, p10.green, tx), lerp(p01.green, p11.green, tx), ty),
+        blue: lerp(lerp(p00.blue, p10.blue, tx), lerp(p01.blue, p11.blue, tx), ty),
+    }
+}
+
+fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: usize) -> PixelF32 {
+    match world_type {
+        ae::aegp::WorldType::U8 => layer.as_pixel8(x, y).to_pixel32(),
+        ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
+        ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
     }
 }
