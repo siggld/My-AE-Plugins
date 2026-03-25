@@ -131,22 +131,22 @@ jobs:
           Copy-Item -Force $plugins.FullName dist\windows\
 
           # PiPL ペイロード内の Kind fourcc（AEEffect = "eFKT"）で検証する。
-          # リソース型名 "PiPL" は PE に平文で出ないことがあり、誤って CI を落とすため使わない。
+          # Windows PiPL ではバイト順が反転して "TKFe" (0x54 0x4B 0x46 0x65) として格納される。
           Get-ChildItem -Path dist\windows\*.aex -File | ForEach-Object {
             $b = [IO.File]::ReadAllBytes($_.FullName)
             if ($b.Length -lt 2048) { throw "$($_.Name): too small ($($b.Length) bytes); expected a full PE plugin." }
             if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw "$($_.Name): not a PE (missing MZ); file may be corrupt or not the cdylib output." }
             $found = $false
             for ($i = 0; $i -le $b.Length - 4; $i++) {
-              if ($b[$i] -eq 0x65 -and $b[$i+1] -eq 0x46 -and $b[$i+2] -eq 0x4B -and $b[$i+3] -eq 0x54) {
+              if ($b[$i] -eq 0x54 -and $b[$i+1] -eq 0x4B -and $b[$i+2] -eq 0x46 -and $b[$i+3] -eq 0x65) {
                 $found = $true
                 break
               }
             }
             if (-not $found) {
-              throw "$($_.Name): PiPL kind fourcc eFKT not found — After Effects will ignore this plugin (see Plugin Loading.log)."
+              throw "$($_.Name): PiPL kind fourcc TKFe (eFKT reversed) not found — After Effects will ignore this plugin (see Plugin Loading.log)."
             }
-            Write-Host "Verified PiPL payload (eFKT) in $($_.Name) ($($b.Length) bytes)"
+            Write-Host "Verified PiPL payload (TKFe / eFKT reversed) in $($_.Name) ($($b.Length) bytes)"
           }
 
           if (Test-Path $zipName) { Remove-Item -Force $zipName }
