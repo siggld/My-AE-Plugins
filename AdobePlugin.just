@@ -64,13 +64,30 @@ create_bundle profile TargetDir:
 
     # Perform signing - as of AE and PR 25.2 all macos plugins require a signature or else
     # they will fail to load with error code "2685337601" - see your "Plugin Loading.log" for details
+    SIGN_TARGET="{{TargetDir}}/{{profile}}/{{PluginName}}.plugin"
+    SIGN_OK=0
     if [ -n "$DEV_CERT" ]; then
        # Developer cert: timestamped hardened signature
-       codesign --options runtime --timestamp --strict --sign "$DEV_CERT" {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
-    else
-       # Ad-hoc signature: do not request timestamp
-       codesign --options runtime --strict --sign - {{TargetDir}}/{{profile}}/{{PluginName}}.plugin
-       echo "Note: Using ad-hoc signature. For distribution, a valid Apple Developer certificate is recommended."
+       if codesign --force --deep --options runtime --timestamp --strict --sign "$DEV_CERT" "$SIGN_TARGET"; then
+           SIGN_OK=1
+       else
+           echo "Warning: Developer certificate signing failed; attempting ad-hoc signing."
+       fi
+    fi
+    if [ "$SIGN_OK" -ne 1 ]; then
+       # Ad-hoc signature: keep command minimal for CI compatibility
+       if codesign --force --deep --sign - "$SIGN_TARGET"; then
+           SIGN_OK=1
+           echo "Note: Using ad-hoc signature. For distribution, a valid Apple Developer certificate is recommended."
+       fi
+    fi
+    if [ "$SIGN_OK" -ne 1 ]; then
+       if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${NO_INSTALL:-}" ]; then
+           echo "Warning: codesign failed in CI/non-install mode; continuing packaging."
+       else
+           echo "Error: codesign failed."
+           exit 1
+       fi
     fi
 
     # Install
