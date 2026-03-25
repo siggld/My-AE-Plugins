@@ -41,6 +41,7 @@ enum Params {
     InvertCurveX,
     SwapNormal,
     ProfileGroupEnd,
+    TaperSCurve,
 }
 
 #[derive(Default)]
@@ -259,6 +260,14 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         params.add(
+            Params::TaperSCurve,
+            "Taper S-Curve",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+        )?;
+
+        params.add(
             Params::FractalAmount,
             "Fractal Amount",
             FloatSliderDef::setup(|d| {
@@ -427,6 +436,11 @@ impl AdobePluginGlobal for Plugin {
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
                     pd.update_param_ui()?;
                 }
+                {
+                    let mut pd = p.get_mut(Params::TaperSCurve)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
+                    pd.update_param_ui()?;
+                }
                 for k in [
                     Params::PositiveScale,
                     Params::LinkScales,
@@ -521,7 +535,7 @@ impl Plugin {
         } else {
             blur_amount
         };
-        let _path_offset = params
+        let path_offset = params
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
             .value() as f32;
@@ -544,6 +558,7 @@ impl Plugin {
             .get(Params::EndTaperCurve)?
             .as_float_slider()?
             .value() as f32;
+        let taper_s_curve_on = params.get(Params::TaperSCurve)?.as_checkbox()?.value();
         let fract_amount = params
             .get(Params::FractalAmount)?
             .as_float_slider()?
@@ -612,6 +627,7 @@ impl Plugin {
                     taper_s_curve,
                     taper_e_len,
                     taper_e_curve,
+                    taper_s_curve_on,
                 )
             } else {
                 1.0
@@ -626,7 +642,6 @@ impl Plugin {
                     negative_scale,
                     invert_curve_x,
                     swap_normal,
-                    one_side,
                 )
             } else {
                 1.0
@@ -665,7 +680,7 @@ impl Plugin {
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
             let total_blend =
-                (normal_w * edge_falloff * fract_w * nearest.ambiguity).clamp(0.0, 1.0);
+                (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
 
             // Non-Final view modes: blend visualization with original using edge_falloff
             if view_mode == 2 {
@@ -701,42 +716,67 @@ impl Plugin {
                 return Ok(());
             }
 
-            // Item 1: FalloffMode branching
+            // OneSide: restrict effect to one side of the path with smooth fade
+            let one_side_factor = match one_side {
+                2 => {
+                    if nearest.distance > 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                }
+                3 => {
+                    if nearest.distance < 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                }
+                _ => 1.0,
+            };
+
+            if one_side_factor < 0.001 {
+                set_dst!(dst, original);
+                return Ok(());
+            }
+
+            // FalloffMode branching
             let col = if falloff_mode == 2 {
-                // Blur Amount mode: scale radius by normal_w
-                let cur_pos_amt = blur_amount * edge_falloff * normal_w;
-                let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w;
+                let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
+                let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w * fract_w;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: xf,
-                    center_y: yf,
+                    center_x: xf + nearest.tx * path_offset,
+                    center_y: yf + nearest.ty * path_offset,
                     tangent_x: nearest.tx,
                     tangent_y: nearest.ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = (edge_falloff * fract_w * nearest.ambiguity).clamp(0.0, 1.0);
+                let opacity = (nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
                 lerp_pixel(&original, &blurred, opacity)
             } else {
-                // Opacity mode (default): full radius blur, blend by total_blend
-                let cur_pos_amt = blur_amount * edge_falloff;
-                let cur_neg_amt = neg_blur_amount * edge_falloff;
+                let cur_pos_amt = blur_amount * edge_falloff * fract_w;
+                let cur_neg_amt = neg_blur_amount * edge_falloff * fract_w;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: xf,
-                    center_y: yf,
+                    center_x: xf + nearest.tx * path_offset,
+                    center_y: yf + nearest.ty * path_offset,
                     tangent_x: nearest.tx,
                     tangent_y: nearest.ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                lerp_pixel(&original, &blurred, total_blend)
+                let blend = (total_blend * one_side_factor).clamp(0.0, 1.0);
+                lerp_pixel(&original, &blurred, blend)
             };
 
             set_dst!(dst, col);
@@ -1003,16 +1043,40 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
 // ---------------------------------------------------------------------------
 // Taper: controls NormalRange thickness at path endpoints
 // ---------------------------------------------------------------------------
-fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f32 {
+fn taper_factor(
+    t: f32,
+    s_len: f32,
+    s_curve: f32,
+    e_len: f32,
+    e_curve: f32,
+    s_curve_on: bool,
+) -> f32 {
     let mut w = 1.0_f32;
     if s_len > 0.0001 && t < s_len {
-        w *= (t / s_len).clamp(0.0, 1.0).powf(s_curve.max(0.1));
+        let u = (t / s_len).clamp(0.0, 1.0);
+        w *= if s_curve_on {
+            s_curve_power(u, s_curve.max(0.1))
+        } else {
+            u.powf(s_curve.max(0.1))
+        };
     }
     if e_len > 0.0001 && t > 1.0 - e_len {
         let u = ((1.0 - t) / e_len).clamp(0.0, 1.0);
-        w *= u.powf(e_curve.max(0.1));
+        w *= if s_curve_on {
+            s_curve_power(u, e_curve.max(0.1))
+        } else {
+            u.powf(e_curve.max(0.1))
+        };
     }
     w
+}
+
+fn s_curve_power(u: f32, curve: f32) -> f32 {
+    if u < 0.5 {
+        0.5 * (2.0 * u).powf(curve)
+    } else {
+        1.0 - 0.5 * (2.0 * (1.0 - u)).powf(curve)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,15 +1170,11 @@ fn profile_multiplier(
     negative_scale: f32,
     invert_mode: i32,
     swap_normal: bool,
-    one_side: i32,
 ) -> f32 {
     let mut use_positive = is_positive_side;
     if swap_normal {
         use_positive = !use_positive;
     }
-
-    // one_side: 1=None, 2=Negative Side, 3=Positive Side
-    let invert_for_one_side = (one_side == 2 && !use_positive) || (one_side == 3 && use_positive);
 
     let invert_this_side = match invert_mode {
         2 => use_positive,
@@ -1129,9 +1189,7 @@ fn profile_multiplier(
     };
     let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
 
-    if invert_for_one_side {
-        ((1.0 - base) * negative_scale).max(0.0)
-    } else if use_positive {
+    if use_positive {
         (base * positive_scale).max(0.0)
     } else {
         (base * negative_scale).max(0.0)
