@@ -12,6 +12,7 @@ enum Params {
     NormalRange,
     NormalFalloff,
     NormalFalloffBias,
+    FalloffMode,
     PathBlurAmount,
     SplitTangent,
     NegativeBlurAmount,
@@ -30,8 +31,9 @@ enum Params {
     ProfileGroupStart,
     EnableProfileCurve,
     PositiveScale,
-    NegativeScale,
     LinkScales,
+    NegativeScale,
+    OneSide,
     InvertCurveX,
     SwapNormal,
     ProfileGroupEnd,
@@ -71,9 +73,6 @@ struct ProfileCurve {
     points: Vec<ProfilePoint>,
 }
 
-// ---------------------------------------------------------------------------
-// params_setup & handle_command
-// ---------------------------------------------------------------------------
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
@@ -132,6 +131,14 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_max(300.0);
                 d.set_default(0.0);
                 d.set_precision(1);
+            }),
+        )?;
+        params.add(
+            Params::FalloffMode,
+            "Falloff Mode",
+            PopupDef::setup(|d| {
+                d.set_options(&["Opacity", "Blur Amount"]);
+                d.set_default(1);
             }),
         )?;
         params.add(
@@ -317,6 +324,15 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
+                params.add_with_flags(
+                    Params::LinkScales,
+                    "Link Scales",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(true);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
                 params.add(
                     Params::NegativeScale,
                     "Negative Scale",
@@ -329,14 +345,13 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
-                params.add_with_flags(
-                    Params::LinkScales,
-                    "Link Scales",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(true);
+                params.add(
+                    Params::OneSide,
+                    "One Side",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["None", "Negative Side", "Positive Side"]);
+                        d.set_default(1);
                     }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
                 )?;
                 params.add(
                     Params::InvertCurveX,
@@ -410,8 +425,9 @@ impl AdobePluginGlobal for Plugin {
                 }
                 for k in [
                     Params::PositiveScale,
-                    Params::NegativeScale,
                     Params::LinkScales,
+                    Params::NegativeScale,
+                    Params::OneSide,
                     Params::InvertCurveX,
                     Params::SwapNormal,
                 ] {
@@ -487,6 +503,7 @@ impl Plugin {
             .get(Params::NormalFalloffBias)?
             .as_float_slider()?
             .value() as f32;
+        let falloff_mode = params.get(Params::FalloffMode)?.as_popup()?.value();
         let blur_amount = params
             .get(Params::PathBlurAmount)?
             .as_float_slider()?
@@ -539,20 +556,22 @@ impl Plugin {
             .get(Params::EnableProfileCurve)?
             .as_checkbox()?
             .value();
+        // *10 internal multiplier (item 5)
         let positive_scale = params
             .get(Params::PositiveScale)?
             .as_float_slider()?
             .value() as f32
-            / 100.0;
+            / 10.0;
+        let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
         let mut negative_scale = params
             .get(Params::NegativeScale)?
             .as_float_slider()?
             .value() as f32
-            / 100.0;
-        let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
+            / 10.0;
         if link_scales {
             negative_scale = positive_scale;
         }
+        let one_side = params.get(Params::OneSide)?.as_popup()?.value();
         let invert_curve_x = params.get(Params::InvertCurveX)?.as_popup()?.value();
         let swap_normal = params.get(Params::SwapNormal)?.as_checkbox()?.value();
 
@@ -603,13 +622,13 @@ impl Plugin {
                     negative_scale,
                     invert_curve_x,
                     swap_normal,
+                    one_side,
                 )
             } else {
                 1.0
             };
 
             let effective_range = normal_range * taper_thickness * profile_thickness;
-
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
 
             if d_abs > effective_range || effective_range < 0.001 {
@@ -627,64 +646,95 @@ impl Plugin {
 
             let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
 
+            // Item 8: clip pixels beyond path endpoints for all view modes
+            if edge_falloff < 0.01 {
+                set_dst!(dst, original);
+                return Ok(());
+            }
+
             let evo = evolution * 0.05;
-            let voronoi_val = voronoi_2d(
-                xf / fract_scale.max(0.1) + evo,
-                yf / fract_scale.max(0.1),
+            // Item 4: 1D fractal along normal direction
+            let fract_val = fractal_1d_voronoi(
+                nearest.distance / fract_scale.max(0.1) + evo,
                 fract_complexity,
             );
-            let fract_w = 1.0 + (voronoi_val - 0.5) * 2.0 * fract_amount;
+            let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
             let total_blend =
                 (normal_w * edge_falloff * fract_w * nearest.ambiguity).clamp(0.0, 1.0);
 
+            // Non-Final view modes: blend visualization with original using edge_falloff
             if view_mode == 2 {
-                let col = PixelF32 {
+                let vis = PixelF32 {
                     red: total_blend,
                     green: total_blend * 0.7,
                     blue: 1.0 - total_blend,
                     alpha: 1.0,
                 };
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
                 let g = (d_abs / effective_range.max(0.001)).clamp(0.0, 1.0);
-                let col = PixelF32 {
+                let vis = PixelF32 {
                     red: g,
                     green: g,
                     blue: g,
                     alpha: 1.0,
                 };
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
-                let col = PixelF32 {
-                    red: voronoi_val,
-                    green: voronoi_val,
-                    blue: voronoi_val,
+                let vis = PixelF32 {
+                    red: fract_val,
+                    green: fract_val,
+                    blue: fract_val,
                     alpha: 1.0,
                 };
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             }
 
-            let cur_pos_amt = blur_amount * edge_falloff;
-            let cur_neg_amt = neg_blur_amount * edge_falloff;
+            // Item 1: FalloffMode branching
+            let col = if falloff_mode == 2 {
+                // Blur Amount mode: scale radius by normal_w
+                let cur_pos_amt = blur_amount * edge_falloff * normal_w;
+                let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w;
+                let blurred = blur_along_tangent(&TangentBlurParams {
+                    layer: &in_layer,
+                    world: in_world,
+                    width: in_w,
+                    height: in_h,
+                    center_x: xf,
+                    center_y: yf,
+                    tangent_x: nearest.tx,
+                    tangent_y: nearest.ty,
+                    positive_amount: cur_pos_amt,
+                    negative_amount: cur_neg_amt,
+                });
+                let opacity = (edge_falloff * fract_w * nearest.ambiguity).clamp(0.0, 1.0);
+                lerp_pixel(&original, &blurred, opacity)
+            } else {
+                // Opacity mode (default): full radius blur, blend by total_blend
+                let cur_pos_amt = blur_amount * edge_falloff;
+                let cur_neg_amt = neg_blur_amount * edge_falloff;
+                let blurred = blur_along_tangent(&TangentBlurParams {
+                    layer: &in_layer,
+                    world: in_world,
+                    width: in_w,
+                    height: in_h,
+                    center_x: xf,
+                    center_y: yf,
+                    tangent_x: nearest.tx,
+                    tangent_y: nearest.ty,
+                    positive_amount: cur_pos_amt,
+                    negative_amount: cur_neg_amt,
+                });
+                lerp_pixel(&original, &blurred, total_blend)
+            };
 
-            let blurred = blur_along_tangent(&TangentBlurParams {
-                layer: &in_layer,
-                world: in_world,
-                width: in_w,
-                height: in_h,
-                center_x: xf,
-                center_y: yf,
-                tangent_x: nearest.tx,
-                tangent_y: nearest.ty,
-                positive_amount: cur_pos_amt,
-                negative_amount: cur_neg_amt,
-            });
-
-            let col = lerp_pixel(&original, &blurred, total_blend);
             set_dst!(dst, col);
             Ok(())
         })?;
@@ -741,7 +791,8 @@ impl Plugin {
                 if seg_len <= 0.0001 {
                     continue;
                 }
-                let n = 24_i32.max((seg_len / 4.0) as i32);
+                // Item 2: higher sampling density (seg_len / 2.0)
+                let n = 24_i32.max((seg_len / 2.0) as i32);
                 for j in 0..=n {
                     let l = seg_len * (j as f32 / n as f32);
                     let (x, y, dx, dy) = prep.eval_deriv1(l as f64)?;
@@ -780,6 +831,10 @@ impl Plugin {
             mask_idx += 1;
         }
 
+        // Item 3: smooth tangent vectors along path
+        let smooth_radius = (out.samples.len() / 40).clamp(1, 8);
+        smooth_tangents(&mut out.samples, smooth_radius);
+
         out.total_arc_len = compute_arc_length(&out.samples);
 
         if !profile_path_pts.is_empty() {
@@ -790,7 +845,29 @@ impl Plugin {
 }
 
 // ---------------------------------------------------------------------------
-// Nearest-sample search with normal blending (Phase 3c)
+// Item 3: tangent vector smoothing
+// ---------------------------------------------------------------------------
+fn smooth_tangents(samples: &mut [PathSample], radius: usize) {
+    if samples.len() < 3 || radius == 0 {
+        return;
+    }
+    let orig: Vec<(f32, f32)> = samples.iter().map(|s| (s.tx, s.ty)).collect();
+    for i in 0..samples.len() {
+        let lo = i.saturating_sub(radius);
+        let hi = (i + radius).min(samples.len() - 1);
+        let (mut sx, mut sy) = (0.0_f32, 0.0_f32);
+        for item in orig.iter().take(hi + 1).skip(lo) {
+            sx += item.0;
+            sy += item.1;
+        }
+        let (ntx, nty) = normalize2(sx, sy);
+        samples[i].tx = ntx;
+        samples[i].ty = nty;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Nearest-sample search with normal blending
 // ---------------------------------------------------------------------------
 #[derive(Clone, Copy)]
 struct Nearest {
@@ -853,7 +930,7 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
 }
 
 // ---------------------------------------------------------------------------
-// Tangent blur with asymmetric support (Phase 2b, 2c)
+// Tangent blur with Gaussian kernel and asymmetric support (items 2, 2c)
 // ---------------------------------------------------------------------------
 struct TangentBlurParams<'a> {
     layer: &'a Layer,
@@ -886,21 +963,16 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     };
     let mut wsum = 0.0_f32;
 
+    let pos_sigma = (pos_r / 3.0).max(0.001);
+    let neg_sigma = (neg_r / 3.0).max(0.001);
+
     for i in 0..taps {
         let t = i as f32 / (taps - 1) as f32;
         let offset = -neg_r + t * total;
-        let profile = if offset < 0.0 {
-            if neg_r < 0.001 {
-                0.0
-            } else {
-                1.0 - (-offset / neg_r)
-            }
-        } else if pos_r < 0.001 {
-            0.0
-        } else {
-            1.0 - (offset / pos_r)
-        };
-        let w = profile.max(0.0);
+
+        // Gaussian kernel per side
+        let sigma = if offset < 0.0 { neg_sigma } else { pos_sigma };
+        let w = (-0.5 * (offset / sigma).powi(2)).exp();
         if w < 1e-6 {
             continue;
         }
@@ -925,7 +997,7 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
 }
 
 // ---------------------------------------------------------------------------
-// Taper: controls NormalRange thickness at path endpoints (Phase 3b)
+// Taper: controls NormalRange thickness at path endpoints
 // ---------------------------------------------------------------------------
 fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f32 {
     let mut w = 1.0_f32;
@@ -940,7 +1012,7 @@ fn taper_factor(t: f32, s_len: f32, s_curve: f32, e_len: f32, e_curve: f32) -> f
 }
 
 // ---------------------------------------------------------------------------
-// Edge fade: smooth blur falloff at path start/end (Phase 2d)
+// Edge fade: smooth blur falloff at path start/end
 // ---------------------------------------------------------------------------
 fn edge_fade(t_norm: f32, zone: f32) -> f32 {
     if t_norm < zone {
@@ -953,51 +1025,32 @@ fn edge_fade(t_norm: f32, zone: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Voronoi cellular noise (Phase 3d)
+// Item 4: 1D Voronoi-like cellular noise along normal direction
 // ---------------------------------------------------------------------------
-fn hash21(ix: i32, iy: i32) -> f32 {
-    let n = ix.wrapping_mul(127).wrapping_add(iy.wrapping_mul(311));
-    ((n.wrapping_mul(n)
-        .wrapping_mul(n.wrapping_mul(15731).wrapping_add(789221))
-        .wrapping_add(1376312589)) as f32
-        / 2147483648.0)
+fn hash_1d(x: i32) -> f32 {
+    let n = x.wrapping_mul(15731).wrapping_add(789221);
+    ((n.wrapping_mul(n).wrapping_mul(n).wrapping_add(1376312589)) as f32 / 2147483648.0)
         .fract()
         .abs()
 }
 
-fn hash22(ix: i32, iy: i32) -> f32 {
-    let n = ix.wrapping_mul(269).wrapping_add(iy.wrapping_mul(183));
-    ((n.wrapping_mul(n)
-        .wrapping_mul(n.wrapping_mul(18397).wrapping_add(294781))
-        .wrapping_add(1847561)) as f32
-        / 2147483648.0)
-        .fract()
-        .abs()
-}
-
-fn voronoi_2d(x: f32, y: f32, sharpness: f32) -> f32 {
-    let ix = x.floor() as i32;
-    let iy = y.floor() as i32;
-    let fx = x - ix as f32;
-    let fy = y - iy as f32;
-    let mut min_dist = f32::MAX;
-
-    for dx in -1..=1 {
-        for dy in -1..=1 {
-            let cx = dx as f32 + hash21(ix + dx, iy + dy);
-            let cy = dy as f32 + hash22(ix + dx, iy + dy);
-            let d = ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt();
-            if d < min_dist {
-                min_dist = d;
-            }
+fn fractal_1d_voronoi(x: f32, sharpness: f32) -> f32 {
+    let cell = x.floor() as i32;
+    let frac = x - cell as f32;
+    let mut min_d = f32::MAX;
+    for i in -1..=1 {
+        let center = hash_1d(cell + i);
+        let d = (frac - i as f32 - center).abs();
+        if d < min_d {
+            min_d = d;
         }
     }
     let contrast = 1.0 + sharpness * 4.0;
-    (min_dist * contrast).clamp(0.0, 1.0)
+    (min_d * contrast).clamp(0.0, 1.0)
 }
 
 // ---------------------------------------------------------------------------
-// Profile curve (Phase 3e): returns thickness multiplier
+// Profile curve: returns thickness multiplier (item 7: one_side support)
 // ---------------------------------------------------------------------------
 fn build_profile_curve(points: &[(f32, f32)]) -> Option<ProfileCurve> {
     if points.len() < 2 {
@@ -1049,11 +1102,16 @@ fn profile_multiplier(
     negative_scale: f32,
     invert_mode: i32,
     swap_normal: bool,
+    one_side: i32,
 ) -> f32 {
     let mut use_positive = is_positive_side;
     if swap_normal {
         use_positive = !use_positive;
     }
+
+    // one_side: 1=None, 2=Negative Side, 3=Positive Side
+    let invert_for_one_side = (one_side == 2 && !use_positive) || (one_side == 3 && use_positive);
+
     let invert_this_side = match invert_mode {
         2 => use_positive,
         3 => !use_positive,
@@ -1066,7 +1124,10 @@ fn profile_multiplier(
         t_norm
     };
     let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
-    if use_positive {
+
+    if invert_for_one_side {
+        ((1.0 - base) * negative_scale).max(0.0)
+    } else if use_positive {
         (base * positive_scale).max(0.0)
     } else {
         (base * negative_scale).max(0.0)
