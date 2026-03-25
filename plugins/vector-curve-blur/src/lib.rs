@@ -394,38 +394,7 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag(OutFlags::SendUpdateParamsUi, true);
             }
             ae::Command::UpdateParamsUi => {
-                let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
-                let enable_profile = params
-                    .get(Params::EnableProfileCurve)?
-                    .as_checkbox()?
-                    .value();
-                let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
-                let mut p = params.cloned();
-                for k in [
-                    Params::StartTaperLength,
-                    Params::StartTaperCurve,
-                    Params::EndTaperLength,
-                    Params::EndTaperCurve,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
-                    pd.update_param_ui()?;
-                }
-                for k in [
-                    Params::PositiveScale,
-                    Params::NegativeScale,
-                    Params::LinkScales,
-                    Params::InvertCurveX,
-                    Params::SwapNormal,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    let mut disabled = !enable_profile;
-                    if k == Params::NegativeScale && link_scales {
-                        disabled = true;
-                    }
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
-                    pd.update_param_ui()?;
-                }
+                // TODO: restore after debugging "unsupported preview control" message
             }
             ae::Command::Render {
                 in_layer,
