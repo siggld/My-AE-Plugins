@@ -1,4 +1,8 @@
-#![allow(clippy::drop_non_drop, clippy::question_mark)]
+#![allow(
+    clippy::drop_non_drop,
+    clippy::question_mark,
+    clippy::too_many_arguments
+)]
 
 use ae::pf::*;
 use after_effects as ae;
