@@ -127,6 +127,35 @@ jobs:
           }
 
           Copy-Item -Force $plugins.FullName dist\windows\
+
+          # AE が「No loaders recognized this plugin」と無視する典型原因は、PiPL 未埋め込みの PE でないファイル。
+          # winres はリソース型名 PiPL を UTF-16 LE で格納するため、それが無ければビルド/コピー異常の疑いが高い。
+          Get-ChildItem -Path dist\windows\*.aex -File | ForEach-Object {
+            $b = [IO.File]::ReadAllBytes($_.FullName)
+            if ($b.Length -lt 2048) { throw "$($_.Name): too small ($($b.Length) bytes); expected a full PE plugin." }
+            if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { throw "$($_.Name): not a PE (missing MZ); file may be corrupt or not the cdylib output." }
+            $found = $false
+            for ($i = 0; $i -le $b.Length - 8; $i++) {
+              if ($b[$i] -eq 0x50 -and $b[$i+1] -eq 0 -and $b[$i+2] -eq 0x69 -and $b[$i+3] -eq 0 -and
+                  $b[$i+4] -eq 0x50 -and $b[$i+5] -eq 0 -and $b[$i+6] -eq 0x4C -and $b[$i+7] -eq 0) {
+                $found = $true
+                break
+              }
+            }
+            if (-not $found) {
+              for ($i = 0; $i -le $b.Length - 4; $i++) {
+                if ($b[$i] -eq 0x50 -and $b[$i+1] -eq 0x69 -and $b[$i+2] -eq 0x50 -and $b[$i+3] -eq 0x4C) {
+                  $found = $true
+                  break
+                }
+              }
+            }
+            if (-not $found) {
+              throw "$($_.Name): 'PiPL' resource marker not found — After Effects will ignore this plugin (see Plugin Loading.log)."
+            }
+            Write-Host "Verified PiPL resource marker in $($_.Name) ($($b.Length) bytes)"
+          }
+
           if (Test-Path $zipName) { Remove-Item -Force $zipName }
           Compress-Archive -Path dist\windows\* -DestinationPath $zipName -Force
           Get-Item $zipName | Format-List
