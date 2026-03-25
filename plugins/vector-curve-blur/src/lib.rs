@@ -260,14 +260,6 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         params.add(
-            Params::TaperSCurve,
-            "Taper S-Curve",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-        )?;
-
-        params.add(
             Params::FractalAmount,
             "Fractal Amount",
             FloatSliderDef::setup(|d| {
@@ -385,6 +377,16 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
+        params.add_with_flags(
+            Params::TaperSCurve,
+            "Taper S-Curve",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
+
         Ok(())
     }
 
@@ -431,13 +433,9 @@ impl AdobePluginGlobal for Plugin {
                     Params::StartTaperCurve,
                     Params::EndTaperLength,
                     Params::EndTaperCurve,
+                    Params::TaperSCurve,
                 ] {
                     let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
-                    pd.update_param_ui()?;
-                }
-                {
-                    let mut pd = p.get_mut(Params::TaperSCurve)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
                     pd.update_param_ui()?;
                 }
@@ -558,7 +556,7 @@ impl Plugin {
             .get(Params::EndTaperCurve)?
             .as_float_slider()?
             .value() as f32;
-        let taper_s_curve_on = params.get(Params::TaperSCurve)?.as_checkbox()?.value();
+        let taper_s_curve_enabled = params.get(Params::TaperSCurve)?.as_checkbox()?.value();
         let fract_amount = params
             .get(Params::FractalAmount)?
             .as_float_slider()?
@@ -627,7 +625,7 @@ impl Plugin {
                     taper_s_curve,
                     taper_e_len,
                     taper_e_curve,
-                    taper_s_curve_on,
+                    taper_s_curve_enabled,
                 )
             } else {
                 1.0
@@ -665,14 +663,37 @@ impl Plugin {
 
             let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
 
-            // Item 8: clip pixels beyond path endpoints for all view modes
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
                 return Ok(());
             }
 
+            let one_side_factor = match one_side {
+                2 => {
+                    if nearest.distance > 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                }
+                3 => {
+                    if nearest.distance < 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                }
+                _ => 1.0,
+            };
+
+            if one_side_factor < 0.001 {
+                set_dst!(dst, original);
+                return Ok(());
+            }
+
             let evo = evolution * 0.05;
-            // Item 4: 1D fractal along normal direction
             let fract_val = fractal_1d_voronoi(
                 nearest.distance / fract_scale.max(0.1) + evo,
                 fract_complexity,
@@ -680,7 +701,7 @@ impl Plugin {
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
             let total_blend =
-                (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
+                (normal_w * edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
 
             // Non-Final view modes: blend visualization with original using edge_falloff
             if view_mode == 2 {
@@ -716,33 +737,9 @@ impl Plugin {
                 return Ok(());
             }
 
-            // OneSide: restrict effect to one side of the path with smooth fade
-            let one_side_factor = match one_side {
-                2 => {
-                    if nearest.distance > 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    }
-                }
-                3 => {
-                    if nearest.distance < 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    }
-                }
-                _ => 1.0,
-            };
+            let ox = xf + nearest.tx * path_offset;
+            let oy = yf + nearest.ty * path_offset;
 
-            if one_side_factor < 0.001 {
-                set_dst!(dst, original);
-                return Ok(());
-            }
-
-            // FalloffMode branching
             let col = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w * fract_w;
@@ -751,8 +748,8 @@ impl Plugin {
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: xf + nearest.tx * path_offset,
-                    center_y: yf + nearest.ty * path_offset,
+                    center_x: ox,
+                    center_y: oy,
                     tangent_x: nearest.tx,
                     tangent_y: nearest.ty,
                     positive_amount: cur_pos_amt,
@@ -768,15 +765,14 @@ impl Plugin {
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: xf + nearest.tx * path_offset,
-                    center_y: yf + nearest.ty * path_offset,
+                    center_x: ox,
+                    center_y: oy,
                     tangent_x: nearest.tx,
                     tangent_y: nearest.ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let blend = (total_blend * one_side_factor).clamp(0.0, 1.0);
-                lerp_pixel(&original, &blurred, blend)
+                lerp_pixel(&original, &blurred, total_blend)
             };
 
             set_dst!(dst, col);
@@ -1049,12 +1045,12 @@ fn taper_factor(
     s_curve: f32,
     e_len: f32,
     e_curve: f32,
-    s_curve_on: bool,
+    s_curve_enabled: bool,
 ) -> f32 {
     let mut w = 1.0_f32;
     if s_len > 0.0001 && t < s_len {
         let u = (t / s_len).clamp(0.0, 1.0);
-        w *= if s_curve_on {
+        w *= if s_curve_enabled {
             s_curve_power(u, s_curve.max(0.1))
         } else {
             u.powf(s_curve.max(0.1))
@@ -1062,7 +1058,7 @@ fn taper_factor(
     }
     if e_len > 0.0001 && t > 1.0 - e_len {
         let u = ((1.0 - t) / e_len).clamp(0.0, 1.0);
-        w *= if s_curve_on {
+        w *= if s_curve_enabled {
             s_curve_power(u, e_curve.max(0.1))
         } else {
             u.powf(e_curve.max(0.1))
@@ -1118,7 +1114,7 @@ fn fractal_1d_voronoi(x: f32, sharpness: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Profile curve: returns thickness multiplier (item 7: one_side support)
+// Profile curve: returns thickness multiplier
 // ---------------------------------------------------------------------------
 fn build_profile_curve(points: &[(f32, f32)]) -> Option<ProfileCurve> {
     if points.len() < 2 {
