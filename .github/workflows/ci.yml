@@ -5,6 +5,10 @@ on:
     branches: [ "main", "dev" ]
   pull_request:
 
+# GitHub Actions: Node 20 ベースのアクション非推奨警告への対応（2026 年以降の既定 Node 24 へ揃える）
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   lint_test:
     strategy:
