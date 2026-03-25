@@ -412,7 +412,6 @@ impl AdobePluginGlobal for Plugin {
                     pd.update_param_ui()?;
                 }
                 for k in [
-                    Params::ProfileMaskName,
                     Params::PositiveScale,
                     Params::NegativeScale,
                     Params::LinkScales,
