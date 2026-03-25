@@ -4,8 +4,10 @@
 mod resource;
 pub use resource::*;
 
-// Adobe PiPL: ターゲット OS に関わらず BigEndian、先頭に Reserved バイトなし
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use byteorder::BigEndian as ByteOrder;
+#[cfg(target_os = "windows")]
+use byteorder::LittleEndian as ByteOrder;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod plist;
@@ -49,10 +51,24 @@ pub enum PIPLType {
 }
 
 const fn fourcc(code: &[u8; 4]) -> [u8; 4] {
-    *code
+    #[cfg(target_os = "windows")]
+    {
+        [code[3], code[2], code[1], code[0]]
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        *code
+    }
 }
 const fn u32_bytes(v: u32) -> [u8; 4] {
-    v.to_be_bytes()
+    #[cfg(target_os = "windows")]
+    {
+        v.to_le_bytes()
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        v.to_be_bytes()
+    }
 }
 
 impl PIPLType {
@@ -688,7 +704,7 @@ pub enum Property {
 
 pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
     #[rustfmt::skip]
- fn padding_4(x: u32) -> u32 { if !x.is_multiple_of(4) { 4 - x % 4 } else { 0 } }
+ fn padding_4(x: u32) -> u32 { if x % 4 != 0 { 4 - x % 4 } else { 0 } }
 
     fn write(
         buffer: &mut Vec<u8>,
@@ -706,10 +722,11 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
         // Overwrite the length
         buffer[len..len + 4].clone_from_slice(&u32_bytes(aligned_len));
 
-        // Adobe PiPL 規格: 全プラットフォームで共通のパディング
-        let padding = padding_4(aligned_len);
-        for _ in 0..padding {
-            buffer.write_u8(0)?;
+        if cfg!(target_os = "macos") {
+            let padding = padding_4(aligned_len);
+            for _ in 0..padding {
+                buffer.write_u8(0)?;
+            }
         }
         Ok(())
     }
@@ -718,10 +735,11 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
         buffer.write_u8(s.len() as u8)?;
         buffer.extend(s.as_bytes());
 
-        // Adobe PiPL 規格: 全プラットフォームで同一のパディング
-        let padding = padding_4(s.len() as u32 + 1);
-        for _ in 0..padding {
-            buffer.write_u8(0)?;
+        if cfg!(target_os = "windows") {
+            let padding = padding_4(s.len() as u32 + 1);
+            for _ in 0..padding {
+                buffer.write_u8(0)?;
+            }
         }
         Ok(())
     }
@@ -730,17 +748,21 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
         buffer.extend(s.as_bytes());
         buffer.push(0);
 
-        // Adobe PiPL 規格: 全プラットフォームで同一のパディング
-        let padding = padding_4(s.len() as u32 + 1);
-        for _ in 0..padding {
-            buffer.write_u8(0)?;
+        if cfg!(target_os = "windows") {
+            let padding = padding_4(s.len() as u32 + 1);
+            for _ in 0..padding {
+                buffer.write_u8(0)?;
+            }
         }
         Ok(())
     }
 
     let mut buffer = Vec::new();
-    // PiPL は macOS と同じバイナリ形式（先頭が kPIPropertiesVersion）。Windows 用の 2 バイトは付けない（AE がバージョン不一致を出すため）。
-    buffer.write_u32::<ByteOrder>(1)?; // kPIPropertiesVersion は 1 が正解
+    if cfg!(target_os = "windows") {
+        buffer.write_u8(1)?; // Reserved
+        buffer.write_u8(0)?; // Reserved
+    }
+    buffer.write_u32::<ByteOrder>(0)?; // kPIPropertiesVersion
     buffer.write_all(&u32_bytes(properties.len() as u32))?;
     for prop in properties {
         match prop {
@@ -1123,8 +1145,11 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
             }
             Property::AE_Effect_Info_Flags(x) => {
                 write(&mut buffer, b"8BIM", b"eINF", |buffer| {
-                    // Always use BigEndian u32 for binary compatibility across all platforms
-                    buffer.write_u32::<ByteOrder>(x)
+                    if cfg!(target_os = "windows") {
+                        buffer.write_u32::<ByteOrder>(x)
+                    } else {
+                        buffer.write_u16::<ByteOrder>(x as u16)
+                    }
                 })?;
             }
             Property::AE_Effect_Global_OutFlags(x) => {
@@ -1502,7 +1527,16 @@ pub fn plugin_build(properties: Vec<Property>) {
     for prop in properties.iter() {
         match prop {
             Property::Kind(x) => {
-                let bytes = u32::from_be_bytes(x.as_bytes());
+                let bytes = {
+                    #[cfg(target_os = "windows")]
+                    {
+                        u32::from_le_bytes(x.as_bytes())
+                    }
+                    #[cfg(any(target_os = "macos", target_os = "linux"))]
+                    {
+                        u32::from_be_bytes(x.as_bytes())
+                    }
+                };
                 kind = Some(x);
                 println!("cargo:rustc-env=PIPL_KIND={bytes}");
             }
