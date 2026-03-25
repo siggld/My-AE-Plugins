@@ -50,8 +50,6 @@ struct PathSample {
     y: f32,
     tx: f32,
     ty: f32,
-    nx: f32,
-    ny: f32,
     t_norm: f32,
 }
 
@@ -776,8 +774,6 @@ impl Plugin {
                     y,
                     tx,
                     ty,
-                    nx: -ty,
-                    ny: tx,
                     t_norm: if last <= 0.0 { 0.0 } else { idx as f32 / last },
                 });
             }
