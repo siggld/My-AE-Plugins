@@ -704,7 +704,7 @@ pub enum Property {
 
 pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
     #[rustfmt::skip]
- fn padding_4(x: u32) -> u32 { if x % 4 != 0 { 4 - x % 4 } else { 0 } }
+ fn padding_4(x: u32) -> u32 { if !x.is_multiple_of(4) { 4 - x % 4 } else { 0 } }
 
     fn write(
         buffer: &mut Vec<u8>,
