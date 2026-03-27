@@ -39,13 +39,13 @@ enum Params {
     LinkScales,
     NegativeScale,
     OneSideOnly,
-    SwapTangent,
+    InvertCurveX,
+    SwapNormal,
     ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
     FractalTangentOffset,
     AddColorGroupStart,
-    AddColorEnable,
     AddColor,
     AddColorMode,
     AddColorOpacity,
@@ -287,15 +287,6 @@ impl AdobePluginGlobal for Plugin {
             "Add Color",
             true,
             |params| {
-                params.add_with_flags(
-                    Params::AddColorEnable,
-                    "Enable Add Color",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
                 params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
                 params.add(
                     Params::AddColorMode,
@@ -323,7 +314,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(100.0);
+                        d.set_default(0.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -494,8 +485,16 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
-                    Params::SwapTangent,
-                    "Swap Tangent (+/-)",
+                    Params::InvertCurveX,
+                    "Invert Curve X",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["None", "Positive", "Negative", "Both"]);
+                        d.set_default(1);
+                    }),
+                )?;
+                params.add(
+                    Params::SwapNormal,
+                    "Swap Normal (+/-)",
                     CheckBoxDef::setup(|d| {
                         d.set_default(false);
                     }),
@@ -538,7 +537,6 @@ impl AdobePluginGlobal for Plugin {
                     .as_checkbox()?
                     .value();
                 let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
-                let add_color_enabled = params.get(Params::AddColorEnable)?.as_checkbox()?.value();
                 let mut p = params.cloned();
 
                 {
@@ -562,7 +560,8 @@ impl AdobePluginGlobal for Plugin {
                     Params::LinkScales,
                     Params::NegativeScale,
                     Params::OneSideOnly,
-                    Params::SwapTangent,
+                    Params::InvertCurveX,
+                    Params::SwapNormal,
                 ] {
                     let mut pd = p.get_mut(k)?;
                     let mut disabled = !enable_profile;
@@ -570,17 +569,6 @@ impl AdobePluginGlobal for Plugin {
                         disabled = true;
                     }
                     pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
-                    pd.update_param_ui()?;
-                }
-                for k in [
-                    Params::AddColor,
-                    Params::AddColorMode,
-                    Params::AddColorOpacity,
-                    Params::AddFractalAmount,
-                    Params::AddFractalMode,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !add_color_enabled);
                     pd.update_param_ui()?;
                 }
             }
@@ -716,9 +704,9 @@ impl Plugin {
         if link_scales {
             negative_scale = positive_scale;
         }
-        let one_side =
-            normalize_one_side_popup(params.get(Params::OneSideOnly)?.as_popup()?.value());
-        let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
+        let one_side = params.get(Params::OneSideOnly)?.as_popup()?.value();
+        let invert_curve_x = params.get(Params::InvertCurveX)?.as_popup()?.value();
+        let swap_normal = params.get(Params::SwapNormal)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
             .as_float_slider()?
@@ -734,7 +722,6 @@ impl Plugin {
             green: add_color_raw.green as f32 / ae::MAX_CHANNEL8 as f32,
             blue: add_color_raw.blue as f32 / ae::MAX_CHANNEL8 as f32,
         };
-        let add_color_enabled = params.get(Params::AddColorEnable)?.as_checkbox()?.value();
         let add_color_mode = params.get(Params::AddColorMode)?.as_popup()?.value();
         let add_color_opacity = params
             .get(Params::AddColorOpacity)?
@@ -755,16 +742,8 @@ impl Plugin {
         let progress_final = out_layer.height() as i32;
 
         let arc_len = path_data.total_arc_len.max(1.0);
-        let edge_zone_start = if split_tangent {
-            (neg_blur_amount / arc_len).clamp(0.01, 0.5)
-        } else {
-            (blur_amount / arc_len).clamp(0.01, 0.5)
-        };
-        let edge_zone_end = if split_tangent {
-            (blur_amount / arc_len).clamp(0.01, 0.5)
-        } else {
-            edge_zone_start
-        };
+        let max_blur = blur_amount.max(neg_blur_amount);
+        let edge_zone_t = (max_blur / arc_len).clamp(0.01, 0.5);
 
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
@@ -802,8 +781,8 @@ impl Plugin {
                     nearest.distance >= 0.0,
                     positive_scale,
                     negative_scale,
-                    one_side,
-                    swap_tangent,
+                    invert_curve_x,
+                    swap_normal,
                 )
             } else {
                 1.0
@@ -825,18 +804,7 @@ impl Plugin {
                 t.powf(1.0 + normal_bias / 100.0)
             };
 
-            let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
-
-            let outside_endpoint = is_outside_endpoint_region(
-                nearest.t_norm,
-                nearest.tangent_offset,
-                edge_zone_start,
-                edge_zone_end,
-            );
-            if outside_endpoint {
-                set_dst!(dst, original);
-                return Ok(());
-            }
+            let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
 
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
@@ -844,20 +812,20 @@ impl Plugin {
             }
 
             let one_side_factor = match one_side {
-                // Negative Side only
                 2 => {
-                    if nearest.distance <= 0.0 {
-                        1.0
+                    if nearest.distance > 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
                     } else {
-                        0.0
+                        1.0
                     }
                 }
-                // Positive Side only
                 3 => {
-                    if nearest.distance >= 0.0 {
-                        1.0
+                    if nearest.distance < 0.0 {
+                        let fade = normal_range * 0.15;
+                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
                     } else {
-                        0.0
+                        1.0
                     }
                 }
                 _ => 1.0,
@@ -870,27 +838,24 @@ impl Plugin {
 
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
-            let s = fract_scale.max(0.1);
-            let k = fract_tangent_scale.max(0.01);
-            let er = effective_range.max(1e-3);
-            let fract_iso = (arc_len / er).sqrt().clamp(0.25, 4.0);
-            let fract_x = tangent_pos / s / k + fract_tangent_offset;
-            let fract_y = nearest.distance / s * fract_iso;
+            let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
+                + fract_tangent_offset;
+            let fract_y = nearest.distance / fract_scale.max(0.1);
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
-            let map_weight =
+            let total_blend =
                 (normal_w * edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
 
-            // Non-Final view modes: blend visualization with original using map_weight
+            // Non-Final view modes: blend visualization with original using edge_falloff
             if view_mode == 2 {
                 let vis = PixelF32 {
-                    red: map_weight,
-                    green: map_weight * 0.7,
-                    blue: 1.0 - map_weight,
+                    red: total_blend,
+                    green: total_blend * 0.7,
+                    blue: 1.0 - total_blend,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -901,7 +866,7 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -911,7 +876,7 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let col = lerp_pixel(&original, &vis, edge_falloff);
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -919,7 +884,7 @@ impl Plugin {
             let ox = xf + nearest.tx * path_offset * edge_falloff * normal_w;
             let oy = yf + nearest.ty * path_offset * edge_falloff * normal_w;
 
-            let (mut col, _) = if falloff_mode == 2 {
+            let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w * fract_w;
                 let blurred = blur_along_tangent(&TangentBlurParams {
@@ -951,10 +916,10 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                (lerp_pixel(&original, &blurred, map_weight), map_weight)
+                (lerp_pixel(&original, &blurred, total_blend), total_blend)
             };
 
-            if add_color_enabled && add_color_opacity > 0.001 && map_weight > 0.001 {
+            if add_color_opacity > 0.001 && blend_strength > 0.001 {
                 let mut tinted = add_color_f32;
                 if add_fract_amount > 0.001 {
                     let fract_col = PixelF32 {
@@ -969,7 +934,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * map_weight,
+                    add_color_opacity * blend_strength,
                 );
             }
 
@@ -1277,32 +1242,16 @@ fn s_curve_power(u: f32, curve: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Edge fade: smooth blur falloff at path start/end (asymmetric zone widths)
+// Edge fade: smooth blur falloff at path start/end
 // ---------------------------------------------------------------------------
-fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32) -> f32 {
-    let zs = zone_start.max(1e-6);
-    let ze = zone_end.max(1e-6);
-    if t_norm < zs {
-        (t_norm / zs).clamp(0.0, 1.0)
-    } else if t_norm > 1.0 - ze {
-        ((1.0 - t_norm) / ze).clamp(0.0, 1.0)
+fn edge_fade(t_norm: f32, zone: f32) -> f32 {
+    if t_norm < zone {
+        (t_norm / zone).clamp(0.0, 1.0)
+    } else if t_norm > 1.0 - zone {
+        ((1.0 - t_norm) / zone).clamp(0.0, 1.0)
     } else {
         1.0
     }
-}
-
-fn is_outside_endpoint_region(
-    t_norm: f32,
-    tangent_offset: f32,
-    zone_start: f32,
-    zone_end: f32,
-) -> bool {
-    let zs = zone_start.max(1e-6);
-    let ze = zone_end.max(1e-6);
-
-    // If the nearest point is in start/end fade zones and pixel lies beyond endpoint
-    // along the tangent direction, treat it as outside path extent.
-    (t_norm <= zs && tangent_offset < 0.0) || (t_norm >= 1.0 - ze && tangent_offset > 0.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1386,40 +1335,38 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
     best.y_norm
 }
 
-/// AE のポップアップ値は 0 始まり（None / Negative / Positive）、内部は 1..=3。
-fn normalize_one_side_popup(raw: i32) -> i32 {
-    match raw {
-        0..=2 => raw + 1,
-        _ => raw.clamp(1, 3),
-    }
-}
-
 fn profile_multiplier(
     curve: Option<&ProfileCurve>,
     t_norm: f32,
     is_positive_side: bool,
     positive_scale: f32,
     negative_scale: f32,
-    one_side: i32,
-    swap_tangent: bool,
+    invert_mode: i32,
+    swap_normal: bool,
 ) -> f32 {
-    let t = if swap_tangent {
-        (1.0 - t_norm).clamp(0.0, 1.0)
+    let mut use_positive = is_positive_side;
+    if swap_normal {
+        use_positive = !use_positive;
+    }
+
+    let invert_this_side = match invert_mode {
+        2 => use_positive,
+        3 => !use_positive,
+        4 => true,
+        _ => false,
+    };
+    let t = if invert_this_side {
+        1.0 - t_norm
     } else {
-        t_norm.clamp(0.0, 1.0)
+        t_norm
     };
-    let base = sample_profile_y(curve, t);
-    let symmetric_scale = ((positive_scale + negative_scale) * 0.5).max(0.0);
+    let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
 
-    let scale = match one_side {
-        // None: always strict symmetric regardless of side sign.
-        1 => symmetric_scale,
-        // Negative Side / Positive Side: preserve side-specific scales.
-        _ if is_positive_side => positive_scale,
-        _ => negative_scale,
-    };
-
-    (base * scale).max(0.0)
+    if use_positive {
+        (base * positive_scale).max(0.0)
+    } else {
+        (base * negative_scale).max(0.0)
+    }
 }
 
 // ---------------------------------------------------------------------------
