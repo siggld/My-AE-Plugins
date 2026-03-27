@@ -39,8 +39,7 @@ enum Params {
     LinkScales,
     NegativeScale,
     OneSide,
-    InvertCurveX,
-    SwapNormal,
+    SwapTangent,
     ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
@@ -495,16 +494,8 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
-                    Params::InvertCurveX,
-                    "Invert Curve X",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["None", "Positive", "Negative", "Both"]);
-                        d.set_default(1);
-                    }),
-                )?;
-                params.add(
-                    Params::SwapNormal,
-                    "Swap Normal (+/-)",
+                    Params::SwapTangent,
+                    "Swap Tangent (+/-)",
                     CheckBoxDef::setup(|d| {
                         d.set_default(false);
                     }),
@@ -571,8 +562,7 @@ impl AdobePluginGlobal for Plugin {
                     Params::LinkScales,
                     Params::NegativeScale,
                     Params::OneSide,
-                    Params::InvertCurveX,
-                    Params::SwapNormal,
+                    Params::SwapTangent,
                 ] {
                     let mut pd = p.get_mut(k)?;
                     let mut disabled = !enable_profile;
@@ -727,8 +717,7 @@ impl Plugin {
             negative_scale = positive_scale;
         }
         let one_side = params.get(Params::OneSide)?.as_popup()?.value();
-        let invert_curve_x = params.get(Params::InvertCurveX)?.as_popup()?.value();
-        let swap_normal = params.get(Params::SwapNormal)?.as_checkbox()?.value();
+        let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
             .as_float_slider()?
@@ -812,8 +801,8 @@ impl Plugin {
                     nearest.distance >= 0.0,
                     positive_scale,
                     negative_scale,
-                    invert_curve_x,
-                    swap_normal,
+                    one_side,
+                    swap_tangent,
                 )
             } else {
                 1.0
@@ -838,7 +827,13 @@ impl Plugin {
             let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
             if edge_falloff < 0.01 {
-                set_dst!(dst, original);
+                let transparent = PixelF32 {
+                    alpha: 0.0,
+                    red: 0.0,
+                    green: 0.0,
+                    blue: 0.0,
+                };
+                set_dst!(dst, transparent);
                 return Ok(());
             }
 
@@ -889,7 +884,8 @@ impl Plugin {
                     blue: 1.0 - map_weight,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let mut col = lerp_pixel(&original, &vis, map_weight);
+                col.alpha *= edge_falloff;
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -900,7 +896,8 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let mut col = lerp_pixel(&original, &vis, map_weight);
+                col.alpha *= edge_falloff;
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -910,7 +907,8 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, map_weight);
+                let mut col = lerp_pixel(&original, &vis, map_weight);
+                col.alpha *= edge_falloff;
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -972,6 +970,7 @@ impl Plugin {
                 );
             }
 
+            col.alpha *= edge_falloff;
             set_dst!(dst, col);
             Ok(())
         })?;
@@ -1377,32 +1376,34 @@ fn profile_multiplier(
     is_positive_side: bool,
     positive_scale: f32,
     negative_scale: f32,
-    invert_mode: i32,
-    swap_normal: bool,
+    one_side: i32,
+    swap_tangent: bool,
 ) -> f32 {
     let mut use_positive = is_positive_side;
-    if swap_normal {
+    if swap_tangent {
         use_positive = !use_positive;
     }
 
-    let invert_this_side = match invert_mode {
-        2 => use_positive,
-        3 => !use_positive,
-        4 => true,
-        _ => false,
-    };
-    let t = if invert_this_side {
-        1.0 - t_norm
-    } else {
-        t_norm
-    };
-    let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
+    let t = t_norm.clamp(0.0, 1.0);
+    let base = sample_profile_y(curve, t);
 
-    if use_positive {
-        (base * positive_scale).max(0.0)
-    } else {
-        (base * negative_scale).max(0.0)
-    }
+    let scale = match (one_side, use_positive) {
+        (1, true) => positive_scale,
+        (1, false) => negative_scale,
+        (2, true) => positive_scale,
+        (2, false) => negative_scale,
+        (3, true) => positive_scale,
+        (3, false) => positive_scale,
+        _ => {
+            if use_positive {
+                positive_scale
+            } else {
+                negative_scale
+            }
+        }
+    };
+
+    (base * scale).max(0.0)
 }
 
 // ---------------------------------------------------------------------------
