@@ -826,26 +826,37 @@ impl Plugin {
 
             let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
+            let outside_endpoint = is_outside_endpoint_region(
+                nearest.t_norm,
+                nearest.tangent_offset,
+                edge_zone_start,
+                edge_zone_end,
+            );
+            if outside_endpoint {
+                set_dst!(dst, original);
+                return Ok(());
+            }
+
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
                 return Ok(());
             }
 
             let one_side_factor = match one_side {
+                // Negative Side only
                 2 => {
-                    if nearest.distance > 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
+                    if nearest.distance <= 0.0 {
                         1.0
+                    } else {
+                        0.0
                     }
                 }
+                // Positive Side only
                 3 => {
-                    if nearest.distance < 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
+                    if nearest.distance >= 0.0 {
                         1.0
+                    } else {
+                        0.0
                     }
                 }
                 _ => 1.0,
@@ -1279,6 +1290,20 @@ fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32) -> f32 {
     }
 }
 
+fn is_outside_endpoint_region(
+    t_norm: f32,
+    tangent_offset: f32,
+    zone_start: f32,
+    zone_end: f32,
+) -> bool {
+    let zs = zone_start.max(1e-6);
+    let ze = zone_end.max(1e-6);
+
+    // If the nearest point is in start/end fade zones and pixel lies beyond endpoint
+    // along the tangent direction, treat it as outside path extent.
+    (t_norm <= zs && tangent_offset < 0.0) || (t_norm >= 1.0 - ze && tangent_offset > 0.0)
+}
+
 // ---------------------------------------------------------------------------
 // 2D Voronoi cellular noise
 // ---------------------------------------------------------------------------
@@ -1377,29 +1402,20 @@ fn profile_multiplier(
     one_side: i32,
     swap_tangent: bool,
 ) -> f32 {
-    let use_positive = is_positive_side;
-
     let t = if swap_tangent {
         (1.0 - t_norm).clamp(0.0, 1.0)
     } else {
         t_norm.clamp(0.0, 1.0)
     };
     let base = sample_profile_y(curve, t);
+    let symmetric_scale = ((positive_scale + negative_scale) * 0.5).max(0.0);
 
-    let scale = match (one_side, use_positive) {
-        (1, true) => positive_scale,
-        (1, false) => negative_scale,
-        (2, true) => positive_scale,
-        (2, false) => negative_scale,
-        (3, true) => positive_scale,
-        (3, false) => positive_scale,
-        _ => {
-            if use_positive {
-                positive_scale
-            } else {
-                negative_scale
-            }
-        }
+    let scale = match one_side {
+        // None: always strict symmetric regardless of side sign.
+        1 => symmetric_scale,
+        // Negative Side / Positive Side: preserve side-specific scales.
+        _ if is_positive_side => positive_scale,
+        _ => negative_scale,
     };
 
     (base * scale).max(0.0)
