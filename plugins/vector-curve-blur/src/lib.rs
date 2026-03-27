@@ -38,7 +38,7 @@ enum Params {
     PositiveScale,
     LinkScales,
     NegativeScale,
-    OneSide,
+    OneSideOnly,
     SwapTangent,
     ProfileGroupEnd,
     TaperSCurve,
@@ -486,8 +486,8 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
-                    Params::OneSide,
-                    "One Side",
+                    Params::OneSideOnly,
+                    "OneSideOnly",
                     PopupDef::setup(|d| {
                         d.set_options(&["None", "Negative Side", "Positive Side"]);
                         d.set_default(1);
@@ -561,7 +561,7 @@ impl AdobePluginGlobal for Plugin {
                     Params::PositiveScale,
                     Params::LinkScales,
                     Params::NegativeScale,
-                    Params::OneSide,
+                    Params::OneSideOnly,
                     Params::SwapTangent,
                 ] {
                     let mut pd = p.get_mut(k)?;
@@ -716,7 +716,8 @@ impl Plugin {
         if link_scales {
             negative_scale = positive_scale;
         }
-        let one_side = normalize_one_side_popup(params.get(Params::OneSide)?.as_popup()?.value());
+        let one_side =
+            normalize_one_side_popup(params.get(Params::OneSideOnly)?.as_popup()?.value());
         let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
