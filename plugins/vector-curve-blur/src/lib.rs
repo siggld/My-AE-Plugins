@@ -46,6 +46,7 @@ enum Params {
     FractalTangentScale,
     FractalTangentOffset,
     AddColorGroupStart,
+    AddColorEnable,
     AddColor,
     AddColorMode,
     AddColorOpacity,
@@ -287,6 +288,15 @@ impl AdobePluginGlobal for Plugin {
             "Add Color",
             true,
             |params| {
+                params.add_with_flags(
+                    Params::AddColorEnable,
+                    "Enable Add Color",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
                 params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
                 params.add(
                     Params::AddColorMode,
@@ -314,7 +324,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(0.0);
+                        d.set_default(100.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -537,6 +547,7 @@ impl AdobePluginGlobal for Plugin {
                     .as_checkbox()?
                     .value();
                 let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
+                let add_color_enabled = params.get(Params::AddColorEnable)?.as_checkbox()?.value();
                 let mut p = params.cloned();
 
                 {
@@ -569,6 +580,17 @@ impl AdobePluginGlobal for Plugin {
                         disabled = true;
                     }
                     pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
+                    pd.update_param_ui()?;
+                }
+                for k in [
+                    Params::AddColor,
+                    Params::AddColorMode,
+                    Params::AddColorOpacity,
+                    Params::AddFractalAmount,
+                    Params::AddFractalMode,
+                ] {
+                    let mut pd = p.get_mut(k)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !add_color_enabled);
                     pd.update_param_ui()?;
                 }
             }
@@ -722,6 +744,7 @@ impl Plugin {
             green: add_color_raw.green as f32 / ae::MAX_CHANNEL8 as f32,
             blue: add_color_raw.blue as f32 / ae::MAX_CHANNEL8 as f32,
         };
+        let add_color_enabled = params.get(Params::AddColorEnable)?.as_checkbox()?.value();
         let add_color_mode = params.get(Params::AddColorMode)?.as_popup()?.value();
         let add_color_opacity = params
             .get(Params::AddColorOpacity)?
@@ -742,8 +765,16 @@ impl Plugin {
         let progress_final = out_layer.height() as i32;
 
         let arc_len = path_data.total_arc_len.max(1.0);
-        let max_blur = blur_amount.max(neg_blur_amount);
-        let edge_zone_t = (max_blur / arc_len).clamp(0.01, 0.5);
+        let edge_zone_start = if split_tangent {
+            (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+        } else {
+            (blur_amount / arc_len).clamp(0.01, 0.5)
+        };
+        let edge_zone_end = if split_tangent {
+            (blur_amount / arc_len).clamp(0.01, 0.5)
+        } else {
+            edge_zone_start
+        };
 
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
@@ -804,7 +835,7 @@ impl Plugin {
                 t.powf(1.0 + normal_bias / 100.0)
             };
 
-            let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
+            let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
@@ -838,24 +869,27 @@ impl Plugin {
 
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
-            let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
-                + fract_tangent_offset;
-            let fract_y = nearest.distance / fract_scale.max(0.1);
+            let s = fract_scale.max(0.1);
+            let k = fract_tangent_scale.max(0.01);
+            let er = effective_range.max(1e-3);
+            let fract_iso = (arc_len / er).sqrt().clamp(0.25, 4.0);
+            let fract_x = tangent_pos / s / k + fract_tangent_offset;
+            let fract_y = nearest.distance / s * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
-            let total_blend =
+            let map_weight =
                 (normal_w * edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
 
-            // Non-Final view modes: blend visualization with original using edge_falloff
+            // Non-Final view modes: blend visualization with original using map_weight
             if view_mode == 2 {
                 let vis = PixelF32 {
-                    red: total_blend,
-                    green: total_blend * 0.7,
-                    blue: 1.0 - total_blend,
+                    red: map_weight,
+                    green: map_weight * 0.7,
+                    blue: 1.0 - map_weight,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -866,7 +900,7 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -876,7 +910,7 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -884,7 +918,7 @@ impl Plugin {
             let ox = xf + nearest.tx * path_offset * edge_falloff * normal_w;
             let oy = yf + nearest.ty * path_offset * edge_falloff * normal_w;
 
-            let (mut col, blend_strength) = if falloff_mode == 2 {
+            let (mut col, _) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w * fract_w;
                 let blurred = blur_along_tangent(&TangentBlurParams {
@@ -916,10 +950,10 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                (lerp_pixel(&original, &blurred, total_blend), total_blend)
+                (lerp_pixel(&original, &blurred, map_weight), map_weight)
             };
 
-            if add_color_opacity > 0.001 && blend_strength > 0.001 {
+            if add_color_enabled && add_color_opacity > 0.001 && map_weight > 0.001 {
                 let mut tinted = add_color_f32;
                 if add_fract_amount > 0.001 {
                     let fract_col = PixelF32 {
@@ -934,7 +968,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * blend_strength,
+                    add_color_opacity * map_weight,
                 );
             }
 
@@ -1242,13 +1276,15 @@ fn s_curve_power(u: f32, curve: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Edge fade: smooth blur falloff at path start/end
+// Edge fade: smooth blur falloff at path start/end (asymmetric zone widths)
 // ---------------------------------------------------------------------------
-fn edge_fade(t_norm: f32, zone: f32) -> f32 {
-    if t_norm < zone {
-        (t_norm / zone).clamp(0.0, 1.0)
-    } else if t_norm > 1.0 - zone {
-        ((1.0 - t_norm) / zone).clamp(0.0, 1.0)
+fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32) -> f32 {
+    let zs = zone_start.max(1e-6);
+    let ze = zone_end.max(1e-6);
+    if t_norm < zs {
+        (t_norm / zs).clamp(0.0, 1.0)
+    } else if t_norm > 1.0 - ze {
+        ((1.0 - t_norm) / ze).clamp(0.0, 1.0)
     } else {
         1.0
     }
