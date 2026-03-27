@@ -716,7 +716,7 @@ impl Plugin {
         if link_scales {
             negative_scale = positive_scale;
         }
-        let one_side = params.get(Params::OneSide)?.as_popup()?.value();
+        let one_side = normalize_one_side_popup(params.get(Params::OneSide)?.as_popup()?.value());
         let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
@@ -827,13 +827,7 @@ impl Plugin {
             let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
             if edge_falloff < 0.01 {
-                let transparent = PixelF32 {
-                    alpha: 0.0,
-                    red: 0.0,
-                    green: 0.0,
-                    blue: 0.0,
-                };
-                set_dst!(dst, transparent);
+                set_dst!(dst, original);
                 return Ok(());
             }
 
@@ -884,8 +878,7 @@ impl Plugin {
                     blue: 1.0 - map_weight,
                     alpha: 1.0,
                 };
-                let mut col = lerp_pixel(&original, &vis, map_weight);
-                col.alpha *= edge_falloff;
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -896,8 +889,7 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let mut col = lerp_pixel(&original, &vis, map_weight);
-                col.alpha *= edge_falloff;
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -907,8 +899,7 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let mut col = lerp_pixel(&original, &vis, map_weight);
-                col.alpha *= edge_falloff;
+                let col = lerp_pixel(&original, &vis, map_weight);
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -970,7 +961,6 @@ impl Plugin {
                 );
             }
 
-            col.alpha *= edge_falloff;
             set_dst!(dst, col);
             Ok(())
         })?;
@@ -1370,6 +1360,14 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
     best.y_norm
 }
 
+/// AE のポップアップ値は 0 始まり（None / Negative / Positive）、内部は 1..=3。
+fn normalize_one_side_popup(raw: i32) -> i32 {
+    match raw {
+        0..=2 => raw + 1,
+        _ => raw.clamp(1, 3),
+    }
+}
+
 fn profile_multiplier(
     curve: Option<&ProfileCurve>,
     t_norm: f32,
@@ -1379,12 +1377,13 @@ fn profile_multiplier(
     one_side: i32,
     swap_tangent: bool,
 ) -> f32 {
-    let mut use_positive = is_positive_side;
-    if swap_tangent {
-        use_positive = !use_positive;
-    }
+    let use_positive = is_positive_side;
 
-    let t = t_norm.clamp(0.0, 1.0);
+    let t = if swap_tangent {
+        (1.0 - t_norm).clamp(0.0, 1.0)
+    } else {
+        t_norm.clamp(0.0, 1.0)
+    };
     let base = sample_profile_y(curve, t);
 
     let scale = match (one_side, use_positive) {
