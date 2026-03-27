@@ -42,6 +42,15 @@ enum Params {
     SwapNormal,
     ProfileGroupEnd,
     TaperSCurve,
+    FractalTangentScale,
+    FractalTangentOffset,
+    AddColorGroupStart,
+    AddColor,
+    AddColorMode,
+    AddColorOpacity,
+    AddFractalAmount,
+    AddFractalMode,
+    AddColorGroupEnd,
 }
 
 #[derive(Default)]
@@ -325,7 +334,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(600.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(200.0);
-                        d.set_default(100.0);
+                        d.set_default(10.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -385,6 +394,102 @@ impl AdobePluginGlobal for Plugin {
             }),
             ParamFlag::SUPERVISE,
             ParamUIFlags::NONE,
+        )?;
+
+        params.add(
+            Params::FractalTangentScale,
+            "Fractal Tangent Scale",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.01);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.1);
+                d.set_slider_max(10.0);
+                d.set_default(1.0);
+                d.set_precision(2);
+            }),
+        )?;
+        params.add(
+            Params::FractalTangentOffset,
+            "Fractal Tangent Offset",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-1000.0);
+                d.set_valid_max(1000.0);
+                d.set_slider_min(-100.0);
+                d.set_slider_max(100.0);
+                d.set_default(0.0);
+                d.set_precision(1);
+            }),
+        )?;
+
+        params.add_group(
+            Params::AddColorGroupStart,
+            Params::AddColorGroupEnd,
+            "Add Color",
+            true,
+            |params| {
+                params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
+                params.add(
+                    Params::AddColorMode,
+                    "Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Normal",
+                            "Multiply",
+                            "Screen",
+                            "Overlay",
+                            "Add",
+                            "Soft Light",
+                            "Hard Light",
+                            "Color Dodge",
+                            "Color Burn",
+                        ]);
+                        d.set_default(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddColorOpacity,
+                    "Opacity",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddFractalAmount,
+                    "Add Fractal Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddFractalMode,
+                    "Add Fractal Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Normal",
+                            "Multiply",
+                            "Screen",
+                            "Overlay",
+                            "Add",
+                            "Soft Light",
+                            "Hard Light",
+                            "Color Dodge",
+                            "Color Burn",
+                        ]);
+                        d.set_default(1);
+                    }),
+                )?;
+                Ok(())
+            },
         )?;
 
         Ok(())
@@ -591,6 +696,33 @@ impl Plugin {
         let one_side = params.get(Params::OneSide)?.as_popup()?.value();
         let invert_curve_x = params.get(Params::InvertCurveX)?.as_popup()?.value();
         let swap_normal = params.get(Params::SwapNormal)?.as_checkbox()?.value();
+        let fract_tangent_scale = params
+            .get(Params::FractalTangentScale)?
+            .as_float_slider()?
+            .value() as f32;
+        let fract_tangent_offset = params
+            .get(Params::FractalTangentOffset)?
+            .as_float_slider()?
+            .value() as f32;
+        let add_color_raw = params.get(Params::AddColor)?.as_color()?.value();
+        let add_color_f32 = PixelF32 {
+            alpha: 1.0,
+            red: add_color_raw.red as f32 / ae::MAX_CHANNEL8 as f32,
+            green: add_color_raw.green as f32 / ae::MAX_CHANNEL8 as f32,
+            blue: add_color_raw.blue as f32 / ae::MAX_CHANNEL8 as f32,
+        };
+        let add_color_mode = params.get(Params::AddColorMode)?.as_popup()?.value();
+        let add_color_opacity = params
+            .get(Params::AddColorOpacity)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let add_fract_amount = params
+            .get(Params::AddFractalAmount)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let add_fract_mode = params.get(Params::AddFractalMode)?.as_popup()?.value();
 
         let in_world = in_layer.world_type();
         let out_world = out_layer.world_type();
@@ -694,10 +826,10 @@ impl Plugin {
             }
 
             let evo = evolution * 0.05;
-            let fract_val = fractal_1d_voronoi(
-                nearest.distance / fract_scale.max(0.1) + evo,
-                fract_complexity,
-            );
+            let fract_x = nearest.t_norm * arc_len / fract_scale.max(0.1) * fract_tangent_scale
+                + fract_tangent_offset;
+            let fract_y = nearest.distance / fract_scale.max(0.1) + evo;
+            let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
             let total_blend =
@@ -737,10 +869,10 @@ impl Plugin {
                 return Ok(());
             }
 
-            let ox = xf + nearest.tx * path_offset;
-            let oy = yf + nearest.ty * path_offset;
+            let ox = xf + nearest.tx * path_offset * edge_falloff;
+            let oy = yf + nearest.ty * path_offset * edge_falloff;
 
-            let col = if falloff_mode == 2 {
+            let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * normal_w * fract_w;
                 let blurred = blur_along_tangent(&TangentBlurParams {
@@ -756,7 +888,7 @@ impl Plugin {
                     negative_amount: cur_neg_amt,
                 });
                 let opacity = (nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
-                lerp_pixel(&original, &blurred, opacity)
+                (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * fract_w;
@@ -772,8 +904,27 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                lerp_pixel(&original, &blurred, total_blend)
+                (lerp_pixel(&original, &blurred, total_blend), total_blend)
             };
+
+            if add_color_opacity > 0.001 && blend_strength > 0.001 {
+                let mut tinted = add_color_f32;
+                if add_fract_amount > 0.001 {
+                    let fract_col = PixelF32 {
+                        alpha: 1.0,
+                        red: fract_val,
+                        green: fract_val,
+                        blue: fract_val,
+                    };
+                    tinted = blend_pixel(&tinted, &fract_col, add_fract_mode, add_fract_amount);
+                }
+                col = blend_pixel(
+                    &col,
+                    &tinted,
+                    add_color_mode,
+                    add_color_opacity * blend_strength,
+                );
+            }
 
             set_dst!(dst, col);
             Ok(())
@@ -1089,24 +1240,33 @@ fn edge_fade(t_norm: f32, zone: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Item 4: 1D Voronoi-like cellular noise along normal direction
+// 2D Voronoi cellular noise
 // ---------------------------------------------------------------------------
-fn hash_1d(x: i32) -> f32 {
-    let n = x.wrapping_mul(15731).wrapping_add(789221);
-    ((n.wrapping_mul(n).wrapping_mul(n).wrapping_add(1376312589)) as f32 / 2147483648.0)
-        .fract()
-        .abs()
+fn hash21(ix: i32, iy: i32) -> (f32, f32) {
+    let n = ix.wrapping_mul(1597).wrapping_add(iy.wrapping_mul(51749));
+    let a = n.wrapping_mul(n).wrapping_mul(15731).wrapping_add(789221);
+    let b = a.wrapping_mul(a).wrapping_add(1376312589);
+    (
+        (a as f32 / 2147483648.0).fract().abs(),
+        (b as f32 / 2147483648.0).fract().abs(),
+    )
 }
 
-fn fractal_1d_voronoi(x: f32, sharpness: f32) -> f32 {
-    let cell = x.floor() as i32;
-    let frac = x - cell as f32;
+fn voronoi_2d(x: f32, y: f32, sharpness: f32) -> f32 {
+    let ix = x.floor() as i32;
+    let iy = y.floor() as i32;
+    let fx = x - ix as f32;
+    let fy = y - iy as f32;
     let mut min_d = f32::MAX;
-    for i in -1..=1 {
-        let center = hash_1d(cell + i);
-        let d = (frac - i as f32 - center).abs();
-        if d < min_d {
-            min_d = d;
+    for j in -1..=1_i32 {
+        for i in -1..=1_i32 {
+            let (hx, hy) = hash21(ix + i, iy + j);
+            let dx = fx - i as f32 - hx;
+            let dy = fy - j as f32 - hy;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < min_d {
+                min_d = d;
+            }
         }
     }
     let contrast = 1.0 + sharpness * 4.0;
@@ -1221,6 +1381,68 @@ fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
         red: a.red * s + b.red * t,
         green: a.green * s + b.green * t,
         blue: a.blue * s + b.blue * t,
+    }
+}
+
+fn blend_channel(base: f32, blend: f32, mode: i32) -> f32 {
+    match mode {
+        2 => base * blend,
+        3 => 1.0 - (1.0 - base) * (1.0 - blend),
+        4 => {
+            if base < 0.5 {
+                2.0 * base * blend
+            } else {
+                1.0 - 2.0 * (1.0 - base) * (1.0 - blend)
+            }
+        }
+        5 => (base + blend).min(1.0),
+        6 => {
+            if blend <= 0.5 {
+                base - (1.0 - 2.0 * blend) * base * (1.0 - base)
+            } else {
+                let d = if base <= 0.25 {
+                    ((16.0 * base - 12.0) * base + 4.0) * base
+                } else {
+                    base.sqrt()
+                };
+                base + (2.0 * blend - 1.0) * (d - base)
+            }
+        }
+        7 => {
+            if blend < 0.5 {
+                2.0 * base * blend
+            } else {
+                1.0 - 2.0 * (1.0 - base) * (1.0 - blend)
+            }
+        }
+        8 => {
+            if blend < 1.0 {
+                (base / (1.0 - blend)).min(1.0)
+            } else {
+                1.0
+            }
+        }
+        9 => {
+            if blend > 0.0 {
+                (1.0 - ((1.0 - base) / blend).min(1.0)).max(0.0)
+            } else {
+                0.0
+            }
+        }
+        _ => blend,
+    }
+}
+
+fn blend_pixel(base: &PixelF32, blend: &PixelF32, mode: i32, opacity: f32) -> PixelF32 {
+    let r = blend_channel(base.red, blend.red, mode);
+    let g = blend_channel(base.green, blend.green, mode);
+    let b = blend_channel(base.blue, blend.blue, mode);
+    let s = 1.0 - opacity;
+    PixelF32 {
+        alpha: base.alpha,
+        red: (base.red * s + r * opacity).clamp(0.0, 1.0),
+        green: (base.green * s + g * opacity).clamp(0.0, 1.0),
+        blue: (base.blue * s + b * opacity).clamp(0.0, 1.0),
     }
 }
 
