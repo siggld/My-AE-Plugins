@@ -133,7 +133,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_valid_max(100.0);
                 d.set_slider_min(0.0);
                 d.set_slider_max(100.0);
-                d.set_default(100.0);
+                d.set_default(0.0);
                 d.set_precision(1);
             }),
         )?;
@@ -201,82 +201,6 @@ impl AdobePluginGlobal for Plugin {
                 d.set_default(0.0);
                 d.set_precision(2);
             }),
-        )?;
-
-        params.add_group(
-            Params::TaperGroupStart,
-            Params::TaperGroupEnd,
-            "Taper",
-            true,
-            |params| {
-                params.add_with_flags(
-                    Params::EnableTaper,
-                    "Enable Taper",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::StartTaperLength,
-                    "Start Taper Length",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(12.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::StartTaperCurve,
-                    "Start Taper Curve",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.1);
-                        d.set_valid_max(8.0);
-                        d.set_slider_min(0.25);
-                        d.set_slider_max(4.0);
-                        d.set_default(1.0);
-                        d.set_precision(2);
-                    }),
-                )?;
-                params.add(
-                    Params::EndTaperLength,
-                    "End Taper Length",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(12.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EndTaperCurve,
-                    "End Taper Curve",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.1);
-                        d.set_valid_max(8.0);
-                        d.set_slider_min(0.25);
-                        d.set_slider_max(4.0);
-                        d.set_default(1.0);
-                        d.set_precision(2);
-                    }),
-                )?;
-                params.add_with_flags(
-                    Params::TaperSCurve,
-                    "Taper S-Curve",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                Ok(())
-            },
         )?;
 
         params.add_group(
@@ -357,9 +281,156 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         params.add_group(
+            Params::AddColorGroupStart,
+            Params::AddColorGroupEnd,
+            "Add Color",
+            true,
+            |params| {
+                params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
+                params.add(
+                    Params::AddColorMode,
+                    "Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Normal",
+                            "Multiply",
+                            "Screen",
+                            "Overlay",
+                            "Add",
+                            "Soft Light",
+                            "Hard Light",
+                            "Color Dodge",
+                            "Color Burn",
+                        ]);
+                        d.set_default(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddColorOpacity,
+                    "Opacity",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddFractalAmount,
+                    "Add Fractal Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddFractalMode,
+                    "Add Fractal Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Normal",
+                            "Multiply",
+                            "Screen",
+                            "Overlay",
+                            "Add",
+                            "Soft Light",
+                            "Hard Light",
+                            "Color Dodge",
+                            "Color Burn",
+                        ]);
+                        d.set_default(1);
+                    }),
+                )?;
+                Ok(())
+            },
+        )?;
+
+        params.add_group(
+            Params::TaperGroupStart,
+            Params::TaperGroupEnd,
+            "Simple Taper",
+            true,
+            |params| {
+                params.add_with_flags(
+                    Params::EnableTaper,
+                    "Enable Taper",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                params.add(
+                    Params::StartTaperLength,
+                    "Start Taper Length",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(12.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::StartTaperCurve,
+                    "Start Taper Curve",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.1);
+                        d.set_valid_max(8.0);
+                        d.set_slider_min(0.25);
+                        d.set_slider_max(4.0);
+                        d.set_default(1.0);
+                        d.set_precision(2);
+                    }),
+                )?;
+                params.add(
+                    Params::EndTaperLength,
+                    "End Taper Length",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(12.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EndTaperCurve,
+                    "End Taper Curve",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.1);
+                        d.set_valid_max(8.0);
+                        d.set_slider_min(0.25);
+                        d.set_slider_max(4.0);
+                        d.set_default(1.0);
+                        d.set_precision(2);
+                    }),
+                )?;
+                params.add_with_flags(
+                    Params::TaperSCurve,
+                    "Taper S-Curve",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                Ok(())
+            },
+        )?;
+
+        params.add_group(
             Params::ProfileGroupStart,
             Params::ProfileGroupEnd,
-            "Profile",
+            "Profile Taper",
             true,
             |params| {
                 params.add_with_flags(
@@ -425,77 +496,6 @@ impl AdobePluginGlobal for Plugin {
                     "Swap Normal (+/-)",
                     CheckBoxDef::setup(|d| {
                         d.set_default(false);
-                    }),
-                )?;
-                Ok(())
-            },
-        )?;
-
-        params.add_group(
-            Params::AddColorGroupStart,
-            Params::AddColorGroupEnd,
-            "Add Color",
-            true,
-            |params| {
-                params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
-                params.add(
-                    Params::AddColorMode,
-                    "Mode",
-                    PopupDef::setup(|d| {
-                        d.set_options(&[
-                            "Normal",
-                            "Multiply",
-                            "Screen",
-                            "Overlay",
-                            "Add",
-                            "Soft Light",
-                            "Hard Light",
-                            "Color Dodge",
-                            "Color Burn",
-                        ]);
-                        d.set_default(1);
-                    }),
-                )?;
-                params.add(
-                    Params::AddColorOpacity,
-                    "Opacity",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::AddFractalAmount,
-                    "Add Fractal Amount",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::AddFractalMode,
-                    "Add Fractal Mode",
-                    PopupDef::setup(|d| {
-                        d.set_options(&[
-                            "Normal",
-                            "Multiply",
-                            "Screen",
-                            "Overlay",
-                            "Add",
-                            "Soft Light",
-                            "Hard Light",
-                            "Color Dodge",
-                            "Color Burn",
-                        ]);
-                        d.set_default(1);
                     }),
                 )?;
                 Ok(())
@@ -836,10 +836,11 @@ impl Plugin {
             }
 
             let evo = evolution * 0.05;
-            let fract_x = nearest.t_norm * arc_len / fract_scale.max(0.1) * fract_tangent_scale
+            let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
+            let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
                 + fract_tangent_offset;
-            let fract_y = nearest.distance / fract_scale.max(0.1) + evo;
-            let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity);
+            let fract_y = nearest.distance / fract_scale.max(0.1);
+            let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
             let total_blend =
@@ -879,8 +880,8 @@ impl Plugin {
                 return Ok(());
             }
 
-            let ox = xf + nearest.tx * path_offset * edge_falloff;
-            let oy = yf + nearest.ty * path_offset * edge_falloff;
+            let ox = xf + nearest.tx * path_offset * edge_falloff * normal_w;
+            let oy = yf + nearest.ty * path_offset * edge_falloff * normal_w;
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
@@ -1077,6 +1078,7 @@ struct Nearest {
     tx: f32,
     ty: f32,
     ambiguity: f32,
+    tangent_offset: f32,
 }
 
 fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
@@ -1110,6 +1112,7 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
     let dx = x - best_s.x;
     let dy = y - best_s.y;
     let signed_dist = dx * nx + dy * ny;
+    let tang_off = dx * tx + dy * ty;
 
     let blended_t = best_s.t_norm * (1.0 - w) + second_s.t_norm * w;
 
@@ -1127,6 +1130,7 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
         tx,
         ty,
         ambiguity,
+        tangent_offset: tang_off,
     }
 }
 
@@ -1262,7 +1266,7 @@ fn hash21(ix: i32, iy: i32) -> (f32, f32) {
     )
 }
 
-fn voronoi_2d(x: f32, y: f32, sharpness: f32) -> f32 {
+fn voronoi_2d(x: f32, y: f32, sharpness: f32, evo: f32) -> f32 {
     let ix = x.floor() as i32;
     let iy = y.floor() as i32;
     let fx = x - ix as f32;
@@ -1271,8 +1275,10 @@ fn voronoi_2d(x: f32, y: f32, sharpness: f32) -> f32 {
     for j in -1..=1_i32 {
         for i in -1..=1_i32 {
             let (hx, hy) = hash21(ix + i, iy + j);
-            let dx = fx - i as f32 - hx;
-            let dy = fy - j as f32 - hy;
+            let cx = hx + 0.5 * (evo + hx * 6.2831853).sin();
+            let cy = hy + 0.5 * (evo * 1.3 + hy * 6.2831853).cos();
+            let dx = fx - i as f32 - cx;
+            let dy = fy - j as f32 - cy;
             let d = (dx * dx + dy * dy).sqrt();
             if d < min_d {
                 min_d = d;
