@@ -813,7 +813,6 @@ dependencies = [
  "after-effects",
  "chrono",
  "pipl",
- "serde",
  "utils",
 ]
 

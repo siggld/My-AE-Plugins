@@ -7,6 +7,7 @@
 use ae::pf::*;
 use after_effects as ae;
 use std::env;
+use std::f32::consts::TAU;
 use utils::ToPixel;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
@@ -1275,8 +1276,8 @@ fn voronoi_2d(x: f32, y: f32, sharpness: f32, evo: f32) -> f32 {
     for j in -1..=1_i32 {
         for i in -1..=1_i32 {
             let (hx, hy) = hash21(ix + i, iy + j);
-            let cx = hx + 0.5 * (evo + hx * 6.2831853).sin();
-            let cy = hy + 0.5 * (evo * 1.3 + hy * 6.2831853).cos();
+            let cx = hx + 0.5 * (evo + hx * TAU).sin();
+            let cy = hy + 0.5 * (evo * 1.3 + hy * TAU).cos();
             let dx = fx - i as f32 - cx;
             let dy = fy - j as f32 - cy;
             let d = (dx * dx + dy * dy).sqrt();
