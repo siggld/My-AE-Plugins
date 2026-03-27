@@ -51,6 +51,8 @@ enum Params {
     AddFractalAmount,
     AddFractalMode,
     AddColorGroupEnd,
+    FractalGroupStart,
+    FractalGroupEnd,
 }
 
 #[derive(Default)]
@@ -201,21 +203,21 @@ impl AdobePluginGlobal for Plugin {
             }),
         )?;
 
-        params.add_with_flags(
-            Params::EnableTaper,
-            "Enable Taper",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
         params.add_group(
             Params::TaperGroupStart,
             Params::TaperGroupEnd,
             "Taper",
             true,
             |params| {
+                params.add_with_flags(
+                    Params::EnableTaper,
+                    "Enable Taper",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
                 params.add(
                     Params::StartTaperLength,
                     "Start Taper Length",
@@ -264,53 +266,96 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(2);
                     }),
                 )?;
+                params.add_with_flags(
+                    Params::TaperSCurve,
+                    "Taper S-Curve",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
                 Ok(())
             },
         )?;
 
-        params.add(
-            Params::FractalAmount,
-            "Fractal Amount",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
+        params.add_group(
+            Params::FractalGroupStart,
+            Params::FractalGroupEnd,
+            "Fractal",
+            true,
+            |params| {
+                params.add(
+                    Params::FractalAmount,
+                    "Fractal Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::FractalScale,
+                    "Fractal Scale",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.1);
+                        d.set_valid_max(2048.0);
+                        d.set_slider_min(1.0);
+                        d.set_slider_max(256.0);
+                        d.set_default(28.0);
+                        d.set_precision(2);
+                    }),
+                )?;
+                params.add(
+                    Params::FractalTangentScale,
+                    "Fractal Tangent Scale",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.01);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.1);
+                        d.set_slider_max(10.0);
+                        d.set_default(1.0);
+                        d.set_precision(2);
+                    }),
+                )?;
+                params.add(
+                    Params::FractalTangentOffset,
+                    "Fractal Tangent Offset",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(-1000.0);
+                        d.set_valid_max(1000.0);
+                        d.set_slider_min(-100.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::FractalComplexity,
+                    "Fractal Complexity",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(0);
+                    }),
+                )?;
+                params.add(
+                    Params::Evolution,
+                    "Evolution",
+                    AngleDef::setup(|d| {
+                        d.set_default(0.0);
+                    }),
+                )?;
+                Ok(())
+            },
         )?;
-        params.add(
-            Params::FractalScale,
-            "Fractal Scale",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.1);
-                d.set_valid_max(2048.0);
-                d.set_slider_min(1.0);
-                d.set_slider_max(256.0);
-                d.set_default(28.0);
-                d.set_precision(2);
-            }),
-        )?;
-        params.add(
-            Params::FractalComplexity,
-            "Fractal Complexity",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(50.0);
-                d.set_precision(0);
-            }),
-        )?;
-        params.add(
-            Params::Evolution,
-            "Evolution",
-            AngleDef::setup(|d| {
-                d.set_default(0.0);
-            }),
-        )?;
+
         params.add_group(
             Params::ProfileGroupStart,
             Params::ProfileGroupEnd,
@@ -384,41 +429,6 @@ impl AdobePluginGlobal for Plugin {
                 )?;
                 Ok(())
             },
-        )?;
-
-        params.add_with_flags(
-            Params::TaperSCurve,
-            "Taper S-Curve",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
-
-        params.add(
-            Params::FractalTangentScale,
-            "Fractal Tangent Scale",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.01);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.1);
-                d.set_slider_max(10.0);
-                d.set_default(1.0);
-                d.set_precision(2);
-            }),
-        )?;
-        params.add(
-            Params::FractalTangentOffset,
-            "Fractal Tangent Offset",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-1000.0);
-                d.set_valid_max(1000.0);
-                d.set_slider_min(-100.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
         )?;
 
         params.add_group(
@@ -887,7 +897,7 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = (nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
+                let opacity = (edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
