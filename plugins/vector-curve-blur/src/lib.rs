@@ -821,6 +821,7 @@ impl Plugin {
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
             let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
+            let mut best_normal_w = 0.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -873,8 +874,8 @@ impl Plugin {
                 } else {
                     edge_zone_start
                 };
-                let at_start = nearest.t_norm < 0.01 && nearest.tangent_offset < 0.0;
-                let at_end = nearest.t_norm > 0.99 && nearest.tangent_offset > 0.0;
+                let at_start = nearest.best_t_norm < 0.01 && nearest.best_tangent_offset < 0.0;
+                let at_end = nearest.best_t_norm > 0.99 && nearest.best_tangent_offset > 0.0;
                 if at_start || at_end {
                     continue;
                 }
@@ -916,15 +917,20 @@ impl Plugin {
                     continue;
                 }
 
-                chosen = Some((
-                    mask,
-                    nearest,
-                    effective_range,
-                    normal_w,
-                    edge_falloff,
-                    one_side_factor,
-                ));
-                break;
+                if normal_w > best_normal_w {
+                    chosen = Some((
+                        mask,
+                        nearest,
+                        effective_range,
+                        normal_w,
+                        edge_falloff,
+                        one_side_factor,
+                    ));
+                    best_normal_w = normal_w;
+                    if normal_w >= 1.0 - 1e-6 {
+                        break;
+                    }
+                }
             }
 
             let Some((mask, nearest, effective_range, normal_w, edge_falloff, one_side_factor)) =
@@ -1187,6 +1193,8 @@ struct Nearest {
     ty: f32,
     ambiguity: f32,
     tangent_offset: f32,
+    best_t_norm: f32,
+    best_tangent_offset: f32,
 }
 
 fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
@@ -1221,6 +1229,7 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
     let dy = y - best_s.y;
     let signed_dist = dx * nx + dy * ny;
     let tang_off = dx * tx + dy * ty;
+    let best_tang_off = dx * best_s.tx + dy * best_s.ty;
 
     let blended_t = best_s.t_norm * (1.0 - w) + second_s.t_norm * w;
 
@@ -1239,6 +1248,8 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
         ty,
         ambiguity,
         tangent_offset: tang_off,
+        best_t_norm: best_s.t_norm,
+        best_tangent_offset: best_tang_off,
     }
 }
 
