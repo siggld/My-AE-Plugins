@@ -412,6 +412,15 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
+        params.add(
+            Params::OneSideOnly,
+            "OneSideOnly",
+            PopupDef::setup(|d| {
+                d.set_options(&["None", "Negative Side", "Positive Side"]);
+                d.set_default(1);
+            }),
+        )?;
+
         params.add_group(
             Params::TaperGroupStart,
             Params::TaperGroupEnd,
@@ -536,14 +545,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
-                params.add(
-                    Params::OneSideOnly,
-                    "OneSideOnly",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["None", "Negative Side", "Positive Side"]);
-                        d.set_default(1);
-                    }),
-                )?;
                 Ok(())
             },
         )?;
@@ -614,7 +615,6 @@ impl AdobePluginGlobal for Plugin {
                     Params::PositiveScale,
                     Params::LinkScales,
                     Params::NegativeScale,
-                    Params::OneSideOnly,
                 ] {
                     let mut pd = p.get_mut(k)?;
                     let mut disabled = !enable_profile;
@@ -820,7 +820,7 @@ impl Plugin {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32)> = None;
+            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -854,80 +854,89 @@ impl Plugin {
                     1.0
                 };
                 let effective_range = normal_range * taper_thickness * profile_thickness;
-
-                if effective_range >= 0.001 && d_abs <= effective_range {
-                    chosen = Some((mask, nearest, effective_range));
-                    break;
+                if effective_range < 0.001 || d_abs > effective_range {
+                    continue;
                 }
+
+                let arc_len = mask.arc_len.max(1.0);
+                let edge_zone_start = if enable_tangent_falloff {
+                    tangent_start_falloff.clamp(0.0, 1.0)
+                } else if split_tangent {
+                    (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+                } else {
+                    (blur_amount / arc_len).clamp(0.01, 0.5)
+                };
+                let edge_zone_end = if enable_tangent_falloff {
+                    tangent_end_falloff.clamp(0.0, 1.0)
+                } else if split_tangent {
+                    (blur_amount / arc_len).clamp(0.01, 0.5)
+                } else {
+                    edge_zone_start
+                };
+                let at_start = nearest.t_norm < 0.01 && nearest.tangent_offset < 0.0;
+                let at_end = nearest.t_norm > 0.99 && nearest.tangent_offset > 0.0;
+                if at_start || at_end {
+                    continue;
+                }
+
+                let falloff_start = effective_range * (1.0 - normal_falloff);
+                let normal_w = if d_abs <= falloff_start {
+                    1.0
+                } else {
+                    let t =
+                        (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
+                    t.powf(1.0 + normal_bias / 100.0)
+                };
+                let edge_falloff =
+                    edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
+                if edge_falloff < 0.01 {
+                    continue;
+                }
+
+                let one_side_factor = match one_side {
+                    2 => {
+                        if nearest.distance > 0.0 {
+                            let fade = normal_range * 0.15;
+                            (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        }
+                    }
+                    3 => {
+                        if nearest.distance < 0.0 {
+                            let fade = normal_range * 0.15;
+                            (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        }
+                    }
+                    _ => 1.0,
+                };
+                if one_side_factor < 0.001 {
+                    continue;
+                }
+
+                chosen = Some((
+                    mask,
+                    nearest,
+                    effective_range,
+                    normal_w,
+                    edge_falloff,
+                    one_side_factor,
+                ));
+                break;
             }
 
-            let Some((mask, nearest, effective_range)) = chosen else {
+            let Some((mask, nearest, effective_range, normal_w, edge_falloff, one_side_factor)) =
+                chosen
+            else {
                 set_dst!(dst, original);
                 return Ok(());
             };
 
             let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
-            let edge_zone_start = if enable_tangent_falloff {
-                tangent_start_falloff.clamp(0.0, 1.0)
-            } else if split_tangent {
-                (neg_blur_amount / arc_len).clamp(0.01, 0.5)
-            } else {
-                (blur_amount / arc_len).clamp(0.01, 0.5)
-            };
-            let edge_zone_end = if enable_tangent_falloff {
-                tangent_end_falloff.clamp(0.0, 1.0)
-            } else if split_tangent {
-                (blur_amount / arc_len).clamp(0.01, 0.5)
-            } else {
-                edge_zone_start
-            };
-            let at_start = nearest.t_norm < 0.05 && nearest.tangent_offset < -1.0;
-            let at_end = nearest.t_norm > 0.95 && nearest.tangent_offset > 1.0;
-            if at_start || at_end {
-                set_dst!(dst, original);
-                return Ok(());
-            }
-
-            let falloff_start = effective_range * (1.0 - normal_falloff);
-            let normal_w = if d_abs <= falloff_start {
-                1.0
-            } else {
-                let t = (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
-                t.powf(1.0 + normal_bias / 100.0)
-            };
-            let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
-
-            if edge_falloff < 0.01 {
-                set_dst!(dst, original);
-                return Ok(());
-            }
             let edge_opacity = if falloff_mode == 2 { 1.0 } else { edge_falloff };
-
-            let one_side_factor = match one_side {
-                2 => {
-                    if nearest.distance > 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    }
-                }
-                3 => {
-                    if nearest.distance < 0.0 {
-                        let fade = normal_range * 0.15;
-                        (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    }
-                }
-                _ => 1.0,
-            };
-
-            if one_side_factor < 0.001 {
-                set_dst!(dst, original);
-                return Ok(());
-            }
 
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;

@@ -52,7 +52,8 @@ fn main() {
             | OutFlags::UseOutputExtent
             | OutFlags::DeepColorAware
             | OutFlags::WideTimeInput
-            | OutFlags::SendUpdateParamsUI,
+            | OutFlags::SendUpdateParamsUI
+            | OutFlags::NonParamVary,
         ),
         Property::AE_Effect_Global_OutFlags_2(
             OutFlags2::FloatColorAware
