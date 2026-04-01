@@ -59,6 +59,11 @@ enum Params {
     TangentFalloffGroupStart,
     TangentFalloffBias,
     TangentFalloffGroupEnd,
+    BoxBlurGroupStart,
+    FastBoxBlurRadius,
+    FastBoxBlurIterations,
+    FastBoxBlurRepeatEdge,
+    BoxBlurGroupEnd,
 }
 
 #[derive(Default)]
@@ -98,6 +103,20 @@ struct ProfilePoint {
 #[derive(Clone)]
 struct ProfileCurve {
     points: Vec<ProfilePoint>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ControlField {
+    total_blend: f32,
+    normal_w: f32,
+    edge_falloff: f32,
+    effective_range: f32,
+    distance: f32,
+    t_norm: f32,
+    tangent_offset: f32,
+    blur_tx: f32,
+    blur_ty: f32,
+    arc_len: f32,
 }
 
 impl AdobePluginGlobal for Plugin {
@@ -275,6 +294,48 @@ impl AdobePluginGlobal for Plugin {
                 d.set_default(0.0);
                 d.set_precision(2);
             }),
+        )?;
+        params.add_group(
+            Params::BoxBlurGroupStart,
+            Params::BoxBlurGroupEnd,
+            "Fast Box Blur",
+            true,
+            |params| {
+                params.add(
+                    Params::FastBoxBlurRadius,
+                    "Radius",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(128.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(32.0);
+                        d.set_default(0.0);
+                        d.set_precision(0);
+                    }),
+                )?;
+                params.add(
+                    Params::FastBoxBlurIterations,
+                    "Iterations",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(1.0);
+                        d.set_valid_max(16.0);
+                        d.set_slider_min(1.0);
+                        d.set_slider_max(8.0);
+                        d.set_default(4.0);
+                        d.set_precision(0);
+                    }),
+                )?;
+                params.add_with_flags(
+                    Params::FastBoxBlurRepeatEdge,
+                    "Repeat Edge Pixels",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(true);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                Ok(())
+            },
         )?;
 
         params.add_group(
@@ -628,6 +689,15 @@ impl AdobePluginGlobal for Plugin {
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
                     pd.update_param_ui()?;
                 }
+                let box_blur_radius = params
+                    .get(Params::FastBoxBlurRadius)?
+                    .as_float_slider()?
+                    .value() as f32;
+                for k in [Params::FastBoxBlurIterations, Params::FastBoxBlurRepeatEdge] {
+                    let mut pd = p.get_mut(k)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, box_blur_radius < 0.5);
+                    pd.update_param_ui()?;
+                }
                 for k in [
                     Params::StartTaperLength,
                     Params::StartTaperCurve,
@@ -756,6 +826,22 @@ impl Plugin {
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
             .value() as f32;
+        let box_blur_radius = params
+            .get(Params::FastBoxBlurRadius)?
+            .as_float_slider()?
+            .value()
+            .round()
+            .max(0.0) as usize;
+        let box_blur_iterations = params
+            .get(Params::FastBoxBlurIterations)?
+            .as_float_slider()?
+            .value()
+            .round()
+            .max(1.0) as usize;
+        let box_blur_repeat_edge = params
+            .get(Params::FastBoxBlurRepeatEdge)?
+            .as_checkbox()?
+            .value();
         let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
         let taper_s_len = params
             .get(Params::StartTaperLength)?
@@ -852,146 +938,191 @@ impl Plugin {
             };
         }
 
+        let mut control_fields = vec![ControlField::default(); in_w * in_h];
+        for y in 0..in_h {
+            for x in 0..in_w {
+                let idx = y * in_w + x;
+                let xf = x as f32 + 0.5;
+                let yf = y as f32 + 0.5;
+                let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
+                let mut best_blend = 0.0_f32;
+
+                for mask in &path_data.masks {
+                    if mask.samples.is_empty() {
+                        continue;
+                    }
+
+                    let nearest = nearest_sample(&mask.samples, xf, yf);
+                    let d_abs = nearest.distance.abs();
+                    let taper_thickness = if enable_taper {
+                        taper_factor(
+                            nearest.t_norm,
+                            taper_s_len,
+                            taper_s_curve,
+                            taper_e_len,
+                            taper_e_curve,
+                            taper_s_curve_enabled,
+                        )
+                    } else {
+                        1.0
+                    };
+                    let profile_thickness = if enable_profile {
+                        profile_multiplier(
+                            path_data.profile_curve.as_ref(),
+                            nearest.t_norm,
+                            nearest.distance >= 0.0,
+                            positive_scale,
+                            negative_scale,
+                            swap_tangent,
+                        )
+                    } else {
+                        1.0
+                    };
+                    let effective_range = normal_range * taper_thickness * profile_thickness;
+                    if effective_range < 0.001 || d_abs > effective_range {
+                        continue;
+                    }
+
+                    let arc_len = mask.arc_len.max(1.0);
+                    let edge_zone_start = if enable_tangent_falloff {
+                        tangent_start_falloff.clamp(0.0, 1.0)
+                    } else if split_tangent {
+                        (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+                    } else {
+                        (blur_amount / arc_len).clamp(0.01, 0.5)
+                    };
+                    let edge_zone_end = if enable_tangent_falloff {
+                        tangent_end_falloff.clamp(0.0, 1.0)
+                    } else if split_tangent {
+                        (blur_amount / arc_len).clamp(0.01, 0.5)
+                    } else {
+                        edge_zone_start
+                    };
+                    let at_start = nearest.best_t_norm < 0.01 && nearest.best_tangent_offset < 0.0;
+                    let at_end = nearest.best_t_norm > 0.99 && nearest.best_tangent_offset > 0.0;
+                    if at_start || at_end {
+                        continue;
+                    }
+
+                    let falloff_start = effective_range * (1.0 - normal_falloff);
+                    let normal_w = if d_abs <= falloff_start {
+                        1.0
+                    } else {
+                        let t = (effective_range - d_abs)
+                            / (effective_range - falloff_start).max(0.001);
+                        t.powf(1.0 + normal_bias / 100.0)
+                    };
+                    let edge_falloff = edge_fade_asymmetric(
+                        nearest.t_norm,
+                        edge_zone_start,
+                        edge_zone_end,
+                        tangent_falloff_bias,
+                    );
+                    if edge_falloff < 0.01 {
+                        continue;
+                    }
+
+                    let one_side_factor = match one_side {
+                        2 => {
+                            if nearest.distance > 0.0 {
+                                let fade = normal_range * 0.15;
+                                (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            }
+                        }
+                        3 => {
+                            if nearest.distance < 0.0 {
+                                let fade = normal_range * 0.15;
+                                (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            }
+                        }
+                        _ => 1.0,
+                    };
+                    if one_side_factor < 0.001 {
+                        continue;
+                    }
+
+                    let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
+                    let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
+                        .clamp(0.0, 1.0);
+                    if blend_i > best_blend {
+                        chosen = Some((
+                            mask,
+                            nearest,
+                            effective_range,
+                            normal_w,
+                            edge_falloff,
+                            blend_i,
+                        ));
+                        best_blend = blend_i;
+                    }
+                    if best_blend >= 1.0 - 1e-6 {
+                        break;
+                    }
+                }
+
+                if let Some((mask, nearest, effective_range, normal_w, edge_falloff, total_blend)) =
+                    chosen
+                {
+                    let (blur_tx, blur_ty) = if swap_tangent {
+                        (-nearest.tx, -nearest.ty)
+                    } else {
+                        (nearest.tx, nearest.ty)
+                    };
+                    control_fields[idx] = ControlField {
+                        total_blend,
+                        normal_w,
+                        edge_falloff,
+                        effective_range,
+                        distance: nearest.distance,
+                        t_norm: nearest.t_norm,
+                        tangent_offset: nearest.tangent_offset,
+                        blur_tx,
+                        blur_ty,
+                        arc_len: mask.arc_len.max(1.0),
+                    };
+                }
+            }
+        }
+
+        smooth_control_fields(
+            &mut control_fields,
+            in_w,
+            in_h,
+            box_blur_radius,
+            box_blur_iterations,
+            box_blur_repeat_edge,
+        );
+
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
+            let idx = y as usize * in_w + x as usize;
+            let field = control_fields[idx];
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
-            let mut best_blend = 0.0_f32;
 
-            for mask in &path_data.masks {
-                if mask.samples.is_empty() {
-                    continue;
-                }
-
-                let nearest = nearest_sample(&mask.samples, xf, yf);
-                let d_abs = nearest.distance.abs();
-                let taper_thickness = if enable_taper {
-                    taper_factor(
-                        nearest.t_norm,
-                        taper_s_len,
-                        taper_s_curve,
-                        taper_e_len,
-                        taper_e_curve,
-                        taper_s_curve_enabled,
-                    )
-                } else {
-                    1.0
-                };
-                let profile_thickness = if enable_profile {
-                    profile_multiplier(
-                        path_data.profile_curve.as_ref(),
-                        nearest.t_norm,
-                        nearest.distance >= 0.0,
-                        positive_scale,
-                        negative_scale,
-                        swap_tangent,
-                    )
-                } else {
-                    1.0
-                };
-                let effective_range = normal_range * taper_thickness * profile_thickness;
-                if effective_range < 0.001 || d_abs > effective_range {
-                    continue;
-                }
-
-                let arc_len = mask.arc_len.max(1.0);
-                let edge_zone_start = if enable_tangent_falloff {
-                    tangent_start_falloff.clamp(0.0, 1.0)
-                } else if split_tangent {
-                    (neg_blur_amount / arc_len).clamp(0.01, 0.5)
-                } else {
-                    (blur_amount / arc_len).clamp(0.01, 0.5)
-                };
-                let edge_zone_end = if enable_tangent_falloff {
-                    tangent_end_falloff.clamp(0.0, 1.0)
-                } else if split_tangent {
-                    (blur_amount / arc_len).clamp(0.01, 0.5)
-                } else {
-                    edge_zone_start
-                };
-                let at_start = nearest.best_t_norm < 0.01 && nearest.best_tangent_offset < 0.0;
-                let at_end = nearest.best_t_norm > 0.99 && nearest.best_tangent_offset > 0.0;
-                if at_start || at_end {
-                    continue;
-                }
-
-                let falloff_start = effective_range * (1.0 - normal_falloff);
-                let normal_w = if d_abs <= falloff_start {
-                    1.0
-                } else {
-                    let t =
-                        (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
-                    t.powf(1.0 + normal_bias / 100.0)
-                };
-                let edge_falloff = edge_fade_asymmetric(
-                    nearest.t_norm,
-                    edge_zone_start,
-                    edge_zone_end,
-                    tangent_falloff_bias,
-                );
-                if edge_falloff < 0.01 {
-                    continue;
-                }
-
-                let one_side_factor = match one_side {
-                    2 => {
-                        if nearest.distance > 0.0 {
-                            let fade = normal_range * 0.15;
-                            (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        }
-                    }
-                    3 => {
-                        if nearest.distance < 0.0 {
-                            let fade = normal_range * 0.15;
-                            (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        }
-                    }
-                    _ => 1.0,
-                };
-                if one_side_factor < 0.001 {
-                    continue;
-                }
-
-                let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
-                let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
-                    .clamp(0.0, 1.0);
-                if blend_i > best_blend {
-                    chosen = Some((
-                        mask,
-                        nearest,
-                        effective_range,
-                        normal_w,
-                        edge_falloff,
-                        blend_i,
-                    ));
-                    best_blend = blend_i;
-                }
-                if best_blend >= 1.0 - 1e-6 {
-                    break;
-                }
-            }
-
-            let Some((mask, nearest, effective_range, normal_w, edge_falloff, total_blend)) =
-                chosen
-            else {
+            if field.total_blend < 0.001 || field.effective_range < 0.001 {
                 set_dst!(dst, original);
                 return Ok(());
-            };
+            }
 
-            let d_abs = nearest.distance.abs();
-            let arc_len = mask.arc_len.max(1.0);
+            let d_abs = field.distance.abs();
+            let arc_len = field.arc_len.max(1.0);
+            let normal_w = field.normal_w;
+            let edge_falloff = field.edge_falloff;
+            let total_blend = field.total_blend;
 
             let evo = evolution * 0.05;
-            let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
-            let fract_iso = (arc_len / effective_range.max(1.0)).sqrt().clamp(0.25, 4.0);
+            let tangent_pos = field.t_norm * arc_len + field.tangent_offset;
+            let fract_iso = (arc_len / field.effective_range.max(1.0))
+                .sqrt()
+                .clamp(0.25, 4.0);
             let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
                 + fract_tangent_offset;
-            let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
+            let fract_y = field.distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
@@ -1006,7 +1137,7 @@ impl Plugin {
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
-                let g = (d_abs / effective_range.max(0.001)).clamp(0.0, 1.0);
+                let g = (d_abs / field.effective_range.max(0.001)).clamp(0.0, 1.0);
                 let vis = PixelF32 {
                     red: g,
                     green: g,
@@ -1028,13 +1159,8 @@ impl Plugin {
                 return Ok(());
             }
 
-            let (blur_tx, blur_ty) = if swap_tangent {
-                (-nearest.tx, -nearest.ty)
-            } else {
-                (nearest.tx, nearest.ty)
-            };
-            let ox = xf + blur_tx * path_offset * edge_falloff * normal_w;
-            let oy = yf + blur_ty * path_offset * edge_falloff * normal_w;
+            let ox = xf + field.blur_tx * path_offset * edge_falloff * normal_w;
+            let oy = yf + field.blur_ty * path_offset * edge_falloff * normal_w;
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
@@ -1046,13 +1172,12 @@ impl Plugin {
                     height: in_h,
                     center_x: ox,
                     center_y: oy,
-                    tangent_x: blur_tx,
-                    tangent_y: blur_ty,
+                    tangent_x: field.blur_tx,
+                    tangent_y: field.blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = total_blend;
-                (lerp_pixel(&original, &blurred, opacity), opacity)
+                (lerp_pixel(&original, &blurred, total_blend), total_blend)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
                 let cur_neg_amt = neg_blur_amount * edge_falloff * fract_w;
@@ -1063,8 +1188,8 @@ impl Plugin {
                     height: in_h,
                     center_x: ox,
                     center_y: oy,
-                    tangent_x: blur_tx,
-                    tangent_y: blur_ty,
+                    tangent_x: field.blur_tx,
+                    tangent_y: field.blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
@@ -1427,6 +1552,143 @@ fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32, bias: f32) 
     };
 
     start_w.min(end_w)
+}
+
+fn box_blur_channel_in_place(
+    values: &mut [f32],
+    width: usize,
+    height: usize,
+    radius: usize,
+    iterations: usize,
+    repeat_edge: bool,
+) {
+    if radius == 0 || iterations == 0 || values.is_empty() {
+        return;
+    }
+
+    let mut tmp = vec![0.0_f32; values.len()];
+    for _ in 0..iterations {
+        box_blur_horizontal(values, &mut tmp, width, height, radius, repeat_edge);
+        box_blur_vertical(&tmp, values, width, height, radius, repeat_edge);
+    }
+}
+
+fn box_blur_horizontal(
+    src: &[f32],
+    dst: &mut [f32],
+    width: usize,
+    height: usize,
+    radius: usize,
+    repeat_edge: bool,
+) {
+    let radius = radius as isize;
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = 0.0_f32;
+            let mut count = 0.0_f32;
+            for dx in -radius..=radius {
+                let sx = x as isize + dx;
+                if repeat_edge {
+                    let sx = sx.clamp(0, width as isize - 1) as usize;
+                    sum += src[y * width + sx];
+                    count += 1.0;
+                } else if (0..width as isize).contains(&sx) {
+                    sum += src[y * width + sx as usize];
+                    count += 1.0;
+                }
+            }
+            dst[y * width + x] = if count > 0.0 { sum / count } else { 0.0 };
+        }
+    }
+}
+
+fn box_blur_vertical(
+    src: &[f32],
+    dst: &mut [f32],
+    width: usize,
+    height: usize,
+    radius: usize,
+    repeat_edge: bool,
+) {
+    let radius = radius as isize;
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = 0.0_f32;
+            let mut count = 0.0_f32;
+            for dy in -radius..=radius {
+                let sy = y as isize + dy;
+                if repeat_edge {
+                    let sy = sy.clamp(0, height as isize - 1) as usize;
+                    sum += src[sy * width + x];
+                    count += 1.0;
+                } else if (0..height as isize).contains(&sy) {
+                    sum += src[sy as usize * width + x];
+                    count += 1.0;
+                }
+            }
+            dst[y * width + x] = if count > 0.0 { sum / count } else { 0.0 };
+        }
+    }
+}
+
+fn smooth_control_fields(
+    fields: &mut [ControlField],
+    width: usize,
+    height: usize,
+    radius: usize,
+    iterations: usize,
+    repeat_edge: bool,
+) {
+    if radius == 0 || iterations == 0 || fields.is_empty() {
+        return;
+    }
+
+    let mut total_blend: Vec<f32> = fields.iter().map(|f| f.total_blend).collect();
+    let mut normal_w: Vec<f32> = fields.iter().map(|f| f.normal_w).collect();
+    let mut edge_falloff: Vec<f32> = fields.iter().map(|f| f.edge_falloff).collect();
+    let mut blur_tx: Vec<f32> = fields.iter().map(|f| f.blur_tx).collect();
+    let mut blur_ty: Vec<f32> = fields.iter().map(|f| f.blur_ty).collect();
+
+    box_blur_channel_in_place(
+        &mut total_blend,
+        width,
+        height,
+        radius,
+        iterations,
+        repeat_edge,
+    );
+    box_blur_channel_in_place(
+        &mut normal_w,
+        width,
+        height,
+        radius,
+        iterations,
+        repeat_edge,
+    );
+    box_blur_channel_in_place(
+        &mut edge_falloff,
+        width,
+        height,
+        radius,
+        iterations,
+        repeat_edge,
+    );
+    box_blur_channel_in_place(&mut blur_tx, width, height, radius, iterations, repeat_edge);
+    box_blur_channel_in_place(&mut blur_ty, width, height, radius, iterations, repeat_edge);
+
+    for (idx, field) in fields.iter_mut().enumerate() {
+        field.total_blend = total_blend[idx].clamp(0.0, 1.0);
+        field.normal_w = normal_w[idx].clamp(0.0, 1.0);
+        field.edge_falloff = edge_falloff[idx].clamp(0.0, 1.0);
+        if field.total_blend > 1e-4 {
+            let (tx, ty) = normalize2(blur_tx[idx], blur_ty[idx]);
+            field.blur_tx = tx;
+            field.blur_ty = ty;
+        } else {
+            field.blur_tx = 0.0;
+            field.blur_ty = 0.0;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
