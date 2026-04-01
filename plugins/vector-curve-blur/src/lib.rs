@@ -14,6 +14,7 @@ use utils::ToPixel;
 enum Params {
     ViewMode,
     AllMasks,
+    SwapTangent,
     NormalRange,
     NormalFalloff,
     NormalFalloffBias,
@@ -21,6 +22,9 @@ enum Params {
     PathBlurAmount,
     SplitTangent,
     NegativeBlurAmount,
+    EnableTangentFalloff,
+    TangentStartFallOff,
+    TangentEndFallOff,
     PathBlurOffset,
     EnableTaper,
     TaperGroupStart,
@@ -35,20 +39,19 @@ enum Params {
     Evolution,
     ProfileGroupStart,
     EnableProfileCurve,
+    ProfileCurveMaskIndex,
     PositiveScale,
     LinkScales,
     NegativeScale,
     OneSideOnly,
-    InvertCurveX,
-    SwapNormal,
     ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
     FractalTangentOffset,
     AddColorGroupStart,
+    AddColorOpacity,
     AddColor,
     AddColorMode,
-    AddColorOpacity,
     AddFractalAmount,
     AddFractalMode,
     AddColorGroupEnd,
@@ -113,6 +116,15 @@ impl AdobePluginGlobal for Plugin {
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
             }),
+        )?;
+        params.add_with_flags(
+            Params::SwapTangent,
+            "Swap Tangent (+/-)",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
         )?;
         params.add(
             Params::NormalRange,
@@ -188,6 +200,39 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(0.0);
                 d.set_slider_max(200.0);
                 d.set_default(36.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add_with_flags(
+            Params::EnableTangentFalloff,
+            "Enable Tangent Falloff",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
+        params.add(
+            Params::TangentStartFallOff,
+            "Tangent Start FallOff",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(100.0);
+                d.set_default(50.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add(
+            Params::TangentEndFallOff,
+            "Tangent End FallOff",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(100.0);
+                d.set_default(50.0);
                 d.set_precision(1);
             }),
         )?;
@@ -287,7 +332,30 @@ impl AdobePluginGlobal for Plugin {
             "Add Color",
             true,
             |params| {
-                params.add(Params::AddColor, "Color", ColorDef::setup(|_| {}))?;
+                params.add(
+                    Params::AddColorOpacity,
+                    "Opacity",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::AddColor,
+                    "Color",
+                    ColorDef::setup(|d| {
+                        d.set_default(ae::Pixel8 {
+                            alpha: 255,
+                            red: 140,
+                            green: 140,
+                            blue: 140,
+                        });
+                    }),
+                )?;
                 params.add(
                     Params::AddColorMode,
                     "Mode",
@@ -304,18 +372,6 @@ impl AdobePluginGlobal for Plugin {
                             "Color Burn",
                         ]);
                         d.set_default(1);
-                    }),
-                )?;
-                params.add(
-                    Params::AddColorOpacity,
-                    "Opacity",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
                     }),
                 )?;
                 params.add(
@@ -444,6 +500,14 @@ impl AdobePluginGlobal for Plugin {
                     ParamUIFlags::NONE,
                 )?;
                 params.add(
+                    Params::ProfileCurveMaskIndex,
+                    "Profile Curve Mask",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["None", "Mask 2", "Mask 3", "Mask 4", "Mask 5"]);
+                        d.set_default(2);
+                    }),
+                )?;
+                params.add(
                     Params::PositiveScale,
                     "Positive Scale",
                     FloatSliderDef::setup(|d| {
@@ -484,21 +548,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_default(1);
                     }),
                 )?;
-                params.add(
-                    Params::InvertCurveX,
-                    "Invert Curve X",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["None", "Positive", "Negative", "Both"]);
-                        d.set_default(1);
-                    }),
-                )?;
-                params.add(
-                    Params::SwapNormal,
-                    "Swap Normal (+/-)",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                )?;
                 Ok(())
             },
         )?;
@@ -531,6 +580,10 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::UpdateParamsUi => {
                 let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
+                let enable_tangent_falloff = params
+                    .get(Params::EnableTangentFalloff)?
+                    .as_checkbox()?
+                    .value();
                 let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
                 let enable_profile = params
                     .get(Params::EnableProfileCurve)?
@@ -542,6 +595,11 @@ impl AdobePluginGlobal for Plugin {
                 {
                     let mut pd = p.get_mut(Params::NegativeBlurAmount)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !split_tangent);
+                    pd.update_param_ui()?;
+                }
+                for k in [Params::TangentStartFallOff, Params::TangentEndFallOff] {
+                    let mut pd = p.get_mut(k)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
                     pd.update_param_ui()?;
                 }
                 for k in [
@@ -556,12 +614,11 @@ impl AdobePluginGlobal for Plugin {
                     pd.update_param_ui()?;
                 }
                 for k in [
+                    Params::ProfileCurveMaskIndex,
                     Params::PositiveScale,
                     Params::LinkScales,
                     Params::NegativeScale,
                     Params::OneSideOnly,
-                    Params::InvertCurveX,
-                    Params::SwapNormal,
                 ] {
                     let mut pd = p.get_mut(k)?;
                     let mut disabled = !enable_profile;
@@ -649,6 +706,20 @@ impl Plugin {
         } else {
             blur_amount
         };
+        let enable_tangent_falloff = params
+            .get(Params::EnableTangentFalloff)?
+            .as_checkbox()?
+            .value();
+        let tangent_start_falloff = params
+            .get(Params::TangentStartFallOff)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let tangent_end_falloff = params
+            .get(Params::TangentEndFallOff)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
         let path_offset = params
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
@@ -705,8 +776,7 @@ impl Plugin {
             negative_scale = positive_scale;
         }
         let one_side = params.get(Params::OneSideOnly)?.as_popup()?.value();
-        let invert_curve_x = params.get(Params::InvertCurveX)?.as_popup()?.value();
-        let swap_normal = params.get(Params::SwapNormal)?.as_checkbox()?.value();
+        let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
             .as_float_slider()?
@@ -742,8 +812,20 @@ impl Plugin {
         let progress_final = out_layer.height() as i32;
 
         let arc_len = path_data.total_arc_len.max(1.0);
-        let max_blur = blur_amount.max(neg_blur_amount);
-        let edge_zone_t = (max_blur / arc_len).clamp(0.01, 0.5);
+        let edge_zone_start = if enable_tangent_falloff {
+            tangent_start_falloff.clamp(0.0, 1.0)
+        } else if split_tangent {
+            (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+        } else {
+            (blur_amount / arc_len).clamp(0.01, 0.5)
+        };
+        let edge_zone_end = if enable_tangent_falloff {
+            tangent_end_falloff.clamp(0.0, 1.0)
+        } else if split_tangent {
+            (blur_amount / arc_len).clamp(0.01, 0.5)
+        } else {
+            edge_zone_start
+        };
 
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
@@ -781,8 +863,7 @@ impl Plugin {
                     nearest.distance >= 0.0,
                     positive_scale,
                     negative_scale,
-                    invert_curve_x,
-                    swap_normal,
+                    swap_tangent,
                 )
             } else {
                 1.0
@@ -804,7 +885,7 @@ impl Plugin {
                 t.powf(1.0 + normal_bias / 100.0)
             };
 
-            let edge_falloff = edge_fade(nearest.t_norm, edge_zone_t);
+            let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
@@ -838,9 +919,10 @@ impl Plugin {
 
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
+            let fract_iso = (arc_len / effective_range.max(1.0)).sqrt().clamp(0.25, 4.0);
             let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
                 + fract_tangent_offset;
-            let fract_y = nearest.distance / fract_scale.max(0.1);
+            let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
 
@@ -934,7 +1016,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * blend_strength,
+                    add_color_opacity * blend_strength * normal_w,
                 );
             }
 
@@ -963,6 +1045,12 @@ impl Plugin {
             .get(Params::EnableProfileCurve)?
             .as_checkbox()?
             .value();
+        let profile_curve_mask_idx = selected_profile_curve_mask_idx(
+            params
+                .get(Params::ProfileCurveMaskIndex)?
+                .as_popup()?
+                .value(),
+        );
 
         let mut out = PathData::default();
         let mut profile_path_pts: Vec<(f32, f32)> = Vec::new();
@@ -1008,7 +1096,10 @@ impl Plugin {
                 continue;
             }
 
-            if enable_profile && mask_idx == 1 && profile_path_pts.is_empty() {
+            if enable_profile
+                && Some(mask_idx) == profile_curve_mask_idx
+                && profile_path_pts.is_empty()
+            {
                 for &(x, y, _, _) in &tmp {
                     profile_path_pts.push((x, y));
                 }
@@ -1035,7 +1126,7 @@ impl Plugin {
         }
 
         // Item 3: smooth tangent vectors along path
-        let smooth_radius = (out.samples.len() / 40).clamp(1, 8);
+        let smooth_radius = (out.samples.len() / 20).clamp(2, 16);
         smooth_tangents(&mut out.samples, smooth_radius);
 
         out.total_arc_len = compute_arc_length(&out.samples);
@@ -1244,11 +1335,13 @@ fn s_curve_power(u: f32, curve: f32) -> f32 {
 // ---------------------------------------------------------------------------
 // Edge fade: smooth blur falloff at path start/end
 // ---------------------------------------------------------------------------
-fn edge_fade(t_norm: f32, zone: f32) -> f32 {
-    if t_norm < zone {
-        (t_norm / zone).clamp(0.0, 1.0)
-    } else if t_norm > 1.0 - zone {
-        ((1.0 - t_norm) / zone).clamp(0.0, 1.0)
+fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32) -> f32 {
+    let zs = zone_start.max(1e-6);
+    let ze = zone_end.max(1e-6);
+    if t_norm < zs {
+        (t_norm / zs).clamp(0.0, 1.0)
+    } else if t_norm > 1.0 - ze {
+        ((1.0 - t_norm) / ze).clamp(0.0, 1.0)
     } else {
         1.0
     }
@@ -1335,34 +1428,25 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
     best.y_norm
 }
 
+fn selected_profile_curve_mask_idx(raw: i32) -> Option<usize> {
+    match raw {
+        2..=5 => Some((raw - 1) as usize),
+        _ => None,
+    }
+}
+
 fn profile_multiplier(
     curve: Option<&ProfileCurve>,
     t_norm: f32,
     is_positive_side: bool,
     positive_scale: f32,
     negative_scale: f32,
-    invert_mode: i32,
-    swap_normal: bool,
+    swap_tangent: bool,
 ) -> f32 {
-    let mut use_positive = is_positive_side;
-    if swap_normal {
-        use_positive = !use_positive;
-    }
-
-    let invert_this_side = match invert_mode {
-        2 => use_positive,
-        3 => !use_positive,
-        4 => true,
-        _ => false,
-    };
-    let t = if invert_this_side {
-        1.0 - t_norm
-    } else {
-        t_norm
-    };
+    let t = if swap_tangent { 1.0 - t_norm } else { t_norm };
     let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
 
-    if use_positive {
+    if is_positive_side {
         (base * positive_scale).max(0.0)
     } else {
         (base * negative_scale).max(0.0)
