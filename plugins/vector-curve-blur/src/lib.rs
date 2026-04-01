@@ -13,7 +13,7 @@ use utils::ToPixel;
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     ViewMode,
-    AllMasks,
+    EnableMasks,
     SwapTangent,
     NormalRange,
     NormalFalloff,
@@ -39,7 +39,6 @@ enum Params {
     Evolution,
     ProfileGroupStart,
     EnableProfileCurve,
-    ProfileCurveMaskIndex,
     PositiveScale,
     LinkScales,
     NegativeScale,
@@ -77,9 +76,14 @@ struct PathSample {
 
 #[derive(Default)]
 struct PathData {
-    samples: Vec<PathSample>,
+    masks: Vec<MaskSamples>,
     profile_curve: Option<ProfileCurve>,
-    total_arc_len: f32,
+}
+
+#[derive(Default)]
+struct MaskSamples {
+    samples: Vec<PathSample>,
+    arc_len: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -111,8 +115,8 @@ impl AdobePluginGlobal for Plugin {
             ParamUIFlags::NONE,
         )?;
         params.add(
-            Params::AllMasks,
-            "All Masks",
+            Params::EnableMasks,
+            "Enable Masks",
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
             }),
@@ -220,7 +224,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_valid_max(100.0);
                 d.set_slider_min(0.0);
                 d.set_slider_max(100.0);
-                d.set_default(50.0);
+                d.set_default(0.0);
                 d.set_precision(1);
             }),
         )?;
@@ -232,7 +236,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_valid_max(100.0);
                 d.set_slider_min(0.0);
                 d.set_slider_max(100.0);
-                d.set_default(50.0);
+                d.set_default(0.0);
                 d.set_precision(1);
             }),
         )?;
@@ -492,20 +496,12 @@ impl AdobePluginGlobal for Plugin {
             |params| {
                 params.add_with_flags(
                     Params::EnableProfileCurve,
-                    "Enable Profile Curve",
+                    "EnableProfileCurve(ID1)",
                     CheckBoxDef::setup(|d| {
                         d.set_default(false);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::ProfileCurveMaskIndex,
-                    "Profile Curve Mask",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["None", "Mask 2", "Mask 3", "Mask 4", "Mask 5"]);
-                        d.set_default(2);
-                    }),
                 )?;
                 params.add(
                     Params::PositiveScale,
@@ -577,6 +573,7 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag(OutFlags::SendUpdateParamsUi, true);
+                out_data.set_out_flag(OutFlags::NonParamVary, true);
             }
             ae::Command::UpdateParamsUi => {
                 let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
@@ -614,7 +611,6 @@ impl AdobePluginGlobal for Plugin {
                     pd.update_param_ui()?;
                 }
                 for k in [
-                    Params::ProfileCurveMaskIndex,
                     Params::PositiveScale,
                     Params::LinkScales,
                     Params::NegativeScale,
@@ -676,7 +672,7 @@ impl Plugin {
         params: &mut Parameters<Params>,
     ) -> Result<(), Error> {
         let path_data = self.collect_path_samples(in_data, params)?;
-        if path_data.samples.is_empty() {
+        if path_data.masks.is_empty() {
             out_layer.copy_from(&in_layer, None, None)?;
             return Ok(());
         }
@@ -760,7 +756,6 @@ impl Plugin {
             .get(Params::EnableProfileCurve)?
             .as_checkbox()?
             .value();
-        // *10 internal multiplier (item 5)
         let positive_scale = params
             .get(Params::PositiveScale)?
             .as_float_slider()?
@@ -811,22 +806,6 @@ impl Plugin {
         let in_h = in_layer.height();
         let progress_final = out_layer.height() as i32;
 
-        let arc_len = path_data.total_arc_len.max(1.0);
-        let edge_zone_start = if enable_tangent_falloff {
-            tangent_start_falloff.clamp(0.0, 1.0)
-        } else if split_tangent {
-            (neg_blur_amount / arc_len).clamp(0.01, 0.5)
-        } else {
-            (blur_amount / arc_len).clamp(0.01, 0.5)
-        };
-        let edge_zone_end = if enable_tangent_falloff {
-            tangent_end_falloff.clamp(0.0, 1.0)
-        } else if split_tangent {
-            (blur_amount / arc_len).clamp(0.01, 0.5)
-        } else {
-            edge_zone_start
-        };
-
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
                 match out_world {
@@ -840,39 +819,72 @@ impl Plugin {
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
-            let nearest = nearest_sample(&path_data.samples, xf, yf);
-            let d_abs = nearest.distance.abs();
-
-            let taper_thickness = if enable_taper {
-                taper_factor(
-                    nearest.t_norm,
-                    taper_s_len,
-                    taper_s_curve,
-                    taper_e_len,
-                    taper_e_curve,
-                    taper_s_curve_enabled,
-                )
-            } else {
-                1.0
-            };
-
-            let profile_thickness = if enable_profile {
-                profile_multiplier(
-                    path_data.profile_curve.as_ref(),
-                    nearest.t_norm,
-                    nearest.distance >= 0.0,
-                    positive_scale,
-                    negative_scale,
-                    swap_tangent,
-                )
-            } else {
-                1.0
-            };
-
-            let effective_range = normal_range * taper_thickness * profile_thickness;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
+            let mut chosen: Option<(&MaskSamples, Nearest, f32)> = None;
 
-            if d_abs > effective_range || effective_range < 0.001 {
+            for mask in &path_data.masks {
+                if mask.samples.is_empty() {
+                    continue;
+                }
+
+                let nearest = nearest_sample(&mask.samples, xf, yf);
+                let d_abs = nearest.distance.abs();
+                let taper_thickness = if enable_taper {
+                    taper_factor(
+                        nearest.t_norm,
+                        taper_s_len,
+                        taper_s_curve,
+                        taper_e_len,
+                        taper_e_curve,
+                        taper_s_curve_enabled,
+                    )
+                } else {
+                    1.0
+                };
+                let profile_thickness = if enable_profile {
+                    profile_multiplier(
+                        path_data.profile_curve.as_ref(),
+                        nearest.t_norm,
+                        nearest.distance >= 0.0,
+                        positive_scale,
+                        negative_scale,
+                        swap_tangent,
+                    )
+                } else {
+                    1.0
+                };
+                let effective_range = normal_range * taper_thickness * profile_thickness;
+
+                if effective_range >= 0.001 && d_abs <= effective_range {
+                    chosen = Some((mask, nearest, effective_range));
+                    break;
+                }
+            }
+
+            let Some((mask, nearest, effective_range)) = chosen else {
+                set_dst!(dst, original);
+                return Ok(());
+            };
+
+            let d_abs = nearest.distance.abs();
+            let arc_len = mask.arc_len.max(1.0);
+            let edge_zone_start = if enable_tangent_falloff {
+                tangent_start_falloff.clamp(0.0, 1.0)
+            } else if split_tangent {
+                (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+            } else {
+                (blur_amount / arc_len).clamp(0.01, 0.5)
+            };
+            let edge_zone_end = if enable_tangent_falloff {
+                tangent_end_falloff.clamp(0.0, 1.0)
+            } else if split_tangent {
+                (blur_amount / arc_len).clamp(0.01, 0.5)
+            } else {
+                edge_zone_start
+            };
+            let at_start = nearest.t_norm < 0.05 && nearest.tangent_offset < -1.0;
+            let at_end = nearest.t_norm > 0.95 && nearest.tangent_offset > 1.0;
+            if at_start || at_end {
                 set_dst!(dst, original);
                 return Ok(());
             }
@@ -884,13 +896,13 @@ impl Plugin {
                 let t = (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
                 t.powf(1.0 + normal_bias / 100.0)
             };
-
             let edge_falloff = edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
 
             if edge_falloff < 0.01 {
                 set_dst!(dst, original);
                 return Ok(());
             }
+            let edge_opacity = if falloff_mode == 2 { 1.0 } else { edge_falloff };
 
             let one_side_factor = match one_side {
                 2 => {
@@ -925,11 +937,9 @@ impl Plugin {
             let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
-
             let total_blend =
-                (normal_w * edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
+                (normal_w * edge_opacity * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
 
-            // Non-Final view modes: blend visualization with original using edge_falloff
             if view_mode == 2 {
                 let vis = PixelF32 {
                     red: total_blend,
@@ -937,7 +947,7 @@ impl Plugin {
                     blue: 1.0 - total_blend,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, total_blend);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -948,7 +958,7 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, total_blend);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -958,13 +968,18 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, edge_falloff);
+                let col = lerp_pixel(&original, &vis, total_blend);
                 set_dst!(dst, col);
                 return Ok(());
             }
 
-            let ox = xf + nearest.tx * path_offset * edge_falloff * normal_w;
-            let oy = yf + nearest.ty * path_offset * edge_falloff * normal_w;
+            let (blur_tx, blur_ty) = if swap_tangent {
+                (-nearest.tx, -nearest.ty)
+            } else {
+                (nearest.tx, nearest.ty)
+            };
+            let ox = xf + blur_tx * path_offset * edge_falloff * normal_w;
+            let oy = yf + blur_ty * path_offset * edge_falloff * normal_w;
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * normal_w * fract_w;
@@ -976,12 +991,12 @@ impl Plugin {
                     height: in_h,
                     center_x: ox,
                     center_y: oy,
-                    tangent_x: nearest.tx,
-                    tangent_y: nearest.ty,
+                    tangent_x: blur_tx,
+                    tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = (edge_falloff * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
+                let opacity = (nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
@@ -993,8 +1008,8 @@ impl Plugin {
                     height: in_h,
                     center_x: ox,
                     center_y: oy,
-                    tangent_x: nearest.tx,
-                    tangent_y: nearest.ty,
+                    tangent_x: blur_tx,
+                    tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
@@ -1040,21 +1055,16 @@ impl Plugin {
         let query = ae::pf::suites::PathQuery::new()?;
         let path_count = query.num_paths(effect_ref)?;
 
-        let all_masks = params.get(Params::AllMasks)?.as_checkbox()?.value();
+        let enable_masks = params.get(Params::EnableMasks)?.as_checkbox()?.value();
         let enable_profile = params
             .get(Params::EnableProfileCurve)?
             .as_checkbox()?
             .value();
-        let profile_curve_mask_idx = selected_profile_curve_mask_idx(
-            params
-                .get(Params::ProfileCurveMaskIndex)?
-                .as_popup()?
-                .value(),
-        );
 
         let mut out = PathData::default();
         let mut profile_path_pts: Vec<(f32, f32)> = Vec::new();
         let mut mask_idx = 0_usize;
+        let mut blur_mask_count = 0_usize;
 
         for i in 0..path_count {
             let pid = query.path_info(effect_ref, i)?;
@@ -1096,10 +1106,7 @@ impl Plugin {
                 continue;
             }
 
-            if enable_profile
-                && Some(mask_idx) == profile_curve_mask_idx
-                && profile_path_pts.is_empty()
-            {
+            if enable_profile && mask_idx == 0 && profile_path_pts.is_empty() {
                 for &(x, y, _, _) in &tmp {
                     profile_path_pts.push((x, y));
                 }
@@ -1107,14 +1114,15 @@ impl Plugin {
                 continue;
             }
 
-            if !all_masks && mask_idx > 0 {
+            if !enable_masks && blur_mask_count > 0 {
                 mask_idx += 1;
                 continue;
             }
 
             let last = (tmp.len() - 1) as f32;
+            let mut mask_samples = MaskSamples::default();
             for (idx, (x, y, tx, ty)) in tmp.into_iter().enumerate() {
-                out.samples.push(PathSample {
+                mask_samples.samples.push(PathSample {
                     x,
                     y,
                     tx,
@@ -1122,14 +1130,13 @@ impl Plugin {
                     t_norm: if last <= 0.0 { 0.0 } else { idx as f32 / last },
                 });
             }
+            let smooth_radius = (mask_samples.samples.len() / 20).clamp(2, 16);
+            smooth_tangents(&mut mask_samples.samples, smooth_radius);
+            mask_samples.arc_len = compute_arc_length(&mask_samples.samples);
+            out.masks.push(mask_samples);
+            blur_mask_count += 1;
             mask_idx += 1;
         }
-
-        // Item 3: smooth tangent vectors along path
-        let smooth_radius = (out.samples.len() / 20).clamp(2, 16);
-        smooth_tangents(&mut out.samples, smooth_radius);
-
-        out.total_arc_len = compute_arc_length(&out.samples);
 
         if !profile_path_pts.is_empty() {
             out.profile_curve = build_profile_curve(&profile_path_pts);
@@ -1426,13 +1433,6 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
         }
     }
     best.y_norm
-}
-
-fn selected_profile_curve_mask_idx(raw: i32) -> Option<usize> {
-    match raw {
-        2..=5 => Some((raw - 1) as usize),
-        _ => None,
-    }
 }
 
 fn profile_multiplier(
