@@ -58,7 +58,6 @@ enum Params {
     FractalGroupEnd,
     TangentFalloffGroupStart,
     TangentFalloffBias,
-    TangentFalloffOffset,
     TangentFalloffGroupEnd,
 }
 
@@ -258,18 +257,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(300.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(300.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::TangentFalloffOffset,
-                    "Tangent Falloff Offset",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
                         d.set_default(0.0);
                         d.set_precision(1);
                     }),
@@ -636,7 +623,6 @@ impl AdobePluginGlobal for Plugin {
                     Params::TangentStartFallOff,
                     Params::TangentEndFallOff,
                     Params::TangentFalloffBias,
-                    Params::TangentFalloffOffset,
                 ] {
                     let mut pd = p.get_mut(k)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
@@ -766,15 +752,6 @@ impl Plugin {
         } else {
             0.0
         };
-        let tangent_falloff_offset = if enable_tangent_falloff {
-            params
-                .get(Params::TangentFalloffOffset)?
-                .as_float_slider()?
-                .value() as f32
-                / 100.0
-        } else {
-            0.0
-        };
         let path_offset = params
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
@@ -879,9 +856,8 @@ impl Plugin {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32)> = None;
-            let mut best_normal_w = 0.0_f32;
-            let mut max_blend = 0.0_f32;
+            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
+            let mut best_blend = 0.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -952,7 +928,6 @@ impl Plugin {
                     nearest.t_norm,
                     edge_zone_start,
                     edge_zone_end,
-                    tangent_falloff_offset,
                     tangent_falloff_bias,
                 );
                 if edge_falloff < 0.01 {
@@ -985,23 +960,29 @@ impl Plugin {
                 let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
                 let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
                     .clamp(0.0, 1.0);
-                max_blend = max_blend.max(blend_i);
-
-                if normal_w > best_normal_w {
-                    chosen = Some((mask, nearest, effective_range, normal_w, edge_falloff));
-                    best_normal_w = normal_w;
+                if blend_i > best_blend {
+                    chosen = Some((
+                        mask,
+                        nearest,
+                        effective_range,
+                        normal_w,
+                        edge_falloff,
+                        blend_i,
+                    ));
+                    best_blend = blend_i;
                 }
-                if max_blend >= 1.0 - 1e-6 && best_normal_w >= 1.0 - 1e-6 {
+                if best_blend >= 1.0 - 1e-6 {
                     break;
                 }
             }
 
-            let Some((mask, nearest, effective_range, normal_w, edge_falloff)) = chosen else {
+            let Some((mask, nearest, effective_range, normal_w, edge_falloff, total_blend)) =
+                chosen
+            else {
                 set_dst!(dst, original);
                 return Ok(());
             };
 
-            let combined_blend = max_blend.clamp(0.0, 1.0);
             let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
 
@@ -1013,7 +994,6 @@ impl Plugin {
             let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
-            let total_blend = combined_blend;
 
             if view_mode == 2 {
                 let vis = PixelF32 {
@@ -1279,8 +1259,13 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
     }
 
     let w = (best_d2 / (best_d2 + second_d2 + 1e-6)).clamp(0.0, 1.0);
-    let blended_tx = best_s.tx * (1.0 - w) + second_s.tx * w;
-    let blended_ty = best_s.ty * (1.0 - w) + second_s.ty * w;
+    let near_ratio = (best_d2 / (second_d2 + 1e-6)).clamp(0.0, 1.0);
+    let tangent_sim = (best_s.tx * second_s.tx + best_s.ty * second_s.ty).abs();
+    let branch_conflict = (1.0 - tangent_sim).clamp(0.0, 1.0);
+    let conflict_strength = (near_ratio * branch_conflict).clamp(0.0, 1.0);
+    let blend_w = w * (1.0 - 0.85 * conflict_strength);
+    let blended_tx = best_s.tx * (1.0 - blend_w) + second_s.tx * blend_w;
+    let blended_ty = best_s.ty * (1.0 - blend_w) + second_s.ty * blend_w;
     let (tx, ty) = normalize2(blended_tx, blended_ty);
     let nx = -ty;
     let ny = tx;
@@ -1291,14 +1276,11 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
     let tang_off = dx * tx + dy * ty;
     let best_tang_off = dx * best_s.tx + dy * best_s.ty;
 
-    let blended_t = best_s.t_norm * (1.0 - w) + second_s.t_norm * w;
+    let blended_t = best_s.t_norm * (1.0 - blend_w) + second_s.t_norm * blend_w;
 
     let mut ambiguity = 1.0_f32;
     if second_d2.is_finite() && best_d2.is_finite() {
-        let near_ratio = (best_d2 / (second_d2 + 1e-6)).clamp(0.0, 1.0);
-        let tangent_sim = (best_s.tx * second_s.tx + best_s.ty * second_s.ty).abs();
-        let branch_conflict = (1.0 - tangent_sim).clamp(0.0, 1.0);
-        ambiguity = (0.35 + 0.65 * (1.0 - near_ratio * branch_conflict)).clamp(0.35, 1.0);
+        ambiguity = (0.6 + 0.4 * (1.0 - conflict_strength)).clamp(0.6, 1.0);
     }
 
     Nearest {
@@ -1422,30 +1404,20 @@ fn s_curve_power(u: f32, curve: f32) -> f32 {
 // ---------------------------------------------------------------------------
 // Edge fade: smooth blur falloff at path start/end
 // ---------------------------------------------------------------------------
-fn edge_fade_asymmetric(
-    t_norm: f32,
-    zone_start: f32,
-    zone_end: f32,
-    offset: f32,
-    bias: f32,
-) -> f32 {
+fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32, bias: f32) -> f32 {
     let zs = zone_start.max(1e-6);
     let ze = zone_end.max(1e-6);
-    let edge_offset = offset.clamp(0.0, 0.49);
     let curve_pow = 1.0 + bias.max(0.0) / 100.0;
 
-    // Offset shifts the whole biased fade inward without changing its shape.
-    let start_t = t_norm - edge_offset;
-    let end_t = (1.0 - t_norm) - edge_offset;
-
-    let start_w = if start_t <= 0.0 {
+    let start_w = if t_norm <= 0.0 {
         0.0
-    } else if start_t < zs {
-        (start_t / zs).clamp(0.0, 1.0).powf(curve_pow)
+    } else if t_norm < zs {
+        (t_norm / zs).clamp(0.0, 1.0).powf(curve_pow)
     } else {
         1.0
     };
 
+    let end_t = 1.0 - t_norm;
     let end_w = if end_t <= 0.0 {
         0.0
     } else if end_t < ze {
