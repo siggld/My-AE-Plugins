@@ -822,6 +822,7 @@ impl Plugin {
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
             let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
+            let mut composite_keep = 1.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -917,6 +918,11 @@ impl Plugin {
                     continue;
                 }
 
+                let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
+                let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
+                    .clamp(0.0, 1.0);
+                composite_keep *= 1.0 - blend_i;
+
                 if normal_w > best_normal_w {
                     chosen = Some((
                         mask,
@@ -927,7 +933,7 @@ impl Plugin {
                         one_side_factor,
                     ));
                     best_normal_w = normal_w;
-                    if normal_w >= 1.0 - 1e-6 {
+                    if composite_keep < 1e-6 {
                         break;
                     }
                 }
@@ -940,9 +946,9 @@ impl Plugin {
                 return Ok(());
             };
 
+            let combined_blend = (1.0 - composite_keep).clamp(0.0, 1.0);
             let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
-            let edge_opacity = if falloff_mode == 2 { 1.0 } else { edge_falloff };
 
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
@@ -952,8 +958,7 @@ impl Plugin {
             let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
-            let total_blend =
-                (normal_w * edge_opacity * nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
+            let total_blend = combined_blend;
 
             if view_mode == 2 {
                 let vis = PixelF32 {
