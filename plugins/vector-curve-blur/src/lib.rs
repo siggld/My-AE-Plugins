@@ -56,6 +56,10 @@ enum Params {
     AddColorGroupEnd,
     FractalGroupStart,
     FractalGroupEnd,
+    TangentFalloffGroupStart,
+    TangentFalloffBias,
+    TangentFalloffOffset,
+    TangentFalloffGroupEnd,
 }
 
 #[derive(Default)]
@@ -207,38 +211,71 @@ impl AdobePluginGlobal for Plugin {
                 d.set_precision(1);
             }),
         )?;
-        params.add_with_flags(
-            Params::EnableTangentFalloff,
-            "Enable Tangent Falloff",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
-        params.add(
-            Params::TangentStartFallOff,
-            "Tangent Start FallOff",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add(
-            Params::TangentEndFallOff,
-            "Tangent End FallOff",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
+        params.add_group(
+            Params::TangentFalloffGroupStart,
+            Params::TangentFalloffGroupEnd,
+            "Tangent Falloff",
+            true,
+            |params| {
+                params.add_with_flags(
+                    Params::EnableTangentFalloff,
+                    "Enable Tangent Falloff",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                params.add(
+                    Params::TangentStartFallOff,
+                    "Tangent Start FallOff",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::TangentEndFallOff,
+                    "Tangent End FallOff",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::TangentFalloffBias,
+                    "Tangent Falloff Bias",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(300.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(300.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::TangentFalloffOffset,
+                    "Tangent Falloff Offset",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                Ok(())
+            },
         )?;
         params.add(
             Params::PathBlurOffset,
@@ -595,7 +632,12 @@ impl AdobePluginGlobal for Plugin {
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !split_tangent);
                     pd.update_param_ui()?;
                 }
-                for k in [Params::TangentStartFallOff, Params::TangentEndFallOff] {
+                for k in [
+                    Params::TangentStartFallOff,
+                    Params::TangentEndFallOff,
+                    Params::TangentFalloffBias,
+                    Params::TangentFalloffOffset,
+                ] {
                     let mut pd = p.get_mut(k)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
                     pd.update_param_ui()?;
@@ -716,6 +758,23 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32
             / 100.0;
+        let tangent_falloff_bias = if enable_tangent_falloff {
+            params
+                .get(Params::TangentFalloffBias)?
+                .as_float_slider()?
+                .value() as f32
+        } else {
+            0.0
+        };
+        let tangent_falloff_offset = if enable_tangent_falloff {
+            params
+                .get(Params::TangentFalloffOffset)?
+                .as_float_slider()?
+                .value() as f32
+                / 100.0
+        } else {
+            0.0
+        };
         let path_offset = params
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
@@ -820,7 +879,7 @@ impl Plugin {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
+            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
             let mut composite_keep = 1.0_f32;
 
@@ -889,8 +948,13 @@ impl Plugin {
                         (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
                     t.powf(1.0 + normal_bias / 100.0)
                 };
-                let edge_falloff =
-                    edge_fade_asymmetric(nearest.t_norm, edge_zone_start, edge_zone_end);
+                let edge_falloff = edge_fade_asymmetric(
+                    nearest.t_norm,
+                    edge_zone_start,
+                    edge_zone_end,
+                    tangent_falloff_offset,
+                    tangent_falloff_bias,
+                );
                 if edge_falloff < 0.01 {
                     continue;
                 }
@@ -924,14 +988,7 @@ impl Plugin {
                 composite_keep *= 1.0 - blend_i;
 
                 if normal_w > best_normal_w {
-                    chosen = Some((
-                        mask,
-                        nearest,
-                        effective_range,
-                        normal_w,
-                        edge_falloff,
-                        one_side_factor,
-                    ));
+                    chosen = Some((mask, nearest, effective_range, normal_w, edge_falloff));
                     best_normal_w = normal_w;
                     if composite_keep < 1e-6 {
                         break;
@@ -939,9 +996,7 @@ impl Plugin {
                 }
             }
 
-            let Some((mask, nearest, effective_range, normal_w, edge_falloff, one_side_factor)) =
-                chosen
-            else {
+            let Some((mask, nearest, effective_range, normal_w, edge_falloff)) = chosen else {
                 set_dst!(dst, original);
                 return Ok(());
             };
@@ -1016,7 +1071,7 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = (nearest.ambiguity * one_side_factor).clamp(0.0, 1.0);
+                let opacity = total_blend;
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
@@ -1367,16 +1422,38 @@ fn s_curve_power(u: f32, curve: f32) -> f32 {
 // ---------------------------------------------------------------------------
 // Edge fade: smooth blur falloff at path start/end
 // ---------------------------------------------------------------------------
-fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32) -> f32 {
+fn edge_fade_asymmetric(
+    t_norm: f32,
+    zone_start: f32,
+    zone_end: f32,
+    offset: f32,
+    bias: f32,
+) -> f32 {
     let zs = zone_start.max(1e-6);
     let ze = zone_end.max(1e-6);
-    if t_norm < zs {
-        (t_norm / zs).clamp(0.0, 1.0)
-    } else if t_norm > 1.0 - ze {
-        ((1.0 - t_norm) / ze).clamp(0.0, 1.0)
+    let edge_offset = offset.clamp(0.0, 0.49);
+    let curve_pow = 1.0 + bias.max(0.0) / 100.0;
+
+    let start_w = if t_norm <= edge_offset {
+        0.0
+    } else if t_norm < edge_offset + zs {
+        ((t_norm - edge_offset) / zs)
+            .clamp(0.0, 1.0)
+            .powf(curve_pow)
     } else {
         1.0
-    }
+    };
+
+    let end_limit = 1.0 - edge_offset;
+    let end_w = if t_norm >= end_limit {
+        0.0
+    } else if t_norm > end_limit - ze {
+        ((end_limit - t_norm) / ze).clamp(0.0, 1.0).powf(curve_pow)
+    } else {
+        1.0
+    };
+
+    start_w.min(end_w)
 }
 
 // ---------------------------------------------------------------------------
