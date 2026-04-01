@@ -881,7 +881,7 @@ impl Plugin {
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
             let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
-            let mut composite_keep = 1.0_f32;
+            let mut max_blend = 0.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -985,14 +985,14 @@ impl Plugin {
                 let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
                 let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
                     .clamp(0.0, 1.0);
-                composite_keep *= 1.0 - blend_i;
+                max_blend = max_blend.max(blend_i);
 
                 if normal_w > best_normal_w {
                     chosen = Some((mask, nearest, effective_range, normal_w, edge_falloff));
                     best_normal_w = normal_w;
-                    if composite_keep < 1e-6 {
-                        break;
-                    }
+                }
+                if max_blend >= 1.0 - 1e-6 && best_normal_w >= 1.0 - 1e-6 {
+                    break;
                 }
             }
 
@@ -1001,7 +1001,7 @@ impl Plugin {
                 return Ok(());
             };
 
-            let combined_blend = (1.0 - composite_keep).clamp(0.0, 1.0);
+            let combined_blend = max_blend.clamp(0.0, 1.0);
             let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
 
@@ -1434,21 +1434,22 @@ fn edge_fade_asymmetric(
     let edge_offset = offset.clamp(0.0, 0.49);
     let curve_pow = 1.0 + bias.max(0.0) / 100.0;
 
-    let start_w = if t_norm <= edge_offset {
+    // Offset shifts the whole biased fade inward without changing its shape.
+    let start_t = t_norm - edge_offset;
+    let end_t = (1.0 - t_norm) - edge_offset;
+
+    let start_w = if start_t <= 0.0 {
         0.0
-    } else if t_norm < edge_offset + zs {
-        ((t_norm - edge_offset) / zs)
-            .clamp(0.0, 1.0)
-            .powf(curve_pow)
+    } else if start_t < zs {
+        (start_t / zs).clamp(0.0, 1.0).powf(curve_pow)
     } else {
         1.0
     };
 
-    let end_limit = 1.0 - edge_offset;
-    let end_w = if t_norm >= end_limit {
+    let end_w = if end_t <= 0.0 {
         0.0
-    } else if t_norm > end_limit - ze {
-        ((end_limit - t_norm) / ze).clamp(0.0, 1.0).powf(curve_pow)
+    } else if end_t < ze {
+        (end_t / ze).clamp(0.0, 1.0).powf(curve_pow)
     } else {
         1.0
     };
