@@ -288,7 +288,14 @@ impl AdobePluginGlobal for Plugin {
                 let has_ref = ref_layer_opt.is_some();
 
                 if let (Some(in_layer), Some(out_layer)) = (in_layer_opt, out_layer_opt) {
-                    self.do_render(in_data, in_layer, out_data, out_layer, params, ref_layer_opt)?;
+                    self.do_render(
+                        in_data,
+                        in_layer,
+                        out_data,
+                        out_layer,
+                        params,
+                        ref_layer_opt,
+                    )?;
                 }
                 cb.checkin_layer_pixels(0)?;
                 if has_ref {
