@@ -5,6 +5,7 @@ members = [
     "plugins/uv-distort-pro",
     "plugins/island-id-color",
     "plugins/vector-curve-blur",
+    "plugins/tkg-path-line-hatching",
 ]
 
 [workspace.package]

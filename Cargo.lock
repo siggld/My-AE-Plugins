@@ -762,6 +762,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tkg_path_line_hatching"
+version = "0.1.0"
+dependencies = [
+ "after-effects",
+ "chrono",
+ "pipl",
+ "utils",
+]
+
+[[package]]
 name = "toml"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
