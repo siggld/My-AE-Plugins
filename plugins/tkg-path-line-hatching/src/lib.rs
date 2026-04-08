@@ -325,9 +325,9 @@ impl Plugin {
         // TODO: in_pixels.iter().zip(out_pixels.iter_mut()) でバッファ走査する。
         let _line_color = params.get(Params::Color)?.as_color()?.value();
         let _line_thickness = params.get(Params::Thickness)?.as_float_slider()?.value() as f32;
-        let _angle = params.get(Params::Angle)?.as_angle()?.value() as f32;
-        let _offset_u = params.get(Params::Offset_U)?.as_angle()?.value() as f32;
-        let _offset_v = params.get(Params::Offset_V)?.as_angle()?.value() as f32;
+        let _angle = params.get(Params::Angle)?.as_angle()?.value();
+        let _offset_u = params.get(Params::Offset_U)?.as_angle()?.value();
+        let _offset_v = params.get(Params::Offset_V)?.as_angle()?.value();
         let _ref_mode = params.get(Params::RefMode)?.as_popup()?.value();
 
         let in_world_type = in_layer.world_type();
