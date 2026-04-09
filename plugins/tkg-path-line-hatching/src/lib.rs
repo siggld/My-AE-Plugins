@@ -8,6 +8,7 @@ use utils::ToPixel;
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 enum Params {
+    RenderMode,
     Algorithm,
     Angle,
     DensityThresh,
@@ -41,12 +42,30 @@ ae::define_effect!(Plugin, (), Params);
 
 const PLUGIN_DESCRIPTION: &str = "Procedural path line hatching using UV-like path mapping.";
 
-#[derive(Default, Clone, Copy)]
-struct PathUvIds {
-    u1: Option<ae::sys::PF_PathID>,
-    u2: Option<ae::sys::PF_PathID>,
-    v1: Option<ae::sys::PF_PathID>,
-    v2: Option<ae::sys::PF_PathID>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RenderMode {
+    FinalResult,
+    UvGrid,
+    DistributionMap,
+    Assignment,
+}
+
+impl RenderMode {
+    fn from_popup(value: i32) -> Self {
+        match value {
+            2 => Self::UvGrid,
+            3 => Self::DistributionMap,
+            4 => Self::Assignment,
+            _ => Self::FinalResult,
+        }
+    }
+}
+
+struct NamedPathSamples {
+    u1: Vec<(f32, f32)>,
+    u2: Vec<(f32, f32)>,
+    v1: Vec<(f32, f32)>,
+    v2: Vec<(f32, f32)>,
 }
 
 impl AdobePluginGlobal for Plugin {
@@ -56,6 +75,14 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
+        params.add(
+            Params::RenderMode,
+            "描画モード",
+            PopupDef::setup(|d| {
+                d.set_options(&["Final Result", "UV+Grid", "Distribution map", "Assignment"]);
+                d.set_default(1);
+            }),
+        )?;
         params.add_with_flags(
             Params::Algorithm,
             "Algorithm",
@@ -271,26 +298,25 @@ impl AdobePluginGlobal for Plugin {
                     let _ = extra.union_result_rect(in_result.result_rect.into());
                     let _ = extra.union_max_result_rect(in_result.max_result_rect.into());
                 }
-                let ref_layer_index = params
-                    .index(Params::RefLayer)
-                    .ok_or(ae::Error::InvalidIndex)? as i32;
-                let _ = extra.callbacks().checkout_layer(
-                    ref_layer_index,
-                    1,
-                    &req,
-                    in_data.current_time(),
-                    in_data.time_step(),
-                    in_data.time_scale(),
-                );
+                if let Some(ref_idx) = params.index(Params::RefLayer) {
+                    let _ = extra.callbacks().checkout_layer(
+                        ref_idx as i32,
+                        1,
+                        &req,
+                        in_data.current_time(),
+                        in_data.time_step(),
+                        in_data.time_scale(),
+                    );
+                }
             }
             ae::Command::SmartRender { extra } => {
                 let cb = extra.callbacks();
                 let in_layer_opt = cb.checkout_layer_pixels(0)?;
                 let out_layer_opt = cb.checkout_output()?;
-                let ref_layer_index = params
-                    .index(Params::RefLayer)
-                    .ok_or(ae::Error::InvalidIndex)? as u32;
-                let ref_layer_opt = cb.checkout_layer_pixels(ref_layer_index).ok().flatten();
+                let mut ref_layer_opt = None;
+                if params.index(Params::RefLayer).is_some() {
+                    ref_layer_opt = cb.checkout_layer_pixels(1).ok().flatten();
+                }
                 let has_ref = ref_layer_opt.is_some();
 
                 if let (Some(in_layer), Some(out_layer)) = (in_layer_opt, out_layer_opt) {
@@ -305,7 +331,7 @@ impl AdobePluginGlobal for Plugin {
                 }
                 cb.checkin_layer_pixels(0)?;
                 if has_ref {
-                    cb.checkin_layer_pixels(ref_layer_index)?;
+                    let _ = cb.checkin_layer_pixels(1);
                 }
             }
             _ => {}
@@ -324,11 +350,7 @@ impl Plugin {
         params: &mut Parameters<Params>,
         ref_layer: Option<Layer>,
     ) -> Result<(), Error> {
-        let uv_ids = self.collect_uv_path_ids(in_data)?;
-
-        // TODO: PF_PathGetName で U_1/U_2/V_1/V_2 を厳密に引く処理に置き換える。
-        // TODO: PathDataSuite 相当の API で曲線評価を行い、UV 空間を構成する。
-        // TODO: in_pixels.iter().zip(out_pixels.iter_mut()) でバッファ走査する。
+        let render_mode = RenderMode::from_popup(params.get(Params::RenderMode)?.as_popup()?.value());
         let _line_color = params.get(Params::Color)?.as_color()?.value();
         let _line_thickness = params.get(Params::Thickness)?.as_float_slider()?.value() as f32;
         let _angle = params.get(Params::Angle)?.as_angle()?.value();
@@ -339,6 +361,95 @@ impl Plugin {
         let in_world_type = in_layer.world_type();
         let out_world_type = out_layer.world_type();
         let progress_final = out_layer.height() as i32;
+        let width = out_layer.width() as i32;
+        let height = out_layer.height() as i32;
+
+        let named_paths = self.collect_named_path_samples(in_data)?;
+        let mut overlay: std::collections::HashMap<(i32, i32), PixelF32> =
+            std::collections::HashMap::new();
+        if let Some(paths) = named_paths.as_ref() {
+            match render_mode {
+                RenderMode::Assignment => {
+                    draw_square_marker(
+                        &mut overlay,
+                        paths.u1.first().copied().unwrap_or((0.0, 0.0)),
+                        2,
+                        PixelF32 {
+                            alpha: 1.0,
+                            red: 1.0,
+                            green: 0.0,
+                            blue: 0.0,
+                        },
+                        width,
+                        height,
+                    );
+                    draw_square_marker(
+                        &mut overlay,
+                        paths.u2.first().copied().unwrap_or((0.0, 0.0)),
+                        2,
+                        PixelF32 {
+                            alpha: 1.0,
+                            red: 0.0,
+                            green: 1.0,
+                            blue: 0.0,
+                        },
+                        width,
+                        height,
+                    );
+                    draw_square_marker(
+                        &mut overlay,
+                        paths.v1.first().copied().unwrap_or((0.0, 0.0)),
+                        2,
+                        PixelF32 {
+                            alpha: 1.0,
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 1.0,
+                        },
+                        width,
+                        height,
+                    );
+                    draw_square_marker(
+                        &mut overlay,
+                        paths.v2.first().copied().unwrap_or((0.0, 0.0)),
+                        2,
+                        PixelF32 {
+                            alpha: 1.0,
+                            red: 1.0,
+                            green: 1.0,
+                            blue: 0.0,
+                        },
+                        width,
+                        height,
+                    );
+                }
+                RenderMode::UvGrid => {
+                    for iy in 0..=10 {
+                        let v = iy as f32 / 10.0;
+                        for ix in 0..=10 {
+                            let u = ix as f32 / 10.0;
+                            let (gx, gy) = calculate_coons_patch(u, v, &paths.u1, &paths.u2, &paths.v1, &paths.v2);
+                            draw_square_marker(
+                                &mut overlay,
+                                (gx, gy),
+                                0,
+                                PixelF32 {
+                                    alpha: 1.0,
+                                    red: 1.0,
+                                    green: 0.0,
+                                    blue: 1.0,
+                                },
+                                width,
+                                height,
+                            );
+                        }
+                    }
+                }
+                RenderMode::FinalResult | RenderMode::DistributionMap => {
+                    // TODO: Final Result / Distribution map は次フェーズで実装
+                }
+            }
+        }
 
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let src = match in_world_type {
@@ -351,12 +462,14 @@ impl Plugin {
                 }
             };
 
-            let _ = draw_hatching_stub(x as f32, y as f32, uv_ids);
-            let out_px = src;
+            let mut out_px = src;
 
             if let Some(ref_layer) = ref_layer.as_ref() {
                 let _modulation = sample_ref_layer_stub(ref_layer, x as usize, y as usize);
                 // TODO: RefMode(alpha/lightness/luminance) で線の太さまたは alpha を変調する。
+            }
+            if let Some(overlay_px) = overlay.get(&(x, y)) {
+                out_px = *overlay_px;
             }
 
             match out_world_type {
@@ -370,60 +483,94 @@ impl Plugin {
         Ok(())
     }
 
-    fn collect_uv_path_ids(&self, in_data: InData) -> Result<PathUvIds, Error> {
+    fn collect_named_path_samples(&self, in_data: InData) -> Result<Option<NamedPathSamples>, Error> {
         if in_data.is_premiere() {
-            return Ok(PathUvIds::default());
+            return Ok(None);
         }
 
         let effect_ref = in_data.effect_ref();
         let query = ae::pf::suites::PathQuery::new()?;
         let path_count = query.num_paths(effect_ref)?;
-        let mut ids = PathUvIds::default();
-        let mut u1 = None;
-        let mut u2 = None;
-        let mut v1 = None;
-        let mut v2 = None;
+        let mut u1_id = None;
+        let mut u2_id = None;
+        let mut v1_id = None;
+        let mut v2_id = None;
 
         for i in 0..path_count {
             let pid = query.path_info(effect_ref, i)?;
             if pid == ae::sys::PF_PathID_NONE as ae::sys::PF_PathID {
                 continue;
             }
-            let Some(_path_data) = query.checkout_path(
+            let Some(path_outline) = query.checkout_path(
                 effect_ref,
                 pid,
                 in_data.current_time(),
                 in_data.time_step(),
                 in_data.time_scale(),
-            )?
-            else {
+            )? else {
                 continue;
             };
-
-            // TODO: PF_PathGetName で名前取得して U_1/U_2/V_1/V_2 に割り当てる。
-            // 現段階では順序ベースで最低限の ID だけ確保する。
-            if u1.is_none() {
-                u1 = Some(pid);
-            } else if u2.is_none() {
-                u2 = Some(pid);
-            } else if v1.is_none() {
-                v1 = Some(pid);
-            } else if v2.is_none() {
-                v2 = Some(pid);
+            let name = path_outline.name()?;
+            match name.as_str() {
+                "U_1" => u1_id = Some(pid),
+                "U_2" => u2_id = Some(pid),
+                "V_1" => v1_id = Some(pid),
+                "V_2" => v2_id = Some(pid),
+                _ => {}
             }
         }
 
-        ids.u1 = u1;
-        ids.u2 = u2;
-        ids.v1 = v1;
-        ids.v2 = v2;
-        Ok(ids)
-    }
-}
+        let (Some(u1_id), Some(u2_id), Some(v1_id), Some(v2_id)) = (u1_id, u2_id, v1_id, v2_id) else {
+            return Ok(None);
+        };
 
-fn draw_hatching_stub(_x: f32, _y: f32, _uv: PathUvIds) -> f32 {
-    // TODO: UV空間、Angle、Offset_U/V、Bias_U/V、Ease_U/V を使った線分布を実装する。
-    0.0
+        let Some(u1_path) = query.checkout_path(
+            effect_ref,
+            u1_id,
+            in_data.current_time(),
+            in_data.time_step(),
+            in_data.time_scale(),
+        )? else {
+            return Ok(None);
+        };
+        let Some(u2_path) = query.checkout_path(
+            effect_ref,
+            u2_id,
+            in_data.current_time(),
+            in_data.time_step(),
+            in_data.time_scale(),
+        )? else {
+            return Ok(None);
+        };
+        let Some(v1_path) = query.checkout_path(
+            effect_ref,
+            v1_id,
+            in_data.current_time(),
+            in_data.time_step(),
+            in_data.time_scale(),
+        )? else {
+            return Ok(None);
+        };
+        let Some(v2_path) = query.checkout_path(
+            effect_ref,
+            v2_id,
+            in_data.current_time(),
+            in_data.time_step(),
+            in_data.time_scale(),
+        )? else {
+            return Ok(None);
+        };
+
+        let u1 = sample_path_points(&u1_path)?;
+        let u2 = sample_path_points(&u2_path)?;
+        let v1 = sample_path_points(&v1_path)?;
+        let v2 = sample_path_points(&v2_path)?;
+        if u1.is_empty() || u2.is_empty() || v1.is_empty() || v2.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(NamedPathSamples { u1, u2, v1, v2 }))
+    }
 }
 
 fn sample_ref_layer_stub(layer: &Layer, x: usize, y: usize) -> f32 {
@@ -433,4 +580,114 @@ fn sample_ref_layer_stub(layer: &Layer, x: usize, y: usize) -> f32 {
     );
     // TODO: RefMode に応じて alpha/lightness/luminance を返す。
     px.alpha
+}
+
+fn sample_path_points(path: &PathOutline) -> Result<Vec<(f32, f32)>, Error> {
+    let segs = path.num_segments()?;
+    if segs <= 0 {
+        return Ok(Vec::new());
+    }
+    let mut points = Vec::new();
+    for seg in 0..segs {
+        let mut prep = path.prepare_seg_length(seg, 100)?;
+        let seg_len = prep.length()?;
+        if seg_len <= 0.0001 {
+            continue;
+        }
+        let steps = 32_i32.max((seg_len / 6.0) as i32);
+        for s in 0..=steps {
+            let l = seg_len * (s as f64 / steps as f64);
+            let (x, y) = prep.eval(l)?;
+            points.push((x as f32, y as f32));
+        }
+    }
+    Ok(points)
+}
+
+fn sample_polyline_t(points: &[(f32, f32)], t: f32) -> (f32, f32) {
+    if points.is_empty() {
+        return (0.0, 0.0);
+    }
+    if points.len() == 1 {
+        return points[0];
+    }
+    let t = t.clamp(0.0, 1.0);
+    let mut total = 0.0_f32;
+    for i in 1..points.len() {
+        let dx = points[i].0 - points[i - 1].0;
+        let dy = points[i].1 - points[i - 1].1;
+        total += (dx * dx + dy * dy).sqrt();
+    }
+    if total <= 1.0e-5 {
+        return points[0];
+    }
+    let target = total * t;
+    let mut acc = 0.0_f32;
+    for i in 1..points.len() {
+        let (x0, y0) = points[i - 1];
+        let (x1, y1) = points[i];
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let seg = (dx * dx + dy * dy).sqrt();
+        if acc + seg >= target && seg > 0.0 {
+            let lt = (target - acc) / seg;
+            return (x0 + dx * lt, y0 + dy * lt);
+        }
+        acc += seg;
+    }
+    points[points.len() - 1]
+}
+
+fn calculate_coons_patch(
+    u: f32,
+    v: f32,
+    path_u1: &[(f32, f32)],
+    path_u2: &[(f32, f32)],
+    path_v1: &[(f32, f32)],
+    path_v2: &[(f32, f32)],
+) -> (f32, f32) {
+    let c0 = sample_polyline_t(path_u1, v);
+    let c1 = sample_polyline_t(path_u2, v);
+    let d0 = sample_polyline_t(path_v1, u);
+    let d1 = sample_polyline_t(path_v2, u);
+
+    let p00 = sample_polyline_t(path_u1, 0.0);
+    let p10 = sample_polyline_t(path_u1, 1.0);
+    let p01 = sample_polyline_t(path_u2, 0.0);
+    let p11 = sample_polyline_t(path_u2, 1.0);
+
+    let sx = (1.0 - u) * c0.0 + u * c1.0 + (1.0 - v) * d0.0 + v * d1.0
+        - ((1.0 - u) * (1.0 - v) * p00.0
+            + u * (1.0 - v) * p10.0
+            + (1.0 - u) * v * p01.0
+            + u * v * p11.0);
+    let sy = (1.0 - u) * c0.1 + u * c1.1 + (1.0 - v) * d0.1 + v * d1.1
+        - ((1.0 - u) * (1.0 - v) * p00.1
+            + u * (1.0 - v) * p10.1
+            + (1.0 - u) * v * p01.1
+            + u * v * p11.1);
+    (sx, sy)
+}
+
+fn draw_square_marker(
+    overlay: &mut std::collections::HashMap<(i32, i32), PixelF32>,
+    center: (f32, f32),
+    radius: i32,
+    color: PixelF32,
+    width: i32,
+    height: i32,
+) {
+    let cx = center.0.round() as i32;
+    let cy = center.1.round() as i32;
+    for yy in (cy - radius)..=(cy + radius) {
+        if yy < 0 || yy >= height {
+            continue;
+        }
+        for xx in (cx - radius)..=(cx + radius) {
+            if xx < 0 || xx >= width {
+                continue;
+            }
+            overlay.insert((xx, yy), color);
+        }
+    }
 }
