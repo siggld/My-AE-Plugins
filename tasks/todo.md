@@ -35,3 +35,13 @@
 - [x] `RenderMode::UV+Grid` で格子状ポイント描画を実装
 - [x] `RenderMode::Final Result` / `Distribution map` は現時点フォールバック（入力コピー/TODO）を実装
 - [x] `cargo check -p tkg_path_line_hatching` でコンパイル確認
+
+# Phase 3 実装（2026-04-09）
+
+- [x] パス全長ベース評価関数 `evaluate_path_at_ratio` を実装し、中間頂点を含むパス評価に対応
+- [x] Uのみ/Vのみのフォールバック仕様を `calculate_coons_patch` に実装（仮想境界線生成）
+- [x] 全パス未設定時に安全フォールバック（入力画像コピー）で終了する動作を維持
+- [x] `RenderMode::UV+Grid` を 300x300 サンプルの UV グラデーション + 0.1 間隔グリッド + 2x2 相当スプラット描画へ拡張
+- [x] `RenderMode::Assignment` に 3x5 ビットマップ文字（U/V/1/2）描画を追加し、始点マーカー横へラベル表示
+- [x] `do_render` の入力コピーをベースに、各モード描画を上書きする構成を保持
+- [x] `cargo fmt -p tkg_path_line_hatching` / `cargo check -p tkg_path_line_hatching` で整形・コンパイル確認

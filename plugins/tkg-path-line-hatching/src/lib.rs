@@ -62,10 +62,10 @@ impl RenderMode {
 }
 
 struct NamedPathSamples {
-    u1: Vec<(f32, f32)>,
-    u2: Vec<(f32, f32)>,
-    v1: Vec<(f32, f32)>,
-    v2: Vec<(f32, f32)>,
+    u1: Option<Vec<(f32, f32)>>,
+    u2: Option<Vec<(f32, f32)>>,
+    v1: Option<Vec<(f32, f32)>>,
+    v2: Option<Vec<(f32, f32)>>,
 }
 
 impl AdobePluginGlobal for Plugin {
@@ -371,10 +371,10 @@ impl Plugin {
         if let Some(paths) = named_paths.as_ref() {
             match render_mode {
                 RenderMode::Assignment => {
-                    draw_square_marker(
+                    draw_named_endpoint(
                         &mut overlay,
-                        paths.u1.first().copied().unwrap_or((0.0, 0.0)),
-                        2,
+                        paths.u1.as_deref(),
+                        "U1",
                         PixelF32 {
                             alpha: 1.0,
                             red: 1.0,
@@ -384,10 +384,10 @@ impl Plugin {
                         width,
                         height,
                     );
-                    draw_square_marker(
+                    draw_named_endpoint(
                         &mut overlay,
-                        paths.u2.first().copied().unwrap_or((0.0, 0.0)),
-                        2,
+                        paths.u2.as_deref(),
+                        "U2",
                         PixelF32 {
                             alpha: 1.0,
                             red: 0.0,
@@ -397,10 +397,10 @@ impl Plugin {
                         width,
                         height,
                     );
-                    draw_square_marker(
+                    draw_named_endpoint(
                         &mut overlay,
-                        paths.v1.first().copied().unwrap_or((0.0, 0.0)),
-                        2,
+                        paths.v1.as_deref(),
+                        "V1",
                         PixelF32 {
                             alpha: 1.0,
                             red: 0.0,
@@ -410,10 +410,10 @@ impl Plugin {
                         width,
                         height,
                     );
-                    draw_square_marker(
+                    draw_named_endpoint(
                         &mut overlay,
-                        paths.v2.first().copied().unwrap_or((0.0, 0.0)),
-                        2,
+                        paths.v2.as_deref(),
+                        "V2",
                         PixelF32 {
                             alpha: 1.0,
                             red: 1.0,
@@ -425,35 +425,46 @@ impl Plugin {
                     );
                 }
                 RenderMode::UvGrid => {
-                    for iy in 0..=10 {
-                        let v = iy as f32 / 10.0;
-                        for ix in 0..=10 {
-                            let u = ix as f32 / 10.0;
-                            let (gx, gy) = calculate_coons_patch(
-                                u, v, &paths.u1, &paths.u2, &paths.v1, &paths.v2,
-                            );
-                            draw_square_marker(
-                                &mut overlay,
-                                (gx, gy),
-                                0,
-                                PixelF32 {
+                    let steps = 300_i32;
+                    for iy in 0..=steps {
+                        let v = iy as f32 / steps as f32;
+                        for ix in 0..=steps {
+                            let u = ix as f32 / steps as f32;
+                            let Some((gx, gy)) = calculate_coons_patch(
+                                u,
+                                v,
+                                paths.u1.as_deref(),
+                                paths.u2.as_deref(),
+                                paths.v1.as_deref(),
+                                paths.v2.as_deref(),
+                            ) else {
+                                continue;
+                            };
+                            let mut color = PixelF32 {
+                                alpha: 1.0,
+                                red: u.clamp(0.0, 1.0),
+                                green: v.clamp(0.0, 1.0),
+                                blue: 0.0,
+                            };
+                            if (u % 0.1) < 0.02 || (v % 0.1) < 0.02 {
+                                color = PixelF32 {
                                     alpha: 1.0,
                                     red: 1.0,
-                                    green: 0.0,
+                                    green: 1.0,
                                     blue: 1.0,
-                                },
-                                width,
-                                height,
-                            );
+                                };
+                            }
+                            draw_square_marker(&mut overlay, (gx, gy), 1, color, width, height);
                         }
                     }
                 }
                 RenderMode::FinalResult | RenderMode::DistributionMap => {
-                    // TODO: Final Result / Distribution map は次フェーズで実装
+                    // Final Result / Distribution map は現時点では入力画像コピーをそのまま返す。
                 }
             }
         }
 
+        // 常に最初に in_layer を out_layer へコピーし、その後オーバーレイを上書きする。
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let src = match in_world_type {
                 ae::aegp::WorldType::U8 => in_layer.as_pixel8(x as usize, y as usize).to_pixel32(),
@@ -527,61 +538,38 @@ impl Plugin {
             }
         }
 
-        let (Some(u1_id), Some(u2_id), Some(v1_id), Some(v2_id)) = (u1_id, u2_id, v1_id, v2_id)
-        else {
-            return Ok(None);
-        };
-
-        let Some(u1_path) = query.checkout_path(
-            effect_ref,
-            u1_id,
-            in_data.current_time(),
-            in_data.time_step(),
-            in_data.time_scale(),
-        )?
-        else {
-            return Ok(None);
-        };
-        let Some(u2_path) = query.checkout_path(
-            effect_ref,
-            u2_id,
-            in_data.current_time(),
-            in_data.time_step(),
-            in_data.time_scale(),
-        )?
-        else {
-            return Ok(None);
-        };
-        let Some(v1_path) = query.checkout_path(
-            effect_ref,
-            v1_id,
-            in_data.current_time(),
-            in_data.time_step(),
-            in_data.time_scale(),
-        )?
-        else {
-            return Ok(None);
-        };
-        let Some(v2_path) = query.checkout_path(
-            effect_ref,
-            v2_id,
-            in_data.current_time(),
-            in_data.time_step(),
-            in_data.time_scale(),
-        )?
-        else {
-            return Ok(None);
-        };
-
-        let u1 = sample_path_points(&u1_path)?;
-        let u2 = sample_path_points(&u2_path)?;
-        let v1 = sample_path_points(&v1_path)?;
-        let v2 = sample_path_points(&v2_path)?;
-        if u1.is_empty() || u2.is_empty() || v1.is_empty() || v2.is_empty() {
+        if u1_id.is_none() && u2_id.is_none() && v1_id.is_none() && v2_id.is_none() {
             return Ok(None);
         }
 
-        Ok(Some(NamedPathSamples { u1, u2, v1, v2 }))
+        let fetch_samples =
+            |pid: Option<ae::sys::PF_PathID>| -> Result<Option<Vec<(f32, f32)>>, Error> {
+                let Some(pid) = pid else {
+                    return Ok(None);
+                };
+                let Some(path) = query.checkout_path(
+                    effect_ref,
+                    pid,
+                    in_data.current_time(),
+                    in_data.time_step(),
+                    in_data.time_scale(),
+                )?
+                else {
+                    return Ok(None);
+                };
+                let points = sample_path_points(&path)?;
+                if points.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(points))
+            };
+
+        Ok(Some(NamedPathSamples {
+            u1: fetch_samples(u1_id)?,
+            u2: fetch_samples(u2_id)?,
+            v1: fetch_samples(v1_id)?,
+            v2: fetch_samples(v2_id)?,
+        }))
     }
 }
 
@@ -595,69 +583,92 @@ fn sample_ref_layer_stub(layer: &Layer, x: usize, y: usize) -> f32 {
 }
 
 fn sample_path_points(path: &PathOutline) -> Result<Vec<(f32, f32)>, Error> {
-    let segs = path.num_segments()?;
-    if segs <= 0 {
-        return Ok(Vec::new());
-    }
     let mut points = Vec::new();
-    for seg in 0..segs {
-        let mut prep = path.prepare_seg_length(seg, 100)?;
-        let seg_len = prep.length()?;
-        if seg_len <= 0.0001 {
-            continue;
-        }
-        let steps = 32_i32.max((seg_len / 6.0) as i32);
-        for s in 0..=steps {
-            let l = seg_len * (s as f64 / steps as f64);
-            let (x, y) = prep.eval(l)?;
-            points.push((x as f32, y as f32));
-        }
+    let samples = 200_i32;
+    for i in 0..=samples {
+        let ratio = i as f64 / samples as f64;
+        points.push(evaluate_path_at_ratio(path, ratio)?);
     }
     Ok(points)
+}
+
+fn evaluate_path_at_ratio(path: &PathOutline, ratio: f64) -> Result<(f32, f32), Error> {
+    let num_segments = path.num_segments()?;
+    if num_segments <= 0 {
+        return Ok((0.0, 0.0));
+    }
+
+    let ratio = ratio.clamp(0.0, 1.0);
+    let mut total_length = 0.0_f64;
+    let mut seg_lengths = Vec::with_capacity(num_segments as usize);
+    for seg in 0..num_segments {
+        let mut prep = path.prepare_seg_length(seg, 100)?;
+        let len = prep.length().unwrap_or(0.0);
+        seg_lengths.push(len);
+        total_length += len;
+    }
+    if total_length <= 1.0e-6 {
+        return Ok((0.0, 0.0));
+    }
+
+    let target = total_length * ratio;
+    let mut current = 0.0_f64;
+    for seg in 0..num_segments {
+        let seg_len = seg_lengths[seg as usize];
+        if current + seg_len >= target || seg == num_segments - 1 {
+            let local_len = (target - current).clamp(0.0, seg_len.max(0.0));
+            let mut prep = path.prepare_seg_length(seg, 100)?;
+            let (x, y) = prep.eval(local_len).unwrap_or((0.0, 0.0));
+            return Ok((x as f32, y as f32));
+        }
+        current += seg_len;
+    }
+    Ok((0.0, 0.0))
 }
 
 fn sample_polyline_t(points: &[(f32, f32)], t: f32) -> (f32, f32) {
     if points.is_empty() {
         return (0.0, 0.0);
     }
-    if points.len() == 1 {
-        return points[0];
-    }
-    let t = t.clamp(0.0, 1.0);
-    let mut total = 0.0_f32;
-    for i in 1..points.len() {
-        let dx = points[i].0 - points[i - 1].0;
-        let dy = points[i].1 - points[i - 1].1;
-        total += (dx * dx + dy * dy).sqrt();
-    }
-    if total <= 1.0e-5 {
-        return points[0];
-    }
-    let target = total * t;
-    let mut acc = 0.0_f32;
-    for i in 1..points.len() {
-        let (x0, y0) = points[i - 1];
-        let (x1, y1) = points[i];
-        let dx = x1 - x0;
-        let dy = y1 - y0;
-        let seg = (dx * dx + dy * dy).sqrt();
-        if acc + seg >= target && seg > 0.0 {
-            let lt = (target - acc) / seg;
-            return (x0 + dx * lt, y0 + dy * lt);
-        }
-        acc += seg;
-    }
-    points[points.len() - 1]
+    let idx = ((points.len().saturating_sub(1)) as f32 * t.clamp(0.0, 1.0)).round() as usize;
+    points[idx.min(points.len() - 1)]
 }
 
 fn calculate_coons_patch(
     u: f32,
     v: f32,
-    path_u1: &[(f32, f32)],
-    path_u2: &[(f32, f32)],
-    path_v1: &[(f32, f32)],
-    path_v2: &[(f32, f32)],
-) -> (f32, f32) {
+    path_u1: Option<&[(f32, f32)]>,
+    path_u2: Option<&[(f32, f32)]>,
+    path_v1: Option<&[(f32, f32)]>,
+    path_v2: Option<&[(f32, f32)]>,
+) -> Option<(f32, f32)> {
+    let virtual_v1;
+    let virtual_v2;
+    let virtual_u1;
+    let virtual_u2;
+    let (path_u1, path_u2, path_v1, path_v2): (
+        &[(f32, f32)],
+        &[(f32, f32)],
+        &[(f32, f32)],
+        &[(f32, f32)],
+    ) = match (path_u1, path_u2, path_v1, path_v2) {
+        (Some(u1), Some(u2), Some(v1), Some(v2))
+            if !u1.is_empty() && !u2.is_empty() && !v1.is_empty() && !v2.is_empty() =>
+        {
+            (u1, u2, v1, v2)
+        }
+        (Some(u1), Some(u2), None, None) if !u1.is_empty() && !u2.is_empty() => {
+            virtual_v1 = vec![u1[0], u2[0]];
+            virtual_v2 = vec![u1[u1.len() - 1], u2[u2.len() - 1]];
+            (u1, u2, virtual_v1.as_slice(), virtual_v2.as_slice())
+        }
+        (None, None, Some(v1), Some(v2)) if !v1.is_empty() && !v2.is_empty() => {
+            virtual_u1 = vec![v1[0], v2[0]];
+            virtual_u2 = vec![v1[v1.len() - 1], v2[v2.len() - 1]];
+            (virtual_u1.as_slice(), virtual_u2.as_slice(), v1, v2)
+        }
+        _ => return None,
+    };
     let c0 = sample_polyline_t(path_u1, v);
     let c1 = sample_polyline_t(path_u2, v);
     let d0 = sample_polyline_t(path_v1, u);
@@ -678,7 +689,7 @@ fn calculate_coons_patch(
             + u * (1.0 - v) * p10.1
             + (1.0 - u) * v * p01.1
             + u * v * p11.1);
-    (sx, sy)
+    Some((sx, sy))
 }
 
 fn draw_square_marker(
@@ -700,6 +711,80 @@ fn draw_square_marker(
                 continue;
             }
             overlay.insert((xx, yy), color);
+        }
+    }
+}
+
+fn draw_named_endpoint(
+    overlay: &mut std::collections::HashMap<(i32, i32), PixelF32>,
+    path: Option<&[(f32, f32)]>,
+    label: &str,
+    color: PixelF32,
+    width: i32,
+    height: i32,
+) {
+    let Some(path) = path else {
+        return;
+    };
+    if path.is_empty() {
+        return;
+    }
+    let p = path[0];
+    draw_square_marker(overlay, p, 2, color, width, height);
+    draw_text_3x5(
+        overlay,
+        p.0.round() as i32 + 4,
+        p.1.round() as i32 - 2,
+        label,
+        color,
+        width,
+        height,
+    );
+}
+
+fn draw_text_3x5(
+    overlay: &mut std::collections::HashMap<(i32, i32), PixelF32>,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: PixelF32,
+    width: i32,
+    height: i32,
+) {
+    let mut cursor_x = x;
+    for ch in text.chars() {
+        draw_char_3x5(overlay, cursor_x, y, ch, color, width, height);
+        cursor_x += 4;
+    }
+}
+
+fn draw_char_3x5(
+    overlay: &mut std::collections::HashMap<(i32, i32), PixelF32>,
+    x: i32,
+    y: i32,
+    ch: char,
+    color: PixelF32,
+    width: i32,
+    height: i32,
+) {
+    let glyph: [&str; 5] = match ch {
+        'U' => ["101", "101", "101", "101", "111"],
+        'V' => ["101", "101", "101", "101", "010"],
+        '1' => ["010", "110", "010", "010", "111"],
+        '2' => ["111", "001", "111", "100", "111"],
+        _ => ["000", "000", "000", "000", "000"],
+    };
+    for (yy, row) in glyph.iter().enumerate() {
+        for (xx, c) in row.chars().enumerate() {
+            if c != '1' {
+                continue;
+            }
+            let px = x + xx as i32;
+            let py = y + yy as i32;
+            if px < 0 || py < 0 || px >= width || py >= height {
+                continue;
+            }
+            overlay.insert((px, py), color);
         }
     }
 }
