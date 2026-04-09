@@ -60,7 +60,7 @@ impl AdobePluginGlobal for Plugin {
             Params::Algorithm,
             "Algorithm",
             PopupDef::setup(|d| {
-                d.set_options(&["動的密度補間(隙間埋め)", "均等+両端埋め"]);
+                d.set_options(&["Dynamic Subdivision", "Evenly Spaced"]);
                 d.set_default(1);
             }),
             ParamFlag::SUPERVISE,
@@ -117,7 +117,7 @@ impl AdobePluginGlobal for Plugin {
                     Params::RefMode,
                     "RefMode",
                     PopupDef::setup(|d| {
-                        d.set_options(&["アルファ", "明るさ(Lightness)", "輝度(Luminance)"]);
+                        d.set_options(&["Alpha", "Lightness", "Luminance"]);
                         d.set_default(1);
                     }),
                 )?;
@@ -135,7 +135,7 @@ impl AdobePluginGlobal for Plugin {
                     Params::Align_U,
                     "Align_U",
                     PopupDef::setup(|d| {
-                        d.set_options(&["左寄せ", "中央寄せ", "右寄せ"]);
+                        d.set_options(&["Left", "Center", "Right"]);
                         d.set_default(2);
                     }),
                 )?;
@@ -175,7 +175,7 @@ impl AdobePluginGlobal for Plugin {
                     Params::Align_V,
                     "Align_V",
                     PopupDef::setup(|d| {
-                        d.set_options(&["左寄せ", "中央寄せ", "右寄せ"]);
+                        d.set_options(&["Left", "Center", "Right"]);
                         d.set_default(2);
                     }),
                 )?;
@@ -271,8 +271,11 @@ impl AdobePluginGlobal for Plugin {
                     let _ = extra.union_result_rect(in_result.result_rect.into());
                     let _ = extra.union_max_result_rect(in_result.max_result_rect.into());
                 }
+                let ref_layer_index = params
+                    .index(Params::RefLayer)
+                    .ok_or(ae::Error::InvalidIndex)? as i32;
                 let _ = extra.callbacks().checkout_layer(
-                    Params::RefLayer as i32,
+                    ref_layer_index,
                     1,
                     &req,
                     in_data.current_time(),
@@ -284,7 +287,10 @@ impl AdobePluginGlobal for Plugin {
                 let cb = extra.callbacks();
                 let in_layer_opt = cb.checkout_layer_pixels(0)?;
                 let out_layer_opt = cb.checkout_output()?;
-                let ref_layer_opt = cb.checkout_layer_pixels(1).ok().flatten();
+                let ref_layer_index = params
+                    .index(Params::RefLayer)
+                    .ok_or(ae::Error::InvalidIndex)? as u32;
+                let ref_layer_opt = cb.checkout_layer_pixels(ref_layer_index).ok().flatten();
                 let has_ref = ref_layer_opt.is_some();
 
                 if let (Some(in_layer), Some(out_layer)) = (in_layer_opt, out_layer_opt) {
@@ -299,7 +305,7 @@ impl AdobePluginGlobal for Plugin {
                 }
                 cb.checkin_layer_pixels(0)?;
                 if has_ref {
-                    cb.checkin_layer_pixels(1)?;
+                    cb.checkin_layer_pixels(ref_layer_index)?;
                 }
             }
             _ => {}

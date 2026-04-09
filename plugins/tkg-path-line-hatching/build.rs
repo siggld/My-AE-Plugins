@@ -50,6 +50,7 @@ fn main() {
                 | OutFlags::UseOutputExtent
                 | OutFlags::DeepColorAware
                 | OutFlags::WideTimeInput
+                | OutFlags::SendUpdateParamsUI
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2(
@@ -58,6 +59,7 @@ fn main() {
                 | OutFlags2::SupportsGetFlattenedSequenceData
                 | OutFlags2::AutomaticWideTimeInput
                 | OutFlags2::SupportsSmartRender
+                | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
         Property::AE_Effect_Match_Name("TkgPathLineHatching"),
