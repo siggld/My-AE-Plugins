@@ -68,6 +68,14 @@ struct NamedPathSamples {
     v2: Option<Vec<(f32, f32)>>,
 }
 
+type PathPoints<'a> = &'a [(f32, f32)];
+type PatchBoundaries<'a> = (
+    PathPoints<'a>,
+    PathPoints<'a>,
+    PathPoints<'a>,
+    PathPoints<'a>,
+);
+
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
@@ -646,29 +654,25 @@ fn calculate_coons_patch(
     let virtual_v2;
     let virtual_u1;
     let virtual_u2;
-    let (path_u1, path_u2, path_v1, path_v2): (
-        &[(f32, f32)],
-        &[(f32, f32)],
-        &[(f32, f32)],
-        &[(f32, f32)],
-    ) = match (path_u1, path_u2, path_v1, path_v2) {
-        (Some(u1), Some(u2), Some(v1), Some(v2))
-            if !u1.is_empty() && !u2.is_empty() && !v1.is_empty() && !v2.is_empty() =>
-        {
-            (u1, u2, v1, v2)
-        }
-        (Some(u1), Some(u2), None, None) if !u1.is_empty() && !u2.is_empty() => {
-            virtual_v1 = vec![u1[0], u2[0]];
-            virtual_v2 = vec![u1[u1.len() - 1], u2[u2.len() - 1]];
-            (u1, u2, virtual_v1.as_slice(), virtual_v2.as_slice())
-        }
-        (None, None, Some(v1), Some(v2)) if !v1.is_empty() && !v2.is_empty() => {
-            virtual_u1 = vec![v1[0], v2[0]];
-            virtual_u2 = vec![v1[v1.len() - 1], v2[v2.len() - 1]];
-            (virtual_u1.as_slice(), virtual_u2.as_slice(), v1, v2)
-        }
-        _ => return None,
-    };
+    let (path_u1, path_u2, path_v1, path_v2): PatchBoundaries<'_> =
+        match (path_u1, path_u2, path_v1, path_v2) {
+            (Some(u1), Some(u2), Some(v1), Some(v2))
+                if !u1.is_empty() && !u2.is_empty() && !v1.is_empty() && !v2.is_empty() =>
+            {
+                (u1, u2, v1, v2)
+            }
+            (Some(u1), Some(u2), None, None) if !u1.is_empty() && !u2.is_empty() => {
+                virtual_v1 = vec![u1[0], u2[0]];
+                virtual_v2 = vec![u1[u1.len() - 1], u2[u2.len() - 1]];
+                (u1, u2, virtual_v1.as_slice(), virtual_v2.as_slice())
+            }
+            (None, None, Some(v1), Some(v2)) if !v1.is_empty() && !v2.is_empty() => {
+                virtual_u1 = vec![v1[0], v2[0]];
+                virtual_u2 = vec![v1[v1.len() - 1], v2[v2.len() - 1]];
+                (virtual_u1.as_slice(), virtual_u2.as_slice(), v1, v2)
+            }
+            _ => return None,
+        };
     let c0 = sample_polyline_t(path_u1, v);
     let c1 = sample_polyline_t(path_u2, v);
     let d0 = sample_polyline_t(path_v1, u);
