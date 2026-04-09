@@ -350,7 +350,8 @@ impl Plugin {
         params: &mut Parameters<Params>,
         ref_layer: Option<Layer>,
     ) -> Result<(), Error> {
-        let render_mode = RenderMode::from_popup(params.get(Params::RenderMode)?.as_popup()?.value());
+        let render_mode =
+            RenderMode::from_popup(params.get(Params::RenderMode)?.as_popup()?.value());
         let _line_color = params.get(Params::Color)?.as_color()?.value();
         let _line_thickness = params.get(Params::Thickness)?.as_float_slider()?.value() as f32;
         let _angle = params.get(Params::Angle)?.as_angle()?.value();
@@ -428,7 +429,9 @@ impl Plugin {
                         let v = iy as f32 / 10.0;
                         for ix in 0..=10 {
                             let u = ix as f32 / 10.0;
-                            let (gx, gy) = calculate_coons_patch(u, v, &paths.u1, &paths.u2, &paths.v1, &paths.v2);
+                            let (gx, gy) = calculate_coons_patch(
+                                u, v, &paths.u1, &paths.u2, &paths.v1, &paths.v2,
+                            );
                             draw_square_marker(
                                 &mut overlay,
                                 (gx, gy),
@@ -483,7 +486,10 @@ impl Plugin {
         Ok(())
     }
 
-    fn collect_named_path_samples(&self, in_data: InData) -> Result<Option<NamedPathSamples>, Error> {
+    fn collect_named_path_samples(
+        &self,
+        in_data: InData,
+    ) -> Result<Option<NamedPathSamples>, Error> {
         if in_data.is_premiere() {
             return Ok(None);
         }
@@ -507,7 +513,8 @@ impl Plugin {
                 in_data.current_time(),
                 in_data.time_step(),
                 in_data.time_scale(),
-            )? else {
+            )?
+            else {
                 continue;
             };
             let name = path_outline.name()?;
@@ -520,7 +527,8 @@ impl Plugin {
             }
         }
 
-        let (Some(u1_id), Some(u2_id), Some(v1_id), Some(v2_id)) = (u1_id, u2_id, v1_id, v2_id) else {
+        let (Some(u1_id), Some(u2_id), Some(v1_id), Some(v2_id)) = (u1_id, u2_id, v1_id, v2_id)
+        else {
             return Ok(None);
         };
 
@@ -530,7 +538,8 @@ impl Plugin {
             in_data.current_time(),
             in_data.time_step(),
             in_data.time_scale(),
-        )? else {
+        )?
+        else {
             return Ok(None);
         };
         let Some(u2_path) = query.checkout_path(
@@ -539,7 +548,8 @@ impl Plugin {
             in_data.current_time(),
             in_data.time_step(),
             in_data.time_scale(),
-        )? else {
+        )?
+        else {
             return Ok(None);
         };
         let Some(v1_path) = query.checkout_path(
@@ -548,7 +558,8 @@ impl Plugin {
             in_data.current_time(),
             in_data.time_step(),
             in_data.time_scale(),
-        )? else {
+        )?
+        else {
             return Ok(None);
         };
         let Some(v2_path) = query.checkout_path(
@@ -557,7 +568,8 @@ impl Plugin {
             in_data.current_time(),
             in_data.time_step(),
             in_data.time_scale(),
-        )? else {
+        )?
+        else {
             return Ok(None);
         };
 
