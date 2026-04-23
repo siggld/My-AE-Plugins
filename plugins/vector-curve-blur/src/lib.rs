@@ -978,6 +978,7 @@ impl Plugin {
             let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
             let mut max_blend = 0.0_f32;
+            let mut max_preview_blend = 0.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -1053,7 +1054,9 @@ impl Plugin {
 
                 let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
                 let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity).clamp(0.0, 1.0);
+                let preview_blend_i = (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
                 max_blend = max_blend.max(blend_i);
+                max_preview_blend = max_preview_blend.max(preview_blend_i);
 
                 if normal_w > best_normal_w {
                     chosen = Some((mask, nearest, effective_range, normal_w, edge_falloff));
@@ -1070,6 +1073,7 @@ impl Plugin {
             };
 
             let combined_blend = max_blend.clamp(0.0, 1.0);
+            let preview_blend = max_preview_blend.clamp(0.0, 1.0);
             let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
 
@@ -1085,12 +1089,12 @@ impl Plugin {
 
             if view_mode == 2 {
                 let vis = PixelF32 {
-                    red: total_blend,
-                    green: total_blend * 0.7,
-                    blue: 1.0 - total_blend,
+                    red: preview_blend,
+                    green: preview_blend * 0.7,
+                    blue: 1.0 - preview_blend,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, total_blend);
+                let col = lerp_pixel(&original, &vis, preview_blend);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
@@ -1101,7 +1105,7 @@ impl Plugin {
                     blue: g,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, total_blend);
+                let col = lerp_pixel(&original, &vis, preview_blend);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
@@ -1111,7 +1115,7 @@ impl Plugin {
                     blue: fract_val,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, total_blend);
+                let col = lerp_pixel(&original, &vis, preview_blend);
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -1536,7 +1540,12 @@ fn selected_normal_side_u(distance: f32, effective_range: f32, normal_side: i32)
         return None;
     }
 
-    Some((distance.abs() / effective_range).clamp(0.0, 1.0))
+    let side_u = distance.abs() / effective_range;
+    if side_u > 1.0 {
+        return None;
+    }
+
+    Some(side_u.clamp(0.0, 1.0))
 }
 
 fn edge_to_center_weight(progress: f32, falloff: f32, bias: f32) -> f32 {
