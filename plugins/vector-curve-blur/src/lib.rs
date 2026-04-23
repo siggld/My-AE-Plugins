@@ -159,7 +159,7 @@ impl AdobePluginGlobal for Plugin {
                 d.set_valid_max(100.0);
                 d.set_slider_min(0.0);
                 d.set_slider_max(100.0);
-                d.set_default(0.0);
+                d.set_default(50.0);
                 d.set_precision(1);
             }),
         )?;
@@ -1010,12 +1010,18 @@ impl Plugin {
                 } else {
                     1.0
                 };
-                let effective_range = normal_range * taper_thickness * profile_thickness;
-                let Some(side_u) =
-                    selected_normal_side_u(nearest.distance, effective_range, normal_side)
+                let thickness_factor = (taper_thickness * profile_thickness).clamp(0.0, 1.0);
+                let Some(side_u_full) =
+                    selected_normal_side_u(nearest.distance, normal_range, normal_side)
                 else {
                     continue;
                 };
+                let Some((side_u, band_width_u)) =
+                    remap_side_u_around_centerline(side_u_full, thickness_factor, center_line)
+                else {
+                    continue;
+                };
+                let effective_range = (normal_range * band_width_u).max(0.001);
 
                 let arc_len = mask.arc_len.max(1.0);
                 let edge_zone_start = if enable_tangent_falloff {
@@ -1548,6 +1554,28 @@ fn selected_normal_side_u(distance: f32, effective_range: f32, normal_side: i32)
     Some(side_u.clamp(0.0, 1.0))
 }
 
+fn remap_side_u_around_centerline(
+    side_u_full: f32,
+    thickness_factor: f32,
+    center_line: f32,
+) -> Option<(f32, f32)> {
+    let thickness = thickness_factor.clamp(0.0, 1.0);
+    if thickness <= 1e-4 {
+        return None;
+    }
+
+    let center = center_line.clamp(0.0, 1.0);
+    let band_start = center * (1.0 - thickness);
+    let band_end = center + (1.0 - center) * thickness;
+    if side_u_full < band_start || side_u_full > band_end {
+        return None;
+    }
+
+    let band_width = (band_end - band_start).max(1e-4);
+    let local_u = ((side_u_full - band_start) / band_width).clamp(0.0, 1.0);
+    Some((local_u, band_width))
+}
+
 fn edge_to_center_weight(progress: f32, falloff: f32, bias: f32) -> f32 {
     let zone = falloff.clamp(0.0, 1.0);
     if zone <= 1e-4 {
@@ -1651,9 +1679,14 @@ fn compute_max_normal_buffer(
                 } else {
                     1.0
                 };
-                let effective_range = normal_range * taper_thickness * profile_thickness;
-                let Some(side_u) =
-                    selected_normal_side_u(nearest.distance, effective_range, normal_side)
+                let thickness_factor = (taper_thickness * profile_thickness).clamp(0.0, 1.0);
+                let Some(side_u_full) =
+                    selected_normal_side_u(nearest.distance, normal_range, normal_side)
+                else {
+                    continue;
+                };
+                let Some((side_u, _band_width_u)) =
+                    remap_side_u_around_centerline(side_u_full, thickness_factor, center_line)
                 else {
                     continue;
                 };

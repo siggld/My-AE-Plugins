@@ -30,7 +30,9 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - 選択した片側へ広げる法線帯域の幅
 - `CenterLine (%)`
   - `0% = パス上`、`100% = NormalRange の外縁`
+  - 初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
+  - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
 - `Normal Side`
   - `Positive` / `Negative` の片側だけに法線処理を適用する
 - `Start Taper Curve` / `End Taper Curve`
@@ -56,12 +58,14 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - 正規化位置 `t` を算出して `Path Blur Offset` 適用
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
+  - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
 - Fractal:
   - シードに `t` は使わず、法線距離 `d` と `Evolution` を使用
 - Profile Curve:
   - カーブ始点X=0.0、終点X=1.0 の正規化空間でサンプリング
   - Y は始点/終点の上下関係から上側=1.0、下側=0.0 へ正規化
   - `Positive/Negative Scale`（`Link Scales` 時は同値）で倍率化
+  - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
 
 ## バージョン/アーカイブ運用
 - 形式: `vMajor.Minor.Patch`

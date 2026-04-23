@@ -2,6 +2,7 @@
 * [Change] Limited source-path collection to mask names `path` and `path_[n]`, and profile taper collection to mask name `Curve`.
 * [Change] Replaced the old side selector with `Normal Side` and added `CenterLine (%)` for one-sided normal-band convergence control.
 * [UI] Updated path/profile labels to show required mask names and changed both taper-curve defaults to `0.5`.
+* [Fix] Changed `CenterLine (%)` default to `50` and made `Simple Taper` / `Profile Taper` contract around the same centerline axis.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.
