@@ -74,6 +74,7 @@ enum Params {
     EdgeGhostHold,
     EdgeHybridBalance,
     EdgePreserveGroupEnd,
+    FastBoxBlurFractalBoost,
 }
 
 #[derive(Default)]
@@ -370,6 +371,18 @@ impl AdobePluginGlobal for Plugin {
                         d.set_slider_max(10.0);
                         d.set_default(4.0);
                         d.set_precision(0);
+                    }),
+                )?;
+                params.add(
+                    Params::FastBoxBlurFractalBoost,
+                    "Fractal Boost",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(300.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
                     }),
                 )?;
                 params.add(
@@ -776,6 +789,10 @@ impl AdobePluginGlobal for Plugin {
                     .get(Params::FastBoxBlurRadius)?
                     .as_float_slider()?
                     .value() as f32;
+                let fract_amount_value = params
+                    .get(Params::FractalAmount)?
+                    .as_float_slider()?
+                    .value() as f32;
                 let mut p = params.cloned();
 
                 {
@@ -792,9 +809,18 @@ impl AdobePluginGlobal for Plugin {
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
                     pd.update_param_ui()?;
                 }
-                for k in [Params::FastBoxBlurIterations, Params::FastBoxBlurRepeatEdge] {
+                for k in [
+                    Params::FastBoxBlurIterations,
+                    Params::FastBoxBlurFractalBoost,
+                    Params::FastBoxBlurRepeatEdge,
+                ] {
                     let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, box_blur_radius < 0.5);
+                    let disabled = if k == Params::FastBoxBlurFractalBoost {
+                        box_blur_radius < 0.5 || fract_amount_value < 0.5
+                    } else {
+                        box_blur_radius < 0.5
+                    };
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
                     pd.update_param_ui()?;
                 }
                 {
@@ -958,6 +984,11 @@ impl Plugin {
             .get(Params::FastBoxBlurRepeatEdge)?
             .as_checkbox()?
             .value();
+        let fast_box_fractal_boost = params
+            .get(Params::FastBoxBlurFractalBoost)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
         let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
         let taper_s_len = params
             .get(Params::StartTaperLength)?
@@ -1246,6 +1277,15 @@ impl Plugin {
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
             let total_blend = combined_blend;
+            let fract_boost = if fract_amount > 0.001 {
+                ((fract_val - 0.5).abs() * 2.0).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let source_soften_mix = ((box_blur_radius as f32 / 24.0)
+                * (box_blur_iterations as f32 / 4.0)
+                * (1.0 + fast_box_fractal_boost * fract_boost))
+                .clamp(0.0, 1.0);
 
             if view_mode == 2 {
                 let vis = PixelF32 {
@@ -1285,8 +1325,6 @@ impl Plugin {
             } else {
                 (nearest.tx, nearest.ty)
             };
-            let nx = -nearest.ty;
-            let ny = nearest.tx;
             let smoothed_normal_w = smoothed_normal_buffer
                 .as_ref()
                 .map(|values| values[y as usize * in_w + x as usize])
@@ -1311,6 +1349,11 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                     sample_mode,
+                    edge_mode: edge_preserve_mode,
+                    edge_color_hold,
+                    edge_ghost_hold,
+                    edge_hybrid_balance,
+                    source_soften_mix,
                 });
                 let opacity =
                     total_blend * (1.0 - offset_end_fade) + preview_blend * offset_end_fade;
@@ -1330,23 +1373,14 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                     sample_mode,
+                    edge_mode: edge_preserve_mode,
+                    edge_color_hold,
+                    edge_ghost_hold,
+                    edge_hybrid_balance,
+                    source_soften_mix,
                 });
                 (lerp_pixel(&original, &blurred, total_blend), total_blend)
             };
-
-            let path_x = xf - nx * nearest.distance;
-            let path_y = yf - ny * nearest.distance;
-            let edge_source =
-                sample_with_quality(&in_layer, in_world, in_w, in_h, path_x, path_y, sample_mode);
-            col = apply_edge_preserve_mode(
-                &col,
-                &edge_source,
-                edge_preserve_mode,
-                edge_color_hold,
-                edge_ghost_hold,
-                edge_hybrid_balance,
-                blend_strength,
-            );
 
             if add_color_opacity > 0.001 && blend_strength > 0.001 {
                 let mut tinted = add_color_f32;
@@ -1587,6 +1621,11 @@ struct TangentBlurParams<'a> {
     positive_amount: f32,
     negative_amount: f32,
     sample_mode: i32,
+    edge_mode: i32,
+    edge_color_hold: f32,
+    edge_ghost_hold: f32,
+    edge_hybrid_balance: f32,
+    source_soften_mix: f32,
 }
 
 fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
@@ -1614,6 +1653,18 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         blue: 0.0,
     };
     let mut wsum = 0.0_f32;
+    let mut best_color = sample_with_quality(
+        p.layer,
+        p.world,
+        p.width,
+        p.height,
+        p.center_x,
+        p.center_y,
+        p.sample_mode,
+    );
+    let mut best_color_score = -1.0_f32;
+    let mut best_ghost = best_color;
+    let mut best_ghost_score = -1.0_f32;
 
     let pos_sigma = (pos_r / 3.0).max(0.001);
     let neg_sigma = (neg_r / 3.0).max(0.001);
@@ -1637,6 +1688,19 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         sum.green += px.green * w;
         sum.blue += px.blue * w;
         wsum += w;
+
+        let chroma = color_chroma(&px);
+        let color_score = w * (0.25 + chroma * 2.0);
+        if color_score > best_color_score {
+            best_color_score = color_score;
+            best_color = px;
+        }
+
+        let ghost_score = w * (0.25 + px.alpha * 0.5);
+        if ghost_score > best_ghost_score {
+            best_ghost_score = ghost_score;
+            best_ghost = px;
+        }
     }
 
     if wsum > 0.0 {
@@ -1645,7 +1709,21 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         sum.green /= wsum;
         sum.blue /= wsum;
     }
-    sum
+
+    let color_mode = lerp_pixel(&sum, &best_color, p.edge_color_hold.clamp(0.0, 1.0));
+    let ghost_mode = lerp_pixel(&sum, &best_ghost, p.edge_ghost_hold.clamp(0.0, 1.0));
+    let displaced = match p.edge_mode {
+        1 => color_mode,
+        2 => ghost_mode,
+        3 => lerp_pixel(
+            &color_mode,
+            &ghost_mode,
+            p.edge_hybrid_balance.clamp(0.0, 1.0),
+        ),
+        _ => color_mode,
+    };
+
+    lerp_pixel(&displaced, &sum, p.source_soften_mix.clamp(0.0, 1.0))
 }
 
 // ---------------------------------------------------------------------------
@@ -2134,57 +2212,10 @@ fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
     }
 }
 
-fn max_rgb(px: &PixelF32) -> f32 {
-    px.red.max(px.green).max(px.blue)
-}
-
-fn recolor_to_source_hue(base: &PixelF32, source: &PixelF32) -> PixelF32 {
-    let src_max = max_rgb(source);
-    if src_max <= 1e-4 {
-        return *base;
-    }
-
-    let intensity = max_rgb(base);
-    let scale = intensity / src_max;
-    PixelF32 {
-        alpha: base.alpha,
-        red: (source.red * scale).clamp(0.0, 1.0),
-        green: (source.green * scale).clamp(0.0, 1.0),
-        blue: (source.blue * scale).clamp(0.0, 1.0),
-    }
-}
-
-fn apply_edge_preserve_mode(
-    base: &PixelF32,
-    edge_source: &PixelF32,
-    mode: i32,
-    edge_color_hold: f32,
-    edge_ghost_hold: f32,
-    edge_hybrid_balance: f32,
-    blend_strength: f32,
-) -> PixelF32 {
-    let color_preserved = recolor_to_source_hue(base, edge_source);
-    let color_mode = lerp_pixel(
-        base,
-        &color_preserved,
-        (edge_color_hold * blend_strength).clamp(0.0, 1.0),
-    );
-    let ghost_mode = lerp_pixel(
-        base,
-        edge_source,
-        (edge_ghost_hold * blend_strength).clamp(0.0, 1.0),
-    );
-
-    match mode {
-        1 => color_mode,
-        2 => ghost_mode,
-        3 => lerp_pixel(
-            &color_mode,
-            &ghost_mode,
-            edge_hybrid_balance.clamp(0.0, 1.0),
-        ),
-        _ => *base,
-    }
+fn color_chroma(px: &PixelF32) -> f32 {
+    let min_v = px.red.min(px.green).min(px.blue);
+    let max_v = px.red.max(px.green).max(px.blue);
+    (max_v - min_v).clamp(0.0, 1.0)
 }
 
 fn blend_channel(base: f32, blend: f32, mode: i32) -> f32 {

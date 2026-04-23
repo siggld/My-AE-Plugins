@@ -36,10 +36,14 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
   - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
 - `Path Blur Offset` / `Subtraction Alpha`
-  - `Falloff Mode = Blur Amount` では、位置オフセットはブラー量側の減衰に追従する
+  - `Falloff Mode = Blur Amount` では、位置オフセットは不透明度ではなく変位量としてブラー側の減衰に追従する
   - 端から薄くする効果は `Subtraction Alpha` で別制御する
 - `Antialiasing` / `Antialiasing Quality`
   - `Low` / `High` でサンプリング品質を切り替える
+- `Fast Box Blur`
+  - `Radius = 0` では画像をぼかさない
+  - 必要時だけ、ずらした像を少しなじませる用途で使う
+  - `Fractal Boost` で、Fractal が強い部分ほど追加のなじませ量を増やせる
 - `Start Taper Curve` / `End Taper Curve`
   - 初期値は `0.5`
 - `Profile Taper (Curve)`
@@ -65,8 +69,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `CenterLine (%)` を中心に、`Normal Falloff` / `Normal Falloff Bias` はパス側と外縁側の両端から収束する
 - ブラー:
   - 画素から最短サンプル点を取得
-  - 正規化位置 `t` を算出して `Path Blur Offset` 適用
-  - `Falloff Mode = Blur Amount` では、位置オフセットもブラー量側の減衰に追従する
+  - 正規化位置 `t` を算出して `Path Blur Offset` を変位量として適用する
+  - `Falloff Mode = Blur Amount` では、元画像の上に薄く平均色を重ねるのではなく、接線方向へずらした元絵サンプルを主に使う
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
@@ -83,7 +87,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Invert Profile` でカーブ形状を反転できる
   - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
 - 境界保持 / AA:
-  - `Edge Preserve` モードで、背景色との中間色が増えすぎない輪郭保持を切り替える
+  - `Edge Preserve` モードで、背景色との中間色が増えすぎないように、ずらしたサンプルの選び方を切り替える
   - `Antialiasing Quality` はサンプリング品質を切り替え、`High` は見た目優先、`Low` は速度優先とする
 
 ## バージョン/アーカイブ運用

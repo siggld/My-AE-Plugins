@@ -8,6 +8,8 @@
 * [Change] Moved `Normal Side` above `Swap Tangent`, redefined `Profile Taper` around `Profile Amount`, and split end fade from `Path Blur Offset` with `Subtraction Alpha`.
 * [Feature] Added `Edge Preserve` modes (`Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid`) with mode-specific controls.
 * [Feature] Added `Antialiasing` and `Antialiasing Quality (Low / High)` for sampling control.
+* [Change] Shifted the blur model toward displacement-style source sampling instead of simple color averaging, to preserve hard color boundaries better.
+* [Feature] Added `Fast Box Blur -> Fractal Boost` and kept `Fast Box Blur = 0` as a no-softening state.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.
