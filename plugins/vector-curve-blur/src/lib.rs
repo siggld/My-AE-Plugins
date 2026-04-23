@@ -16,6 +16,7 @@ enum Params {
     EnableMasks,
     SwapTangent,
     NormalRange,
+    CenterLine,
     NormalFalloff,
     NormalFalloffBias,
     FalloffMode,
@@ -42,7 +43,7 @@ enum Params {
     PositiveScale,
     LinkScales,
     NegativeScale,
-    OneSideOnly,
+    NormalSide,
     ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
@@ -124,7 +125,7 @@ impl AdobePluginGlobal for Plugin {
         )?;
         params.add(
             Params::EnableMasks,
-            "Enable Masks",
+            "Use All Paths (path / path_[n])",
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
             }),
@@ -147,6 +148,18 @@ impl AdobePluginGlobal for Plugin {
                 d.set_slider_min(0.0);
                 d.set_slider_max(256.0);
                 d.set_default(48.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add(
+            Params::CenterLine,
+            "CenterLine (%)",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(100.0);
+                d.set_default(0.0);
                 d.set_precision(1);
             }),
         )?;
@@ -484,10 +497,10 @@ impl AdobePluginGlobal for Plugin {
         )?;
 
         params.add(
-            Params::OneSideOnly,
-            "OneSideOnly",
+            Params::NormalSide,
+            "Normal Side",
             PopupDef::setup(|d| {
-                d.set_options(&["None", "Negative Side", "Positive Side"]);
+                d.set_options(&["Positive", "Negative"]);
                 d.set_default(1);
             }),
         )?;
@@ -527,7 +540,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(8.0);
                         d.set_slider_min(0.25);
                         d.set_slider_max(4.0);
-                        d.set_default(1.0);
+                        d.set_default(0.5);
                         d.set_precision(2);
                     }),
                 )?;
@@ -551,7 +564,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(8.0);
                         d.set_slider_min(0.25);
                         d.set_slider_max(4.0);
-                        d.set_default(1.0);
+                        d.set_default(0.5);
                         d.set_precision(2);
                     }),
                 )?;
@@ -571,12 +584,12 @@ impl AdobePluginGlobal for Plugin {
         params.add_group(
             Params::ProfileGroupStart,
             Params::ProfileGroupEnd,
-            "Profile Taper",
+            "Profile Taper (Curve)",
             true,
             |params| {
                 params.add_with_flags(
                     Params::EnableProfileCurve,
-                    "EnableProfileCurve(ID1)",
+                    "Enable Profile Curve (Curve)",
                     CheckBoxDef::setup(|d| {
                         d.set_default(false);
                     }),
@@ -763,6 +776,7 @@ impl Plugin {
 
         let view_mode = params.get(Params::ViewMode)?.as_popup()?.value();
         let normal_range = params.get(Params::NormalRange)?.as_float_slider()?.value() as f32;
+        let center_line = params.get(Params::CenterLine)?.as_float_slider()?.value() as f32 / 100.0;
         let normal_falloff = params
             .get(Params::NormalFalloff)?
             .as_float_slider()?
@@ -878,7 +892,7 @@ impl Plugin {
         if link_scales {
             negative_scale = positive_scale;
         }
-        let one_side = params.get(Params::OneSideOnly)?.as_popup()?.value();
+        let normal_side = params.get(Params::NormalSide)?.as_popup()?.value();
         let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
             .get(Params::FractalTangentScale)?
@@ -919,6 +933,7 @@ impl Plugin {
                 in_w,
                 in_h,
                 normal_range,
+                center_line,
                 normal_falloff,
                 normal_bias,
                 enable_taper,
@@ -931,6 +946,7 @@ impl Plugin {
                 positive_scale,
                 negative_scale,
                 swap_tangent,
+                normal_side,
             );
             box_blur_channel_in_place(
                 &mut values,
@@ -969,7 +985,6 @@ impl Plugin {
                 }
 
                 let nearest = nearest_sample(&mask.samples, xf, yf);
-                let d_abs = nearest.distance.abs();
                 let taper_thickness = if enable_taper {
                     taper_factor(
                         nearest.t_norm,
@@ -995,9 +1010,11 @@ impl Plugin {
                     1.0
                 };
                 let effective_range = normal_range * taper_thickness * profile_thickness;
-                if effective_range < 0.001 || d_abs > effective_range {
+                let Some(side_u) =
+                    selected_normal_side_u(nearest.distance, effective_range, normal_side)
+                else {
                     continue;
-                }
+                };
 
                 let arc_len = mask.arc_len.max(1.0);
                 let edge_zone_start = if enable_tangent_falloff {
@@ -1020,14 +1037,10 @@ impl Plugin {
                     continue;
                 }
 
-                let falloff_start = effective_range * (1.0 - normal_falloff);
-                let normal_w = if d_abs <= falloff_start {
-                    1.0
-                } else {
-                    let t =
-                        (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
-                    t.powf(1.0 + normal_bias / 100.0)
-                };
+                let normal_w = normal_band_weight(side_u, center_line, normal_falloff, normal_bias);
+                if normal_w < 0.001 {
+                    continue;
+                }
                 let edge_falloff = edge_fade_asymmetric(
                     nearest.t_norm,
                     edge_zone_start,
@@ -1038,32 +1051,8 @@ impl Plugin {
                     continue;
                 }
 
-                let one_side_factor = match one_side {
-                    2 => {
-                        if nearest.distance > 0.0 {
-                            let fade = normal_range * 0.15;
-                            (1.0 - nearest.distance / fade.max(0.001)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        }
-                    }
-                    3 => {
-                        if nearest.distance < 0.0 {
-                            let fade = normal_range * 0.15;
-                            (1.0 - d_abs / fade.max(0.001)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        }
-                    }
-                    _ => 1.0,
-                };
-                if one_side_factor < 0.001 {
-                    continue;
-                }
-
                 let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
-                let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity * one_side_factor)
-                    .clamp(0.0, 1.0);
+                let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity).clamp(0.0, 1.0);
                 max_blend = max_blend.max(blend_i);
 
                 if normal_w > best_normal_w {
@@ -1222,7 +1211,6 @@ impl Plugin {
 
         let mut out = PathData::default();
         let mut profile_path_pts: Vec<(f32, f32)> = Vec::new();
-        let mut mask_idx = 0_usize;
         let mut blur_mask_count = 0_usize;
 
         for i in 0..path_count {
@@ -1261,20 +1249,24 @@ impl Plugin {
                 }
             }
             if tmp.is_empty() {
-                mask_idx += 1;
                 continue;
             }
 
-            if enable_profile && mask_idx == 0 && profile_path_pts.is_empty() {
+            let path_name = path.name()?;
+            let path_name = path_name.trim();
+
+            if enable_profile && profile_path_pts.is_empty() && is_profile_curve_name(path_name) {
                 for &(x, y, _, _) in &tmp {
                     profile_path_pts.push((x, y));
                 }
-                mask_idx += 1;
+                continue;
+            }
+
+            if !is_blur_path_name(path_name) {
                 continue;
             }
 
             if !enable_masks && blur_mask_count > 0 {
-                mask_idx += 1;
                 continue;
             }
 
@@ -1294,7 +1286,6 @@ impl Plugin {
             mask_samples.arc_len = compute_arc_length(&mask_samples.samples);
             out.masks.push(mask_samples);
             blur_mask_count += 1;
-            mask_idx += 1;
         }
 
         if !profile_path_pts.is_empty() {
@@ -1531,11 +1522,74 @@ fn edge_fade_asymmetric(t_norm: f32, zone_start: f32, zone_end: f32, bias: f32) 
     start_w.min(end_w)
 }
 
+fn selected_normal_side_u(distance: f32, effective_range: f32, normal_side: i32) -> Option<f32> {
+    if effective_range < 0.001 {
+        return None;
+    }
+
+    let side_matches = match normal_side {
+        1 => distance >= -1e-4,
+        2 => distance <= 1e-4,
+        _ => true,
+    };
+    if !side_matches {
+        return None;
+    }
+
+    Some((distance.abs() / effective_range).clamp(0.0, 1.0))
+}
+
+fn edge_to_center_weight(progress: f32, falloff: f32, bias: f32) -> f32 {
+    let zone = falloff.clamp(0.0, 1.0);
+    if zone <= 1e-4 {
+        return 1.0;
+    }
+
+    let t = (progress / zone).clamp(0.0, 1.0);
+    t.powf(1.0 + bias.max(0.0) / 100.0)
+}
+
+fn normal_band_weight(side_u: f32, center_line: f32, falloff: f32, bias: f32) -> f32 {
+    if falloff <= 1e-4 {
+        return 1.0;
+    }
+
+    let center = center_line.clamp(0.0, 1.0);
+    if center <= 1e-4 {
+        return edge_to_center_weight(1.0 - side_u, falloff, bias);
+    }
+    if center >= 1.0 - 1e-4 {
+        return edge_to_center_weight(side_u, falloff, bias);
+    }
+
+    let from_path = side_u / center.max(1e-4);
+    let from_outer = (1.0 - side_u) / (1.0 - center).max(1e-4);
+    edge_to_center_weight(from_path, falloff, bias)
+        .min(edge_to_center_weight(from_outer, falloff, bias))
+}
+
+fn is_blur_path_name(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    if lower == "path" {
+        return true;
+    }
+
+    let Some(suffix) = lower.strip_prefix("path_") else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_profile_curve_name(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case("curve")
+}
+
 fn compute_max_normal_buffer(
     path_data: &PathData,
     width: usize,
     height: usize,
     normal_range: f32,
+    center_line: f32,
     normal_falloff: f32,
     normal_bias: f32,
     enable_taper: bool,
@@ -1548,6 +1602,7 @@ fn compute_max_normal_buffer(
     positive_scale: f32,
     negative_scale: f32,
     swap_tangent: bool,
+    normal_side: i32,
 ) -> Vec<f32> {
     let mut values = vec![0.0_f32; width * height];
 
@@ -1563,7 +1618,6 @@ fn compute_max_normal_buffer(
                 }
 
                 let nearest = nearest_sample(&mask.samples, xf, yf);
-                let d_abs = nearest.distance.abs();
                 let taper_thickness = if enable_taper {
                     taper_factor(
                         nearest.t_norm,
@@ -1589,9 +1643,11 @@ fn compute_max_normal_buffer(
                     1.0
                 };
                 let effective_range = normal_range * taper_thickness * profile_thickness;
-                if effective_range < 0.001 || d_abs > effective_range {
+                let Some(side_u) =
+                    selected_normal_side_u(nearest.distance, effective_range, normal_side)
+                else {
                     continue;
-                }
+                };
 
                 let at_start = nearest.best_t_norm < 0.01 && nearest.best_tangent_offset < 0.0;
                 let at_end = nearest.best_t_norm > 0.99 && nearest.best_tangent_offset > 0.0;
@@ -1599,14 +1655,7 @@ fn compute_max_normal_buffer(
                     continue;
                 }
 
-                let falloff_start = effective_range * (1.0 - normal_falloff);
-                let normal_w = if d_abs <= falloff_start {
-                    1.0
-                } else {
-                    let t =
-                        (effective_range - d_abs) / (effective_range - falloff_start).max(0.001);
-                    t.powf(1.0 + normal_bias / 100.0)
-                };
+                let normal_w = normal_band_weight(side_u, center_line, normal_falloff, normal_bias);
                 max_normal_w = max_normal_w.max(normal_w.clamp(0.0, 1.0));
                 if max_normal_w >= 1.0 - 1e-6 {
                     break;

@@ -45,3 +45,13 @@
 - [x] `RenderMode::Assignment` に 3x5 ビットマップ文字（U/V/1/2）描画を追加し、始点マーカー横へラベル表示
 - [x] `do_render` の入力コピーをベースに、各モード描画を上書きする構成を保持
 - [x] `cargo fmt -p tkg_path_line_hatching` / `cargo check -p tkg_path_line_hatching` で整形・コンパイル確認
+
+# vector-curve-blur 調整（2026-04-23）
+
+- [ ] 再現条件を固定する: Fast Box Blur が白黒グラデーション境界/アルファ境界で効かない理由、`Radius=0` で端の見え方を比較できない理由、ヘヤピンカーブ時のドット抜け発生条件を `src/lib.rs` の現状ロジックに対応付けて整理する
+- [ ] Fast Box Blur の責務を見直す: 画像ブラー・アルファ境界・端フェード確認に寄与するよう、`smoothed_normal_buffer` の適用先と端点処理（start/end skip 含む）を再設計する
+- [ ] ヘヤピン時のドット抜けを軽減する: `nearest_sample` / 接線平滑化 / 分岐曖昧度の扱いを見直し、`vcb_0.1.29` ベースから改善差分を作る
+- [ ] `addColor` を元コンポのアルファ基準へ拡張する: 元画像アルファから透明度を加算する軌跡マップを作り、既存の色加算と両立させる
+- [ ] Tangent 方向の軌跡追加を実装する: パス軌跡から `NormalRange` 形状のマップを作成し、`PathBlurAmount` 分前後へ拡張後、Tangent 方向へ伸ばす新規項目を追加する
+- [x] UI とドキュメントを同期する: 新規パラメータ名・説明・挙動を `docs/Vector-Curve-Blur-開発指示書.md` と必要な README/CHANGELOG に反映する
+- [ ] 検証する: `cargo fmt --all -- --check`、`cargo clippy --workspace`、`cargo test`、必要なら対象クレートのビルドと手動確認手順を残す

@@ -5,6 +5,12 @@
 - 本リポジトリは Rust 製の Adobe After Effects エフェクトプラグイン集（Cargo workspace）です。
 - 主要ディレクトリ: `plugins/`（各プラグイン）、`crates/utils/`（共通）、`templates/plugin/`（テンプレート）、`tester/`（手動テスト用 .aep）。
 
+## 実装前の確認順（必須）
+
+- 新規実装や修正の前に、まず `templates/plugin/`、類似プラグイン、`crates/utils/` を確認し、既存の設計・命名・責務分割を優先的に踏襲すること。
+- 単発用途のためだけに新しい抽象化を増やさず、まずは追跡しやすい明快な実装を選ぶこと。
+- バグ修正や CI 不一致の調査では、修正前に再現手順、期待値、実際の結果、実行コマンド/ログを揃えてから着手すること。
+
 ## プラグイン命名規則（必須）
 
 テンプレート（`templates/plugin/`）と既存実装の設計に合わせて統一してください。
@@ -44,7 +50,8 @@
    - `Cargo.toml` の `description`
    - `build.rs` の Name / Match Name（命名規則と一致しているか）
    - `src/lib.rs` の `PLUGIN_DESCRIPTION`
-3) ルート `README.md` のプラグイン一覧に追加
+3) ルート `Cargo.toml` の `[workspace].members` に対象プラグインが含まれていることを確認
+4) ルート `README.md` のプラグイン一覧に追加
 
 ## ビルド・インストール
 
@@ -63,6 +70,7 @@
 手動テスト:
 
 - `tester/` の .aep を After Effects で開き、挙動を確認
+- 挙動変更がある場合は、手動確認手順と実結果を作業ログまたは PR に残す
 
 ## 開発ルール
 
