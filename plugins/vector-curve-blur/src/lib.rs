@@ -65,6 +65,15 @@ enum Params {
     FastBoxBlurIterations,
     FastBoxBlurRepeatEdge,
     BoxBlurGroupEnd,
+    OffsetEndFade,
+    EnableAntialiasing,
+    AntialiasingQuality,
+    EdgePreserveGroupStart,
+    EdgePreserveMode,
+    EdgeColorHold,
+    EdgeGhostHold,
+    EdgeHybridBalance,
+    EdgePreserveGroupEnd,
 }
 
 #[derive(Default)]
@@ -128,6 +137,14 @@ impl AdobePluginGlobal for Plugin {
             "Use All Paths (path / path_[n])",
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
+            }),
+        )?;
+        params.add(
+            Params::NormalSide,
+            "Normal Side",
+            PopupDef::setup(|d| {
+                d.set_options(&["Positive", "Negative"]);
+                d.set_default(1);
             }),
         )?;
         params.add_with_flags(
@@ -294,6 +311,35 @@ impl AdobePluginGlobal for Plugin {
                 d.set_precision(2);
             }),
         )?;
+        params.add(
+            Params::OffsetEndFade,
+            "Subtraction Alpha",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(100.0);
+                d.set_default(0.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add_with_flags(
+            Params::EnableAntialiasing,
+            "Antialiasing",
+            CheckBoxDef::setup(|d| {
+                d.set_default(true);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
+        params.add(
+            Params::AntialiasingQuality,
+            "Antialiasing Quality",
+            PopupDef::setup(|d| {
+                d.set_options(&["Low", "High"]);
+                d.set_default(1);
+            }),
+        )?;
         params.add_group(
             Params::BoxBlurGroupStart,
             Params::BoxBlurGroupEnd,
@@ -413,6 +459,65 @@ impl AdobePluginGlobal for Plugin {
                 Ok(())
             },
         )?;
+        params.add_group(
+            Params::EdgePreserveGroupStart,
+            Params::EdgePreserveGroupEnd,
+            "Edge Preserve",
+            true,
+            |params| {
+                params.add_with_flags(
+                    Params::EdgePreserveMode,
+                    "Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Preserve Source Edge Color",
+                            "Alpha Mask Ghost",
+                            "Hybrid",
+                        ]);
+                        d.set_default(3);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                params.add(
+                    Params::EdgeColorHold,
+                    "Source Edge Hold",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(60.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeGhostHold,
+                    "Ghost Alpha Hold",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(60.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeHybridBalance,
+                    "Hybrid Balance",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                Ok(())
+            },
+        )?;
 
         params.add_group(
             Params::AddColorGroupStart,
@@ -494,15 +599,6 @@ impl AdobePluginGlobal for Plugin {
                 )?;
                 Ok(())
             },
-        )?;
-
-        params.add(
-            Params::NormalSide,
-            "Normal Side",
-            PopupDef::setup(|d| {
-                d.set_options(&["Positive", "Negative"]);
-                d.set_default(1);
-            }),
         )?;
 
         params.add_group(
@@ -598,34 +694,34 @@ impl AdobePluginGlobal for Plugin {
                 )?;
                 params.add(
                     Params::PositiveScale,
-                    "Positive Scale",
+                    "Profile Amount",
                     FloatSliderDef::setup(|d| {
                         d.set_valid_min(0.0);
-                        d.set_valid_max(600.0);
+                        d.set_valid_max(200.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(200.0);
-                        d.set_default(10.0);
+                        d.set_default(100.0);
                         d.set_precision(1);
                     }),
                 )?;
                 params.add_with_flags(
                     Params::LinkScales,
-                    "Link Scales",
+                    "Invert Profile",
                     CheckBoxDef::setup(|d| {
-                        d.set_default(true);
+                        d.set_default(false);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
                 )?;
                 params.add(
                     Params::NegativeScale,
-                    "Negative Scale",
+                    "Profile Min Width",
                     FloatSliderDef::setup(|d| {
                         d.set_valid_min(0.0);
-                        d.set_valid_max(600.0);
+                        d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
-                        d.set_slider_max(200.0);
-                        d.set_default(100.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -671,7 +767,11 @@ impl AdobePluginGlobal for Plugin {
                     .get(Params::EnableProfileCurve)?
                     .as_checkbox()?
                     .value();
-                let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
+                let enable_antialiasing = params
+                    .get(Params::EnableAntialiasing)?
+                    .as_checkbox()?
+                    .value();
+                let edge_preserve_mode = params.get(Params::EdgePreserveMode)?.as_popup()?.value();
                 let box_blur_radius = params
                     .get(Params::FastBoxBlurRadius)?
                     .as_float_slider()?
@@ -697,6 +797,11 @@ impl AdobePluginGlobal for Plugin {
                     pd.set_ui_flag(ParamUIFlags::DISABLED, box_blur_radius < 0.5);
                     pd.update_param_ui()?;
                 }
+                {
+                    let mut pd = p.get_mut(Params::AntialiasingQuality)?;
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_antialiasing);
+                    pd.update_param_ui()?;
+                }
                 for k in [
                     Params::StartTaperLength,
                     Params::StartTaperCurve,
@@ -714,10 +819,21 @@ impl AdobePluginGlobal for Plugin {
                     Params::NegativeScale,
                 ] {
                     let mut pd = p.get_mut(k)?;
-                    let mut disabled = !enable_profile;
-                    if k == Params::NegativeScale && link_scales {
-                        disabled = true;
-                    }
+                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_profile);
+                    pd.update_param_ui()?;
+                }
+                for k in [
+                    Params::EdgeColorHold,
+                    Params::EdgeGhostHold,
+                    Params::EdgeHybridBalance,
+                ] {
+                    let mut pd = p.get_mut(k)?;
+                    let disabled = match k {
+                        Params::EdgeColorHold => edge_preserve_mode != 1,
+                        Params::EdgeGhostHold => edge_preserve_mode != 2,
+                        Params::EdgeHybridBalance => edge_preserve_mode != 3,
+                        _ => false,
+                    };
                     pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
                     pd.update_param_ui()?;
                 }
@@ -878,20 +994,17 @@ impl Plugin {
             .get(Params::EnableProfileCurve)?
             .as_checkbox()?
             .value();
-        let positive_scale = params
+        let profile_amount = params
             .get(Params::PositiveScale)?
             .as_float_slider()?
             .value() as f32
-            / 10.0;
-        let link_scales = params.get(Params::LinkScales)?.as_checkbox()?.value();
-        let mut negative_scale = params
+            / 100.0;
+        let invert_profile = params.get(Params::LinkScales)?.as_checkbox()?.value();
+        let profile_min_width = params
             .get(Params::NegativeScale)?
             .as_float_slider()?
             .value() as f32
-            / 10.0;
-        if link_scales {
-            negative_scale = positive_scale;
-        }
+            / 100.0;
         let normal_side = params.get(Params::NormalSide)?.as_popup()?.value();
         let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
@@ -921,6 +1034,37 @@ impl Plugin {
             .value() as f32
             / 100.0;
         let add_fract_mode = params.get(Params::AddFractalMode)?.as_popup()?.value();
+        let offset_end_fade = params
+            .get(Params::OffsetEndFade)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let enable_antialiasing = params
+            .get(Params::EnableAntialiasing)?
+            .as_checkbox()?
+            .value();
+        let antialiasing_quality = params.get(Params::AntialiasingQuality)?.as_popup()?.value();
+        let edge_preserve_mode = params.get(Params::EdgePreserveMode)?.as_popup()?.value();
+        let edge_color_hold = params
+            .get(Params::EdgeColorHold)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let edge_ghost_hold = params
+            .get(Params::EdgeGhostHold)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let edge_hybrid_balance = params
+            .get(Params::EdgeHybridBalance)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let sample_mode = if !enable_antialiasing {
+            0
+        } else {
+            antialiasing_quality
+        };
 
         let in_world = in_layer.world_type();
         let out_world = out_layer.world_type();
@@ -943,8 +1087,9 @@ impl Plugin {
                 taper_e_curve,
                 taper_s_curve_enabled,
                 enable_profile,
-                positive_scale,
-                negative_scale,
+                profile_amount,
+                profile_min_width,
+                invert_profile,
                 swap_tangent,
                 normal_side,
             );
@@ -1002,9 +1147,9 @@ impl Plugin {
                     profile_multiplier(
                         path_data.profile_curve.as_ref(),
                         nearest.t_norm,
-                        nearest.distance >= 0.0,
-                        positive_scale,
-                        negative_scale,
+                        profile_amount,
+                        profile_min_width,
+                        invert_profile,
                         swap_tangent,
                     )
                 } else {
@@ -1140,13 +1285,16 @@ impl Plugin {
             } else {
                 (nearest.tx, nearest.ty)
             };
+            let nx = -nearest.ty;
+            let ny = nearest.tx;
             let smoothed_normal_w = smoothed_normal_buffer
                 .as_ref()
                 .map(|values| values[y as usize * in_w + x as usize])
                 .unwrap_or(normal_w)
                 .clamp(0.0, 1.0);
-            let ox = xf + blur_tx * path_offset * edge_falloff * smoothed_normal_w;
-            let oy = yf + blur_ty * path_offset * edge_falloff * smoothed_normal_w;
+            let blur_falloff = edge_falloff * smoothed_normal_w;
+            let ox = xf + blur_tx * path_offset * blur_falloff;
+            let oy = yf + blur_ty * path_offset * blur_falloff;
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
                 let cur_pos_amt = blur_amount * edge_falloff * smoothed_normal_w * fract_w;
@@ -1162,8 +1310,10 @@ impl Plugin {
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
+                    sample_mode,
                 });
-                let opacity = preview_blend;
+                let opacity =
+                    total_blend * (1.0 - offset_end_fade) + preview_blend * offset_end_fade;
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;
@@ -1179,9 +1329,24 @@ impl Plugin {
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
+                    sample_mode,
                 });
                 (lerp_pixel(&original, &blurred, total_blend), total_blend)
             };
+
+            let path_x = xf - nx * nearest.distance;
+            let path_y = yf - ny * nearest.distance;
+            let edge_source =
+                sample_with_quality(&in_layer, in_world, in_w, in_h, path_x, path_y, sample_mode);
+            col = apply_edge_preserve_mode(
+                &col,
+                &edge_source,
+                edge_preserve_mode,
+                edge_color_hold,
+                edge_ghost_hold,
+                edge_hybrid_balance,
+                blend_strength,
+            );
 
             if add_color_opacity > 0.001 && blend_strength > 0.001 {
                 let mut tinted = add_color_f32;
@@ -1421,6 +1586,7 @@ struct TangentBlurParams<'a> {
     tangent_y: f32,
     positive_amount: f32,
     negative_amount: f32,
+    sample_mode: i32,
 }
 
 fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
@@ -1429,7 +1595,15 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     let total = pos_r + neg_r;
 
     if total < 0.5 {
-        return sample_bilinear(p.layer, p.world, p.width, p.height, p.center_x, p.center_y);
+        return sample_with_quality(
+            p.layer,
+            p.world,
+            p.width,
+            p.height,
+            p.center_x,
+            p.center_y,
+            p.sample_mode,
+        );
     }
 
     let taps = ((total / 4.0).ceil() as i32 * 2 + 1).max(3);
@@ -1457,7 +1631,7 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
 
         let sx = p.center_x + p.tangent_x * offset;
         let sy = p.center_y + p.tangent_y * offset;
-        let px = sample_bilinear(p.layer, p.world, p.width, p.height, sx, sy);
+        let px = sample_with_quality(p.layer, p.world, p.width, p.height, sx, sy, p.sample_mode);
         sum.alpha += px.alpha * w;
         sum.red += px.red * w;
         sum.green += px.green * w;
@@ -1645,8 +1819,9 @@ fn compute_max_normal_buffer(
     taper_e_curve: f32,
     taper_s_curve_enabled: bool,
     enable_profile: bool,
-    positive_scale: f32,
-    negative_scale: f32,
+    profile_amount: f32,
+    profile_min_width: f32,
+    invert_profile: bool,
     swap_tangent: bool,
     normal_side: i32,
 ) -> Vec<f32> {
@@ -1680,9 +1855,9 @@ fn compute_max_normal_buffer(
                     profile_multiplier(
                         path_data.profile_curve.as_ref(),
                         nearest.t_norm,
-                        nearest.distance >= 0.0,
-                        positive_scale,
-                        negative_scale,
+                        profile_amount,
+                        profile_min_width,
+                        invert_profile,
                         swap_tangent,
                     )
                 } else {
@@ -1912,19 +2087,19 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
 fn profile_multiplier(
     curve: Option<&ProfileCurve>,
     t_norm: f32,
-    is_positive_side: bool,
-    positive_scale: f32,
-    negative_scale: f32,
+    profile_amount: f32,
+    profile_min_width: f32,
+    invert_profile: bool,
     swap_tangent: bool,
 ) -> f32 {
     let t = if swap_tangent { 1.0 - t_norm } else { t_norm };
-    let base = sample_profile_y(curve, t.clamp(0.0, 1.0));
-
-    if is_positive_side {
-        (base * positive_scale).max(0.0)
-    } else {
-        (base * negative_scale).max(0.0)
+    let mut base = sample_profile_y(curve, t.clamp(0.0, 1.0));
+    if invert_profile {
+        base = 1.0 - base;
     }
+    let shaped =
+        profile_min_width.clamp(0.0, 1.0) + (1.0 - profile_min_width.clamp(0.0, 1.0)) * base;
+    (1.0 + (shaped - 1.0) * profile_amount.max(0.0)).max(0.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1956,6 +2131,59 @@ fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
         red: a.red * s + b.red * t,
         green: a.green * s + b.green * t,
         blue: a.blue * s + b.blue * t,
+    }
+}
+
+fn max_rgb(px: &PixelF32) -> f32 {
+    px.red.max(px.green).max(px.blue)
+}
+
+fn recolor_to_source_hue(base: &PixelF32, source: &PixelF32) -> PixelF32 {
+    let src_max = max_rgb(source);
+    if src_max <= 1e-4 {
+        return *base;
+    }
+
+    let intensity = max_rgb(base);
+    let scale = intensity / src_max;
+    PixelF32 {
+        alpha: base.alpha,
+        red: (source.red * scale).clamp(0.0, 1.0),
+        green: (source.green * scale).clamp(0.0, 1.0),
+        blue: (source.blue * scale).clamp(0.0, 1.0),
+    }
+}
+
+fn apply_edge_preserve_mode(
+    base: &PixelF32,
+    edge_source: &PixelF32,
+    mode: i32,
+    edge_color_hold: f32,
+    edge_ghost_hold: f32,
+    edge_hybrid_balance: f32,
+    blend_strength: f32,
+) -> PixelF32 {
+    let color_preserved = recolor_to_source_hue(base, edge_source);
+    let color_mode = lerp_pixel(
+        base,
+        &color_preserved,
+        (edge_color_hold * blend_strength).clamp(0.0, 1.0),
+    );
+    let ghost_mode = lerp_pixel(
+        base,
+        edge_source,
+        (edge_ghost_hold * blend_strength).clamp(0.0, 1.0),
+    );
+
+    match mode {
+        1 => color_mode,
+        2 => ghost_mode,
+        3 => lerp_pixel(
+            &color_mode,
+            &ghost_mode,
+            edge_hybrid_balance.clamp(0.0, 1.0),
+        ),
+        _ => *base,
     }
 }
 
@@ -2069,6 +2297,70 @@ fn sample_bilinear(
             lerp(p01.blue, p11.blue, tx),
             ty,
         ),
+    }
+}
+
+fn sample_point(
+    layer: &Layer,
+    world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+) -> PixelF32 {
+    if width == 0 || height == 0 {
+        return PixelF32 {
+            alpha: 0.0,
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+        };
+    }
+
+    let xi = x.round().clamp(0.0, (width.saturating_sub(1)) as f32) as usize;
+    let yi = y.round().clamp(0.0, (height.saturating_sub(1)) as f32) as usize;
+    read_pixel_f32(layer, world_type, xi, yi)
+}
+
+fn sample_with_quality(
+    layer: &Layer,
+    world_type: ae::aegp::WorldType,
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+    sample_mode: i32,
+) -> PixelF32 {
+    match sample_mode {
+        0 => sample_point(layer, world_type, width, height, x, y),
+        2 => {
+            let offsets = [
+                (-0.25_f32, -0.25_f32),
+                (0.25, -0.25),
+                (-0.25, 0.25),
+                (0.25, 0.25),
+            ];
+            let mut sum = PixelF32 {
+                alpha: 0.0,
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+            };
+            for (ox, oy) in offsets {
+                let px = sample_bilinear(layer, world_type, width, height, x + ox, y + oy);
+                sum.alpha += px.alpha;
+                sum.red += px.red;
+                sum.green += px.green;
+                sum.blue += px.blue;
+            }
+            PixelF32 {
+                alpha: sum.alpha * 0.25,
+                red: sum.red * 0.25,
+                green: sum.green * 0.25,
+                blue: sum.blue * 0.25,
+            }
+        }
+        _ => sample_bilinear(layer, world_type, width, height, x, y),
     }
 }
 

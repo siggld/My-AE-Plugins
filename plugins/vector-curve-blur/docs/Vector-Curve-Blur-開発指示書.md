@@ -26,6 +26,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - `Use All Paths (path / path_[n])`
   - ブラー対象はマスク名が `path` または `path_[n]`（例: `path_1`, `path_2`）のものだけを採用する
   - OFF 時は一致した最初の 1 本のみ使用する
+- `Normal Side`
+  - `Positive` / `Negative` の片側だけに法線処理を適用する
 - `Normal Range`
   - 選択した片側へ広げる法線帯域の幅
 - `CenterLine (%)`
@@ -33,13 +35,21 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - 初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
   - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
-- `Normal Side`
-  - `Positive` / `Negative` の片側だけに法線処理を適用する
+- `Path Blur Offset` / `Subtraction Alpha`
+  - `Falloff Mode = Blur Amount` では、位置オフセットはブラー量側の減衰に追従する
+  - 端から薄くする効果は `Subtraction Alpha` で別制御する
+- `Antialiasing` / `Antialiasing Quality`
+  - `Low` / `High` でサンプリング品質を切り替える
 - `Start Taper Curve` / `End Taper Curve`
   - 初期値は `0.5`
 - `Profile Taper (Curve)`
   - `Enable Profile Curve (Curve)` を ON にすると、マスク名 `Curve` のパスをプロファイル用カーブとして使用する
-  - `Positive Scale` / `Negative Scale` / `Link Scales` で片側倍率を制御する
+  - `Profile Amount` で `Curve` の影響量を制御する
+  - `Invert Profile` でカーブ形状を反転できる
+  - `Profile Min Width` で最小帯域幅を制御する
+- `Edge Preserve`
+  - `Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid` を切り替える
+  - モード専用項目だけを有効化する
 
 ## コアロジック仕様
 - マスク名フィルタ（ターゲット/プロファイル分離）:
@@ -56,6 +66,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - ブラー:
   - 画素から最短サンプル点を取得
   - 正規化位置 `t` を算出して `Path Blur Offset` 適用
+  - `Falloff Mode = Blur Amount` では、位置オフセットもブラー量側の減衰に追従する
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
@@ -68,8 +79,12 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - Profile Curve:
   - カーブ始点X=0.0、終点X=1.0 の正規化空間でサンプリング
   - Y は始点/終点の上下関係から上側=1.0、下側=0.0 へ正規化
-  - `Positive/Negative Scale`（`Link Scales` 時は同値）で倍率化
+  - `Profile Amount` と `Profile Min Width` を使って、`CenterLine (%)` 基準の帯域変形として適用する
+  - `Invert Profile` でカーブ形状を反転できる
   - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
+- 境界保持 / AA:
+  - `Edge Preserve` モードで、背景色との中間色が増えすぎない輪郭保持を切り替える
+  - `Antialiasing Quality` はサンプリング品質を切り替え、`High` は見た目優先、`Low` は速度優先とする
 
 ## バージョン/アーカイブ運用
 - 形式: `vMajor.Minor.Patch`

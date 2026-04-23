@@ -5,6 +5,9 @@
 * [Fix] Changed `CenterLine (%)` default to `50` and made `Simple Taper` / `Profile Taper` contract around the same centerline axis.
 * [Fix] Made fractal evaluation follow the post-taper centerline band and restored endpoint fade-out in `Falloff Mode = Blur Amount`.
 * [UI] Changed defaults to `Fractal Scale = 15`, `Fractal Tangent Scale = 5`, and `Fractal Complexity = 15`.
+* [Change] Moved `Normal Side` above `Swap Tangent`, redefined `Profile Taper` around `Profile Amount`, and split end fade from `Path Blur Offset` with `Subtraction Alpha`.
+* [Feature] Added `Edge Preserve` modes (`Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid`) with mode-specific controls.
+* [Feature] Added `Antialiasing` and `Antialiasing Quality (Low / High)` for sampling control.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.
