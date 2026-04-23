@@ -363,7 +363,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(2048.0);
                         d.set_slider_min(1.0);
                         d.set_slider_max(256.0);
-                        d.set_default(28.0);
+                        d.set_default(15.0);
                         d.set_precision(2);
                     }),
                 )?;
@@ -375,7 +375,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.1);
                         d.set_slider_max(10.0);
-                        d.set_default(1.0);
+                        d.set_default(5.0);
                         d.set_precision(2);
                     }),
                 )?;
@@ -399,7 +399,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(50.0);
+                        d.set_default(15.0);
                         d.set_precision(0);
                     }),
                 )?;
@@ -975,7 +975,7 @@ impl Plugin {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32)> = None;
+            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
             let mut max_blend = 0.0_f32;
             let mut max_preview_blend = 0.0_f32;
@@ -1065,7 +1065,14 @@ impl Plugin {
                 max_preview_blend = max_preview_blend.max(preview_blend_i);
 
                 if normal_w > best_normal_w {
-                    chosen = Some((mask, nearest, effective_range, normal_w, edge_falloff));
+                    chosen = Some((
+                        mask,
+                        nearest,
+                        effective_range,
+                        normal_w,
+                        edge_falloff,
+                        side_u,
+                    ));
                     best_normal_w = normal_w;
                 }
                 if max_blend >= 1.0 - 1e-6 && best_normal_w >= 1.0 - 1e-6 {
@@ -1073,7 +1080,8 @@ impl Plugin {
                 }
             }
 
-            let Some((mask, nearest, effective_range, normal_w, edge_falloff)) = chosen else {
+            let Some((mask, nearest, effective_range, normal_w, edge_falloff, side_u)) = chosen
+            else {
                 set_dst!(dst, original);
                 return Ok(());
             };
@@ -1086,9 +1094,10 @@ impl Plugin {
             let evo = evolution * 0.05;
             let tangent_pos = nearest.t_norm * arc_len + nearest.tangent_offset;
             let fract_iso = (arc_len / effective_range.max(1.0)).sqrt().clamp(0.25, 4.0);
+            let centered_normal_distance = (side_u - center_line) * effective_range;
             let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
                 + fract_tangent_offset;
-            let fract_y = nearest.distance / fract_scale.max(0.1) * fract_iso;
+            let fract_y = centered_normal_distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
             let total_blend = combined_blend;
@@ -1154,7 +1163,7 @@ impl Plugin {
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
                 });
-                let opacity = total_blend;
+                let opacity = preview_blend;
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
                 let cur_pos_amt = blur_amount * edge_falloff * fract_w;

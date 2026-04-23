@@ -61,6 +61,10 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
 - Fractal:
   - シードに `t` は使わず、法線距離 `d` と `Evolution` を使用
+  - `Fractal Scale` 初期値は `15`
+  - `Fractal Tangent Scale` 初期値は `5`
+  - `Fractal Complexity` 初期値は `15`
+  - `CenterLine (%)` と Taper / Profile Taper で帯域が収束した場合、Fractal も同じ収束後帯域を基準に評価する
 - Profile Curve:
   - カーブ始点X=0.0、終点X=1.0 の正規化空間でサンプリング
   - Y は始点/終点の上下関係から上側=1.0、下側=0.0 へ正規化
