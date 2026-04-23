@@ -20,7 +20,8 @@ env:
   NO_INSTALL: "1"
   # GitHub Actions: Node 20 非推奨警告への対応（checkout/upload-artifact/download-artifact 等）
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Optional (repository variable): comma-separated plugin folder names under plugins/, e.g. vector-curve-blur,red-noise.
+  # Optional (repository variable): comma-separated plugin selectors under plugins/,
+  # e.g. vector-curve-blur, vector_curve_blur, VectorCurveBlur, red-noise.
   # If empty/unset, `just release` builds every plugin that has a Justfile.
   RELEASE_PLUGINS: ${{ vars.RELEASE_PLUGINS }}
 
