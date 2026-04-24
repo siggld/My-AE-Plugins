@@ -36,14 +36,11 @@ enum Params {
     OffsetEndFade,
     AntialiasingQuality,
     EdgePreserveGroupStart,
-    EdgePreserveMode,
     FractalAmount,
-    EdgeColorHold,
-    EdgeGhostHold,
-    EdgeHybridBalance,
     EdgeDisplaceMultiplier,
     EdgeBlurMultiplier,
     EdgeGhostMultiplier,
+    EdgeGhostAlpha,
     EdgePreserveGroupEnd,
     EnableTaper,
     TaperGroupStart,
@@ -455,20 +452,6 @@ impl AdobePluginGlobal for Plugin {
             "Edge Preserve",
             true,
             |params| {
-                params.add_with_flags(
-                    Params::EdgePreserveMode,
-                    "Mode",
-                    PopupDef::setup(|d| {
-                        d.set_options(&[
-                            "Preserve Source Edge Color",
-                            "Alpha Mask Ghost",
-                            "Hybrid",
-                        ]);
-                        d.set_default(3);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
                 params.add(
                     Params::FractalAmount,
                     "Fractal Amount",
@@ -478,42 +461,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
                         d.set_default(100.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EdgeColorHold,
-                    "Source Edge Hold",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(60.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EdgeGhostHold,
-                    "Ghost Alpha Hold",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(60.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EdgeHybridBalance,
-                    "Hybrid Balance",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(50.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -550,6 +497,18 @@ impl AdobePluginGlobal for Plugin {
                         d.set_slider_min(0.0);
                         d.set_slider_max(200.0);
                         d.set_default(100.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeGhostAlpha,
+                    "Ghost Alpha",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -1092,21 +1051,6 @@ impl Plugin {
             .value() as f32
             / 100.0;
         let antialiasing_quality = params.get(Params::AntialiasingQuality)?.as_popup()?.value();
-        let edge_color_hold = params
-            .get(Params::EdgeColorHold)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let edge_ghost_hold = params
-            .get(Params::EdgeGhostHold)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let edge_hybrid_balance = params
-            .get(Params::EdgeHybridBalance)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
         let edge_displace_multiplier = params
             .get(Params::EdgeDisplaceMultiplier)?
             .as_float_slider()?
@@ -1119,6 +1063,11 @@ impl Plugin {
             / 100.0;
         let edge_ghost_multiplier = params
             .get(Params::EdgeGhostMultiplier)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let edge_ghost_alpha = params
+            .get(Params::EdgeGhostAlpha)?
             .as_float_slider()?
             .value() as f32
             / 100.0;
@@ -1247,7 +1196,7 @@ impl Plugin {
             let post_offset = path_offset * effect_mat;
             let cur_pos_amt = tangent_amount * blur_scale;
             let cur_neg_amt = negative_tangent_amount * blur_scale;
-            let blurred = blur_along_tangent(&TangentBlurParams {
+            let base_result = blur_along_tangent(&TangentBlurParams {
                 layer: &in_layer,
                 world: in_world,
                 width: in_w,
@@ -1261,14 +1210,35 @@ impl Plugin {
                 positive_displace_amount: tangent_amount * displace_scale,
                 negative_displace_amount: negative_tangent_amount * displace_scale,
                 post_offset_amount: post_offset,
-                ghost_mix: ghost_scale,
                 sample_mode,
-                edge_color_hold,
-                edge_ghost_hold,
-                edge_hybrid_balance,
             });
             let opacity = total_blend * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
-            let (mut col, blend_strength) = (lerp_pixel(&original, &blurred, opacity), opacity);
+            let mut col = lerp_pixel(&original, &base_result, opacity);
+            let blend_strength = opacity;
+
+            if ghost_scale > 0.001 && edge_ghost_alpha > 0.001 {
+                let ghost_result = blur_along_tangent(&TangentBlurParams {
+                    layer: &in_layer,
+                    world: in_world,
+                    width: in_w,
+                    height: in_h,
+                    center_x: xf,
+                    center_y: yf,
+                    tangent_x: blur_tx,
+                    tangent_y: blur_ty,
+                    positive_amount: tangent_amount * ghost_scale,
+                    negative_amount: negative_tangent_amount * ghost_scale,
+                    positive_displace_amount: tangent_amount * ghost_scale,
+                    negative_displace_amount: negative_tangent_amount * ghost_scale,
+                    post_offset_amount: post_offset,
+                    sample_mode,
+                });
+                col = lerp_pixel(
+                    &col,
+                    &ghost_result,
+                    (edge_ghost_alpha * effect_mat).clamp(0.0, 1.0),
+                );
+            }
 
             if add_color_opacity > 0.001 && blend_strength > 0.001 {
                 let mut tinted = add_color_f32;
@@ -1637,11 +1607,7 @@ struct TangentBlurParams<'a> {
     positive_displace_amount: f32,
     negative_displace_amount: f32,
     post_offset_amount: f32,
-    ghost_mix: f32,
     sample_mode: i32,
-    edge_color_hold: f32,
-    edge_ghost_hold: f32,
-    edge_hybrid_balance: f32,
 }
 
 fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
@@ -1713,13 +1679,6 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         blue: 0.0,
     };
     let mut blur_wsum = 0.0_f32;
-    let mut ghost_sum = PixelF32 {
-        alpha: 0.0,
-        red: 0.0,
-        green: 0.0,
-        blue: 0.0,
-    };
-    let mut ghost_wsum = 0.0_f32;
 
     let pos_sigma = (pos_r / 3.0).max(0.001);
     let neg_sigma = (neg_r / 3.0).max(0.001);
@@ -1752,19 +1711,12 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         blur_sum.green += px.green * blur_w;
         blur_sum.blue += px.blue * blur_w;
         blur_wsum += blur_w;
-
-        let ghost_w = gaussian_w * (0.15 + px.alpha * 0.85);
-        ghost_sum.alpha += px.alpha * ghost_w;
-        ghost_sum.red += px.red * ghost_w;
-        ghost_sum.green += px.green * ghost_w;
-        ghost_sum.blue += px.blue * ghost_w;
-        ghost_wsum += ghost_w;
         if total < 0.25 {
             break;
         }
     }
 
-    let blurred = if blur_wsum > 0.0 {
+    if blur_wsum > 0.0 {
         PixelF32 {
             alpha: blur_sum.alpha / blur_wsum,
             red: blur_sum.red / blur_wsum,
@@ -1773,24 +1725,7 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         }
     } else {
         displaced
-    };
-    let ghost = if ghost_wsum > 0.0 {
-        PixelF32 {
-            alpha: ghost_sum.alpha / ghost_wsum,
-            red: ghost_sum.red / ghost_wsum,
-            green: ghost_sum.green / ghost_wsum,
-            blue: ghost_sum.blue / ghost_wsum,
-        }
-    } else {
-        displaced
-    };
-    let preserve = lerp_pixel(&blurred, &displaced, p.edge_color_hold.clamp(0.0, 1.0));
-    let ghosted = lerp_pixel(
-        &preserve,
-        &ghost,
-        (p.edge_ghost_hold * p.ghost_mix).clamp(0.0, 1.0),
-    );
-    lerp_pixel(&preserve, &ghosted, p.edge_hybrid_balance.clamp(0.0, 1.0))
+    }
 }
 
 // ---------------------------------------------------------------------------

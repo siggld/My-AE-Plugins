@@ -62,8 +62,10 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Profile Min Width` で最小帯域幅を制御する
 - `Edge Preserve`
   - `Fractal Amount` はこのグループに含め、共通 Fractal マットの混入率を制御する
-  - 現行レンダーは `Source Edge Hold` / `Ghost Hold` / `Hybrid Balance` を主役にした Hybrid 系の合成へ寄せている
-  - `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` で、共通 Fractal マットを a/b/c 各段へどれだけ掛けるかを調整する
+  - `Displace Multiplier` は元絵側 Displace の強さ
+  - `Blur Multiplier` は元絵側 Blur の強さ
+  - `Ghost Multiplier` は Ghost 側 Displace / Blur の強さ
+  - `Ghost Alpha` は Ghost 結果を最終像へ重ねる不透明度
 - `Fractal`
   - `Fractal Scale` / `Fractal Tangent Scale` / `Fractal Tangent Offset` / `Fractal Complexity` / `Evolution`
   - Fractal グループはテクスチャ形状だけを調整する
@@ -85,8 +87,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
   - a. `TangentAmount` / `NegativeTangentAmount` と `Displace Multiplier` で、接線の正負両側を基準に変位像を作る
   - b. `TangentAmount` / `NegativeTangentAmount` と `Blur Multiplier` で、正負量から決まる中心と幅を使って接線方向ブラーを掛ける
-  - c. `Ghost Multiplier` と `Alpha Mask Ghost` 系モードで Ghost 像を不透明度合成する
-  - d. `Path Blur Offset` で a〜c の結果を接線 `+/-` 方向へ後段オフセットする
+  - c. `Ghost Multiplier` で Ghost 用の Displace / Blur を別結果として生成する
+  - d. `Ghost Alpha` で Ghost 結果を最終像へ上から重ね、`Path Blur Offset` は各結果を接線 `+/-` 方向へ後段オフセットする
   - `Normal Falloff` / `Normal Falloff Bias` / `Tangent Falloff` / Taper で作られた最終マットは、Displace / Blur / Ghost 全ての減衰に共通適用する
   - 最終合成は `Blur Amount` 側の考え方に寄せ、元画像の上へ単純平均色を重ねるのではなく、接線方向サンプルを主像として使う
 - Taper:
@@ -106,7 +108,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Invert Profile` でカーブ形状を反転できる
   - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
 - 境界保持 / AA:
-  - `Source Edge Hold` / `Ghost Hold` / `Hybrid Balance` で、変位像・接線ブラー像・Ghost 像の混ぜ方を調整する
+  - `Edge Preserve` は `Fractal Amount` / `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` / `Ghost Alpha` の 5 項目で構成する
   - 単純な代表色 1 点選抜ではなく、変位像を基準にした加重平均で近似色のディテールを残す
   - `Antialiasing Quality` は `Non / Low / High` を切り替え、`High` は効果全体の supersample で細線のドット欠け低減を優先する
 
