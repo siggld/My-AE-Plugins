@@ -28,22 +28,27 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - OFF 時は一致した最初の 1 本のみ使用する
 - `Normal Side`
   - `Positive` / `Negative` の片側だけに法線処理を適用する
-- `Normal Range`
-  - 選択した片側へ広げる法線帯域の幅
-- `CenterLine (%)`
-  - `0% = パス上`、`100% = NormalRange の外縁`
-  - 初期値は `50`
+- `Normal Band`
+  - `Normal Range` から `Negative Blur Amount` までを 1 グループとして扱う
+  - `Normal Range` は選択した片側へ広げる法線帯域の幅
+  - `CenterLine (%)` は `0% = パス上`、`100% = NormalRange の外縁`
+  - `CenterLine (%)` の初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
+  - `Path Blur Amount` / `Split Tangent Direction` / `Negative Blur Amount` を同じ帯域グループ内で管理する
   - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
 - `Path Blur Offset` / `Subtraction Alpha`
   - `Falloff Mode = Blur Amount` では、位置オフセットは不透明度ではなく変位量としてブラー側の減衰に追従する
   - 端から薄くする効果は `Subtraction Alpha` で別制御する
-- `Antialiasing` / `Antialiasing Quality`
-  - `Low` / `High` でサンプリング品質を切り替える
-- `Fast Box Blur`
-  - `Radius = 0` では画像をぼかさない
-  - 必要時だけ、ずらした像を少しなじませる用途で使う
-  - `Fractal Boost` で、Fractal が強い部分ほど追加のなじませ量を増やせる
+- `View Mode`
+  - `Final`
+  - `NormalMat`: 法線方向のグラデーション + マット表示
+  - `TangentMat`: 接線方向のグラデーション + マット表示
+  - `Fractal`: 共通 Fractal マット表示
+  - `Taper`: Taper / Profile / CenterLine 反映後の幅マット表示
+- `Antialiasing Quality`
+  - `Non`: point sample
+  - `Low`: bilinear
+  - `High`: 多点 supersample
 - `Start Taper Curve` / `End Taper Curve`
   - 初期値は `0.5`
 - `Profile Taper (Curve)`
@@ -53,7 +58,12 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Profile Min Width` で最小帯域幅を制御する
 - `Edge Preserve`
   - `Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid` を切り替える
+  - `Fractal Amount` はこのグループに含め、共通 Fractal マットの混入率を制御する
   - モード専用項目だけを有効化する
+  - `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` で、共通 Fractal マットを a/b/c 各段へどれだけ掛けるかを調整する
+- `Fractal`
+  - `Fractal Scale` / `Fractal Tangent Scale` / `Fractal Tangent Offset` / `Fractal Complexity` / `Evolution`
+  - Fractal グループはテクスチャ形状だけを調整する
 
 ## コアロジック仕様
 - マスク名フィルタ（ターゲット/プロファイル分離）:
@@ -69,8 +79,11 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `CenterLine (%)` を中心に、`Normal Falloff` / `Normal Falloff Bias` はパス側と外縁側の両端から収束する
 - ブラー:
   - 画素から最短サンプル点を取得
-  - 正規化位置 `t` を算出して `Path Blur Offset` を変位量として適用する
-  - `Falloff Mode = Blur Amount` では、元画像の上に薄く平均色を重ねるのではなく、接線方向へずらした元絵サンプルを主に使う
+  - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
+  - a. `Path Blur Offset` と `Displace Multiplier` で接線方向へ元絵を変位する
+  - b. `Path Blur Amount` / `Negative Blur Amount` と `Blur Multiplier` で、変位後の中心を基準に接線方向ブラーを掛ける
+  - c. `Ghost Multiplier` と `Alpha Mask Ghost` 系モードで Ghost 像を不透明度合成する
+  - `Falloff Mode = Blur Amount` では、元画像の上に薄く平均色を重ねるのではなく、接線方向へずらした元絵サンプルを主像に寄せる
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
@@ -80,6 +93,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Fractal Tangent Scale` 初期値は `5`
   - `Fractal Complexity` 初期値は `15`
   - `CenterLine (%)` と Taper / Profile Taper で帯域が収束した場合、Fractal も同じ収束後帯域を基準に評価する
+  - `Fractal Amount = 0` の時は Fractal 形状を掛けず、帯域全体へ均一に作用する
 - Profile Curve:
   - カーブ始点X=0.0、終点X=1.0 の正規化空間でサンプリング
   - Y は始点/終点の上下関係から上側=1.0、下側=0.0 へ正規化
@@ -87,8 +101,9 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Invert Profile` でカーブ形状を反転できる
   - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
 - 境界保持 / AA:
-  - `Edge Preserve` モードで、背景色との中間色が増えすぎないように、ずらしたサンプルの選び方を切り替える
-  - `Antialiasing Quality` はサンプリング品質を切り替え、`High` は見た目優先、`Low` は速度優先とする
+  - `Edge Preserve` モードで、変位像・接線ブラー像・Ghost 像の混ぜ方を切り替える
+  - 単純な代表色 1 点選抜ではなく、変位像を基準にした加重平均で近似色のディテールを残す
+  - `Antialiasing Quality` は `Non / Low / High` を切り替え、`High` は多点 supersample でドット感低減を優先する
 
 ## バージョン/アーカイブ運用
 - 形式: `vMajor.Minor.Patch`

@@ -7,9 +7,11 @@
 * [UI] Changed defaults to `Fractal Scale = 15`, `Fractal Tangent Scale = 5`, and `Fractal Complexity = 15`.
 * [Change] Moved `Normal Side` above `Swap Tangent`, redefined `Profile Taper` around `Profile Amount`, and split end fade from `Path Blur Offset` with `Subtraction Alpha`.
 * [Feature] Added `Edge Preserve` modes (`Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid`) with mode-specific controls.
-* [Feature] Added `Antialiasing` and `Antialiasing Quality (Low / High)` for sampling control.
-* [Change] Shifted the blur model toward displacement-style source sampling instead of simple color averaging, to preserve hard color boundaries better.
-* [Feature] Added `Fast Box Blur -> Fractal Boost` and kept `Fast Box Blur = 0` as a no-softening state.
+* [UI] Grouped `Normal Range` through `Negative Blur Amount`, changed `View Mode` to `Final / NormalMat / TangentMat / Fractal / Taper`, and simplified AA to `Antialiasing Quality (Non / Low / High)`.
+* [Change] Moved `Fractal Amount` into `Edge Preserve`, leaving the `Fractal` group for texture-shape controls only.
+* [Change] Rebuilt tangent processing around a shared fractal matte that drives displacement, tangent blur, and ghost compositing.
+* [Fix] Reduced detail loss between similar colors by replacing the dominant-sample shortcut with displaced-center-weighted accumulation.
+* [Fix] Removed the old `Fast Box Blur` softening path in favor of the new edge-preserve pipeline.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.

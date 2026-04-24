@@ -14,7 +14,9 @@ use utils::ToPixel;
 enum Params {
     ViewMode,
     EnableMasks,
+    NormalSide,
     SwapTangent,
+    NormalBandGroupStart,
     NormalRange,
     CenterLine,
     NormalFalloff,
@@ -23,10 +25,26 @@ enum Params {
     PathBlurAmount,
     SplitTangent,
     NegativeBlurAmount,
+    NormalBandGroupEnd,
+    TangentFalloffGroupStart,
     EnableTangentFalloff,
     TangentStartFallOff,
     TangentEndFallOff,
+    TangentFalloffBias,
+    TangentFalloffGroupEnd,
     PathBlurOffset,
+    OffsetEndFade,
+    AntialiasingQuality,
+    EdgePreserveGroupStart,
+    EdgePreserveMode,
+    FractalAmount,
+    EdgeColorHold,
+    EdgeGhostHold,
+    EdgeHybridBalance,
+    EdgeDisplaceMultiplier,
+    EdgeBlurMultiplier,
+    EdgeGhostMultiplier,
+    EdgePreserveGroupEnd,
     EnableTaper,
     TaperGroupStart,
     StartTaperLength,
@@ -34,7 +52,6 @@ enum Params {
     EndTaperLength,
     EndTaperCurve,
     TaperGroupEnd,
-    FractalAmount,
     FractalScale,
     FractalComplexity,
     Evolution,
@@ -43,7 +60,6 @@ enum Params {
     PositiveScale,
     LinkScales,
     NegativeScale,
-    NormalSide,
     ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
@@ -57,24 +73,6 @@ enum Params {
     AddColorGroupEnd,
     FractalGroupStart,
     FractalGroupEnd,
-    TangentFalloffGroupStart,
-    TangentFalloffBias,
-    TangentFalloffGroupEnd,
-    BoxBlurGroupStart,
-    FastBoxBlurRadius,
-    FastBoxBlurIterations,
-    FastBoxBlurRepeatEdge,
-    BoxBlurGroupEnd,
-    OffsetEndFade,
-    EnableAntialiasing,
-    AntialiasingQuality,
-    EdgePreserveGroupStart,
-    EdgePreserveMode,
-    EdgeColorHold,
-    EdgeGhostHold,
-    EdgeHybridBalance,
-    EdgePreserveGroupEnd,
-    FastBoxBlurFractalBoost,
 }
 
 #[derive(Default)]
@@ -127,7 +125,7 @@ impl AdobePluginGlobal for Plugin {
             Params::ViewMode,
             "View Mode",
             PopupDef::setup(|d| {
-                d.set_options(&["Final", "Preview Stroke", "Distance Field", "Fractal"]);
+                d.set_options(&["Final", "NormalMat", "TangentMat", "Fractal", "Taper"]);
                 d.set_default(1);
             }),
             ParamFlag::SUPERVISE,
@@ -157,94 +155,103 @@ impl AdobePluginGlobal for Plugin {
             ParamFlag::SUPERVISE,
             ParamUIFlags::NONE,
         )?;
-        params.add(
-            Params::NormalRange,
-            "Normal Range",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(4096.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(256.0);
-                d.set_default(48.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add(
-            Params::CenterLine,
-            "CenterLine (%)",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(50.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add(
-            Params::NormalFalloff,
-            "Normal Falloff",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add(
-            Params::NormalFalloffBias,
-            "Normal Falloff Bias",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(300.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(300.0);
-                d.set_default(0.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add(
-            Params::FalloffMode,
-            "Falloff Mode",
-            PopupDef::setup(|d| {
-                d.set_options(&["Opacity", "Blur Amount"]);
-                d.set_default(1);
-            }),
-        )?;
-        params.add(
-            Params::PathBlurAmount,
-            "Path Blur Amount",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(1024.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(200.0);
-                d.set_default(36.0);
-                d.set_precision(1);
-            }),
-        )?;
-        params.add_with_flags(
-            Params::SplitTangent,
-            "Split Tangent Direction",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
-        params.add(
-            Params::NegativeBlurAmount,
-            "Negative Blur Amount",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(1024.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(200.0);
-                d.set_default(36.0);
-                d.set_precision(1);
-            }),
+        params.add_group(
+            Params::NormalBandGroupStart,
+            Params::NormalBandGroupEnd,
+            "Normal Band",
+            true,
+            |params| {
+                params.add(
+                    Params::NormalRange,
+                    "Normal Range",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(4096.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(256.0);
+                        d.set_default(48.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::CenterLine,
+                    "CenterLine (%)",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::NormalFalloff,
+                    "Normal Falloff",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::NormalFalloffBias,
+                    "Normal Falloff Bias",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(300.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(300.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::FalloffMode,
+                    "Falloff Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["Opacity", "Blur Amount"]);
+                        d.set_default(1);
+                    }),
+                )?;
+                params.add(
+                    Params::PathBlurAmount,
+                    "Path Blur Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(1024.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(36.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add_with_flags(
+                    Params::SplitTangent,
+                    "Split Tangent Direction",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(false);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+                params.add(
+                    Params::NegativeBlurAmount,
+                    "Negative Blur Amount",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(1024.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(36.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                Ok(())
+            },
         )?;
         params.add_group(
             Params::TangentFalloffGroupStart,
@@ -324,84 +331,34 @@ impl AdobePluginGlobal for Plugin {
                 d.set_precision(1);
             }),
         )?;
-        params.add_with_flags(
-            Params::EnableAntialiasing,
-            "Antialiasing",
-            CheckBoxDef::setup(|d| {
-                d.set_default(true);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
         params.add(
             Params::AntialiasingQuality,
             "Antialiasing Quality",
             PopupDef::setup(|d| {
-                d.set_options(&["Low", "High"]);
-                d.set_default(1);
+                d.set_options(&["Non", "Low", "High"]);
+                d.set_default(2);
             }),
         )?;
         params.add_group(
-            Params::BoxBlurGroupStart,
-            Params::BoxBlurGroupEnd,
-            "Fast Box Blur",
+            Params::EdgePreserveGroupStart,
+            Params::EdgePreserveGroupEnd,
+            "Edge Preserve",
             true,
             |params| {
                 params.add_with_flags(
-                    Params::FastBoxBlurRadius,
-                    "Radius",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(32.0);
-                        d.set_default(0.0);
-                        d.set_precision(0);
+                    Params::EdgePreserveMode,
+                    "Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&[
+                            "Preserve Source Edge Color",
+                            "Alpha Mask Ghost",
+                            "Hybrid",
+                        ]);
+                        d.set_default(3);
                     }),
                     ParamFlag::SUPERVISE,
                     ParamUIFlags::NONE,
                 )?;
-                params.add(
-                    Params::FastBoxBlurIterations,
-                    "Iterations",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(1.0);
-                        d.set_valid_max(10.0);
-                        d.set_slider_min(1.0);
-                        d.set_slider_max(10.0);
-                        d.set_default(4.0);
-                        d.set_precision(0);
-                    }),
-                )?;
-                params.add(
-                    Params::FastBoxBlurFractalBoost,
-                    "Fractal Boost",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(300.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::FastBoxBlurRepeatEdge,
-                    "Repeat Edge Pixels",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(true);
-                    }),
-                )?;
-                Ok(())
-            },
-        )?;
-
-        params.add_group(
-            Params::FractalGroupStart,
-            Params::FractalGroupEnd,
-            "Fractal",
-            true,
-            |params| {
                 params.add(
                     Params::FractalAmount,
                     "Fractal Amount",
@@ -414,6 +371,88 @@ impl AdobePluginGlobal for Plugin {
                         d.set_precision(1);
                     }),
                 )?;
+                params.add(
+                    Params::EdgeColorHold,
+                    "Source Edge Hold",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(60.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeGhostHold,
+                    "Ghost Alpha Hold",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(60.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeHybridBalance,
+                    "Hybrid Balance",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(50.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeDisplaceMultiplier,
+                    "Displace Multiplier",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(400.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(100.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeBlurMultiplier,
+                    "Blur Multiplier",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(400.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(100.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeGhostMultiplier,
+                    "Ghost Multiplier",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(400.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(200.0);
+                        d.set_default(100.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                Ok(())
+            },
+        )?;
+
+        params.add_group(
+            Params::FractalGroupStart,
+            Params::FractalGroupEnd,
+            "Fractal",
+            true,
+            |params| {
                 params.add(
                     Params::FractalScale,
                     "Fractal Scale",
@@ -467,65 +506,6 @@ impl AdobePluginGlobal for Plugin {
                     "Evolution",
                     AngleDef::setup(|d| {
                         d.set_default(0.0);
-                    }),
-                )?;
-                Ok(())
-            },
-        )?;
-        params.add_group(
-            Params::EdgePreserveGroupStart,
-            Params::EdgePreserveGroupEnd,
-            "Edge Preserve",
-            true,
-            |params| {
-                params.add_with_flags(
-                    Params::EdgePreserveMode,
-                    "Mode",
-                    PopupDef::setup(|d| {
-                        d.set_options(&[
-                            "Preserve Source Edge Color",
-                            "Alpha Mask Ghost",
-                            "Hybrid",
-                        ]);
-                        d.set_default(3);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::EdgeColorHold,
-                    "Source Edge Hold",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(60.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EdgeGhostHold,
-                    "Ghost Alpha Hold",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(60.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::EdgeHybridBalance,
-                    "Hybrid Balance",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(50.0);
-                        d.set_precision(1);
                     }),
                 )?;
                 Ok(())
@@ -780,19 +760,7 @@ impl AdobePluginGlobal for Plugin {
                     .get(Params::EnableProfileCurve)?
                     .as_checkbox()?
                     .value();
-                let enable_antialiasing = params
-                    .get(Params::EnableAntialiasing)?
-                    .as_checkbox()?
-                    .value();
                 let edge_preserve_mode = params.get(Params::EdgePreserveMode)?.as_popup()?.value();
-                let box_blur_radius = params
-                    .get(Params::FastBoxBlurRadius)?
-                    .as_float_slider()?
-                    .value() as f32;
-                let fract_amount_value = params
-                    .get(Params::FractalAmount)?
-                    .as_float_slider()?
-                    .value() as f32;
                 let mut p = params.cloned();
 
                 {
@@ -807,25 +775,6 @@ impl AdobePluginGlobal for Plugin {
                 ] {
                     let mut pd = p.get_mut(k)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
-                    pd.update_param_ui()?;
-                }
-                for k in [
-                    Params::FastBoxBlurIterations,
-                    Params::FastBoxBlurFractalBoost,
-                    Params::FastBoxBlurRepeatEdge,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    let disabled = if k == Params::FastBoxBlurFractalBoost {
-                        box_blur_radius < 0.5 || fract_amount_value < 0.5
-                    } else {
-                        box_blur_radius < 0.5
-                    };
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, disabled);
-                    pd.update_param_ui()?;
-                }
-                {
-                    let mut pd = p.get_mut(Params::AntialiasingQuality)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_antialiasing);
                     pd.update_param_ui()?;
                 }
                 for k in [
@@ -968,27 +917,6 @@ impl Plugin {
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
             .value() as f32;
-        let box_blur_radius = params
-            .get(Params::FastBoxBlurRadius)?
-            .as_float_slider()?
-            .value()
-            .round()
-            .max(0.0) as usize;
-        let box_blur_iterations = params
-            .get(Params::FastBoxBlurIterations)?
-            .as_float_slider()?
-            .value()
-            .round()
-            .clamp(1.0, 10.0) as usize;
-        let box_blur_repeat_edge = params
-            .get(Params::FastBoxBlurRepeatEdge)?
-            .as_checkbox()?
-            .value();
-        let fast_box_fractal_boost = params
-            .get(Params::FastBoxBlurFractalBoost)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
         let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
         let taper_s_len = params
             .get(Params::StartTaperLength)?
@@ -1070,10 +998,6 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32
             / 100.0;
-        let enable_antialiasing = params
-            .get(Params::EnableAntialiasing)?
-            .as_checkbox()?
-            .value();
         let antialiasing_quality = params.get(Params::AntialiasingQuality)?.as_popup()?.value();
         let edge_preserve_mode = params.get(Params::EdgePreserveMode)?.as_popup()?.value();
         let edge_color_hold = params
@@ -1091,51 +1015,28 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32
             / 100.0;
-        let sample_mode = if !enable_antialiasing {
-            0
-        } else {
-            antialiasing_quality
-        };
+        let edge_displace_multiplier = params
+            .get(Params::EdgeDisplaceMultiplier)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let edge_blur_multiplier = params
+            .get(Params::EdgeBlurMultiplier)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let edge_ghost_multiplier = params
+            .get(Params::EdgeGhostMultiplier)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let sample_mode = (antialiasing_quality - 1).clamp(0, 2);
 
         let in_world = in_layer.world_type();
         let out_world = out_layer.world_type();
         let in_w = in_layer.width();
         let in_h = in_layer.height();
         let progress_final = out_layer.height() as i32;
-        let smoothed_normal_buffer = if box_blur_radius > 0 && box_blur_iterations > 0 {
-            let mut values = compute_max_normal_buffer(
-                &path_data,
-                in_w,
-                in_h,
-                normal_range,
-                center_line,
-                normal_falloff,
-                normal_bias,
-                enable_taper,
-                taper_s_len,
-                taper_s_curve,
-                taper_e_len,
-                taper_e_curve,
-                taper_s_curve_enabled,
-                enable_profile,
-                profile_amount,
-                profile_min_width,
-                invert_profile,
-                swap_tangent,
-                normal_side,
-            );
-            box_blur_channel_in_place(
-                &mut values,
-                in_w,
-                in_h,
-                box_blur_radius,
-                box_blur_iterations,
-                box_blur_repeat_edge,
-            );
-            Some(values)
-        } else {
-            None
-        };
 
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
@@ -1151,7 +1052,7 @@ impl Plugin {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
             let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
-            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32)> = None;
+            let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
             let mut max_blend = 0.0_f32;
             let mut max_preview_blend = 0.0_f32;
@@ -1248,6 +1149,7 @@ impl Plugin {
                         normal_w,
                         edge_falloff,
                         side_u,
+                        thickness_factor,
                     ));
                     best_normal_w = normal_w;
                 }
@@ -1256,7 +1158,15 @@ impl Plugin {
                 }
             }
 
-            let Some((mask, nearest, effective_range, normal_w, edge_falloff, side_u)) = chosen
+            let Some((
+                mask,
+                nearest,
+                effective_range,
+                normal_w,
+                edge_falloff,
+                side_u,
+                thickness_factor,
+            )) = chosen
             else {
                 set_dst!(dst, original);
                 return Ok(());
@@ -1264,7 +1174,6 @@ impl Plugin {
 
             let combined_blend = max_blend.clamp(0.0, 1.0);
             let preview_blend = max_preview_blend.clamp(0.0, 1.0);
-            let d_abs = nearest.distance.abs();
             let arc_len = mask.arc_len.max(1.0);
 
             let evo = evolution * 0.05;
@@ -1275,47 +1184,49 @@ impl Plugin {
                 + fract_tangent_offset;
             let fract_y = centered_normal_distance / fract_scale.max(0.1) * fract_iso;
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
-            let fract_w = 1.0 + (fract_val - 0.5) * 2.0 * fract_amount;
+            let fract_mask = ((1.0 - fract_amount) + fract_val * fract_amount).clamp(0.0, 1.0);
             let total_blend = combined_blend;
-            let fract_boost = if fract_amount > 0.001 {
-                ((fract_val - 0.5).abs() * 2.0).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let source_soften_mix = ((box_blur_radius as f32 / 24.0)
-                * (box_blur_iterations as f32 / 4.0)
-                * (1.0 + fast_box_fractal_boost * fract_boost))
-                .clamp(0.0, 1.0);
+            let normal_mat = preview_blend.clamp(0.0, 1.0);
+            let tangent_mat = (edge_falloff * normal_w).clamp(0.0, 1.0);
 
             if view_mode == 2 {
                 let vis = PixelF32 {
-                    red: preview_blend,
-                    green: preview_blend * 0.7,
-                    blue: 1.0 - preview_blend,
+                    red: side_u.clamp(0.0, 1.0),
+                    green: normal_mat,
+                    blue: (1.0 - side_u).clamp(0.0, 1.0),
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, preview_blend);
+                let col = lerp_pixel(&original, &vis, normal_mat);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 3 {
-                let g = (d_abs / effective_range.max(0.001)).clamp(0.0, 1.0);
                 let vis = PixelF32 {
-                    red: g,
-                    green: g,
-                    blue: g,
+                    red: nearest.t_norm.clamp(0.0, 1.0),
+                    green: tangent_mat,
+                    blue: (1.0 - nearest.t_norm).clamp(0.0, 1.0),
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, preview_blend);
+                let col = lerp_pixel(&original, &vis, tangent_mat);
                 set_dst!(dst, col);
                 return Ok(());
             } else if view_mode == 4 {
                 let vis = PixelF32 {
-                    red: fract_val,
-                    green: fract_val,
-                    blue: fract_val,
+                    red: fract_mask,
+                    green: fract_mask,
+                    blue: fract_mask,
                     alpha: 1.0,
                 };
-                let col = lerp_pixel(&original, &vis, preview_blend);
+                let col = lerp_pixel(&original, &vis, normal_mat);
+                set_dst!(dst, col);
+                return Ok(());
+            } else if view_mode == 5 {
+                let vis = PixelF32 {
+                    red: thickness_factor,
+                    green: thickness_factor,
+                    blue: thickness_factor,
+                    alpha: 1.0,
+                };
+                let col = lerp_pixel(&original, &vis, normal_mat);
                 set_dst!(dst, col);
                 return Ok(());
             }
@@ -1325,59 +1236,56 @@ impl Plugin {
             } else {
                 (nearest.tx, nearest.ty)
             };
-            let smoothed_normal_w = smoothed_normal_buffer
-                .as_ref()
-                .map(|values| values[y as usize * in_w + x as usize])
-                .unwrap_or(normal_w)
-                .clamp(0.0, 1.0);
-            let blur_falloff = edge_falloff * smoothed_normal_w;
-            let ox = xf + blur_tx * path_offset * blur_falloff;
-            let oy = yf + blur_ty * path_offset * blur_falloff;
+            let displace_scale = (fract_mask * edge_displace_multiplier).max(0.0);
+            let blur_scale = (fract_mask * edge_blur_multiplier).max(0.0);
+            let ghost_scale = (fract_mask * edge_ghost_multiplier).clamp(0.0, 1.0);
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
-                let cur_pos_amt = blur_amount * edge_falloff * smoothed_normal_w * fract_w;
-                let cur_neg_amt = neg_blur_amount * edge_falloff * smoothed_normal_w * fract_w;
+                let cur_pos_amt = blur_amount * tangent_mat * blur_scale;
+                let cur_neg_amt = neg_blur_amount * tangent_mat * blur_scale;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: ox,
-                    center_y: oy,
+                    center_x: xf,
+                    center_y: yf,
                     tangent_x: blur_tx,
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
+                    displace_amount: path_offset * tangent_mat * displace_scale,
+                    ghost_mix: ghost_scale,
                     sample_mode,
                     edge_mode: edge_preserve_mode,
                     edge_color_hold,
                     edge_ghost_hold,
                     edge_hybrid_balance,
-                    source_soften_mix,
                 });
                 let opacity =
                     total_blend * (1.0 - offset_end_fade) + preview_blend * offset_end_fade;
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
-                let cur_pos_amt = blur_amount * edge_falloff * fract_w;
-                let cur_neg_amt = neg_blur_amount * edge_falloff * fract_w;
+                let cur_pos_amt = blur_amount * edge_falloff * blur_scale;
+                let cur_neg_amt = neg_blur_amount * edge_falloff * blur_scale;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
                     width: in_w,
                     height: in_h,
-                    center_x: ox,
-                    center_y: oy,
+                    center_x: xf,
+                    center_y: yf,
                     tangent_x: blur_tx,
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
+                    displace_amount: path_offset * edge_falloff * displace_scale,
+                    ghost_mix: ghost_scale,
                     sample_mode,
                     edge_mode: edge_preserve_mode,
                     edge_color_hold,
                     edge_ghost_hold,
                     edge_hybrid_balance,
-                    source_soften_mix,
                 });
                 (lerp_pixel(&original, &blurred, total_blend), total_blend)
             };
@@ -1397,7 +1305,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * blend_strength * smoothed_normal_w,
+                    add_color_opacity * blend_strength * tangent_mat,
                 );
             }
 
@@ -1620,12 +1528,13 @@ struct TangentBlurParams<'a> {
     tangent_y: f32,
     positive_amount: f32,
     negative_amount: f32,
+    displace_amount: f32,
+    ghost_mix: f32,
     sample_mode: i32,
     edge_mode: i32,
     edge_color_hold: f32,
     edge_ghost_hold: f32,
     edge_hybrid_balance: f32,
-    source_soften_mix: f32,
 }
 
 fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
@@ -1633,97 +1542,110 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     let neg_r = p.negative_amount.max(0.0);
     let total = pos_r + neg_r;
 
-    if total < 0.5 {
-        return sample_with_quality(
-            p.layer,
-            p.world,
-            p.width,
-            p.height,
-            p.center_x,
-            p.center_y,
-            p.sample_mode,
-        );
-    }
+    let displaced_x = p.center_x + p.tangent_x * p.displace_amount;
+    let displaced_y = p.center_y + p.tangent_y * p.displace_amount;
+    let displaced = sample_with_quality(
+        p.layer,
+        p.world,
+        p.width,
+        p.height,
+        displaced_x,
+        displaced_y,
+        p.sample_mode,
+    );
 
-    let taps = ((total / 4.0).ceil() as i32 * 2 + 1).max(3);
-    let mut sum = PixelF32 {
+    let taps = ((total.ceil() as i32) * 4 + 1).max(5);
+    let mut blur_sum = PixelF32 {
         alpha: 0.0,
         red: 0.0,
         green: 0.0,
         blue: 0.0,
     };
-    let mut wsum = 0.0_f32;
-    let mut best_color = sample_with_quality(
-        p.layer,
-        p.world,
-        p.width,
-        p.height,
-        p.center_x,
-        p.center_y,
-        p.sample_mode,
-    );
-    let mut best_color_score = -1.0_f32;
-    let mut best_ghost = best_color;
-    let mut best_ghost_score = -1.0_f32;
+    let mut blur_wsum = 0.0_f32;
+    let mut ghost_sum = PixelF32 {
+        alpha: 0.0,
+        red: 0.0,
+        green: 0.0,
+        blue: 0.0,
+    };
+    let mut ghost_wsum = 0.0_f32;
 
     let pos_sigma = (pos_r / 3.0).max(0.001);
     let neg_sigma = (neg_r / 3.0).max(0.001);
 
     for i in 0..taps {
-        let t = i as f32 / (taps - 1) as f32;
-        let offset = -neg_r + t * total;
-
-        // Gaussian kernel per side
+        let offset = if taps <= 1 {
+            0.0
+        } else {
+            let t = i as f32 / (taps - 1) as f32;
+            -neg_r + t * total
+        };
         let sigma = if offset < 0.0 { neg_sigma } else { pos_sigma };
-        let w = (-0.5 * (offset / sigma).powi(2)).exp();
-        if w < 1e-6 {
-            continue;
-        }
-
-        let sx = p.center_x + p.tangent_x * offset;
-        let sy = p.center_y + p.tangent_y * offset;
+        let gaussian_w = if total < 0.25 {
+            1.0
+        } else {
+            (-0.5 * (offset / sigma).powi(2)).exp()
+        };
+        let sx = displaced_x + p.tangent_x * offset;
+        let sy = displaced_y + p.tangent_y * offset;
         let px = sample_with_quality(p.layer, p.world, p.width, p.height, sx, sy, p.sample_mode);
-        sum.alpha += px.alpha * w;
-        sum.red += px.red * w;
-        sum.green += px.green * w;
-        sum.blue += px.blue * w;
-        wsum += w;
+        let detail_w = (1.15 - color_distance(&px, &displaced) * 0.65).clamp(0.35, 1.25);
+        let center_w = if total < 0.25 {
+            1.0
+        } else {
+            (1.0 - (offset.abs() / total.max(1.0)) * 0.35).clamp(0.65, 1.0)
+        };
+        let blur_w = gaussian_w * detail_w * center_w;
+        blur_sum.alpha += px.alpha * blur_w;
+        blur_sum.red += px.red * blur_w;
+        blur_sum.green += px.green * blur_w;
+        blur_sum.blue += px.blue * blur_w;
+        blur_wsum += blur_w;
 
-        let chroma = color_chroma(&px);
-        let color_score = w * (0.25 + chroma * 2.0);
-        if color_score > best_color_score {
-            best_color_score = color_score;
-            best_color = px;
-        }
-
-        let ghost_score = w * (0.25 + px.alpha * 0.5);
-        if ghost_score > best_ghost_score {
-            best_ghost_score = ghost_score;
-            best_ghost = px;
+        let ghost_w = gaussian_w * (0.15 + px.alpha * 0.85);
+        ghost_sum.alpha += px.alpha * ghost_w;
+        ghost_sum.red += px.red * ghost_w;
+        ghost_sum.green += px.green * ghost_w;
+        ghost_sum.blue += px.blue * ghost_w;
+        ghost_wsum += ghost_w;
+        if total < 0.25 {
+            break;
         }
     }
 
-    if wsum > 0.0 {
-        sum.alpha /= wsum;
-        sum.red /= wsum;
-        sum.green /= wsum;
-        sum.blue /= wsum;
-    }
-
-    let color_mode = lerp_pixel(&sum, &best_color, p.edge_color_hold.clamp(0.0, 1.0));
-    let ghost_mode = lerp_pixel(&sum, &best_ghost, p.edge_ghost_hold.clamp(0.0, 1.0));
-    let displaced = match p.edge_mode {
-        1 => color_mode,
-        2 => ghost_mode,
-        3 => lerp_pixel(
-            &color_mode,
-            &ghost_mode,
-            p.edge_hybrid_balance.clamp(0.0, 1.0),
-        ),
-        _ => color_mode,
+    let blurred = if blur_wsum > 0.0 {
+        PixelF32 {
+            alpha: blur_sum.alpha / blur_wsum,
+            red: blur_sum.red / blur_wsum,
+            green: blur_sum.green / blur_wsum,
+            blue: blur_sum.blue / blur_wsum,
+        }
+    } else {
+        displaced
     };
+    let ghost = if ghost_wsum > 0.0 {
+        PixelF32 {
+            alpha: ghost_sum.alpha / ghost_wsum,
+            red: ghost_sum.red / ghost_wsum,
+            green: ghost_sum.green / ghost_wsum,
+            blue: ghost_sum.blue / ghost_wsum,
+        }
+    } else {
+        displaced
+    };
+    let preserve = lerp_pixel(&blurred, &displaced, p.edge_color_hold.clamp(0.0, 1.0));
+    let ghosted = lerp_pixel(
+        &preserve,
+        &ghost,
+        (p.edge_ghost_hold * p.ghost_mix).clamp(0.0, 1.0),
+    );
 
-    lerp_pixel(&displaced, &sum, p.source_soften_mix.clamp(0.0, 1.0))
+    match p.edge_mode {
+        1 => preserve,
+        2 => ghosted,
+        3 => lerp_pixel(&preserve, &ghosted, p.edge_hybrid_balance.clamp(0.0, 1.0)),
+        _ => preserve,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1882,205 +1804,6 @@ fn is_profile_curve_name(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("curve")
 }
 
-fn compute_max_normal_buffer(
-    path_data: &PathData,
-    width: usize,
-    height: usize,
-    normal_range: f32,
-    center_line: f32,
-    normal_falloff: f32,
-    normal_bias: f32,
-    enable_taper: bool,
-    taper_s_len: f32,
-    taper_s_curve: f32,
-    taper_e_len: f32,
-    taper_e_curve: f32,
-    taper_s_curve_enabled: bool,
-    enable_profile: bool,
-    profile_amount: f32,
-    profile_min_width: f32,
-    invert_profile: bool,
-    swap_tangent: bool,
-    normal_side: i32,
-) -> Vec<f32> {
-    let mut values = vec![0.0_f32; width * height];
-
-    for y in 0..height {
-        let yf = y as f32 + 0.5;
-        for x in 0..width {
-            let xf = x as f32 + 0.5;
-            let mut max_normal_w = 0.0_f32;
-
-            for mask in &path_data.masks {
-                if mask.samples.is_empty() {
-                    continue;
-                }
-
-                let nearest = nearest_sample(&mask.samples, xf, yf);
-                let taper_thickness = if enable_taper {
-                    taper_factor(
-                        nearest.t_norm,
-                        taper_s_len,
-                        taper_s_curve,
-                        taper_e_len,
-                        taper_e_curve,
-                        taper_s_curve_enabled,
-                    )
-                } else {
-                    1.0
-                };
-                let profile_thickness = if enable_profile {
-                    profile_multiplier(
-                        path_data.profile_curve.as_ref(),
-                        nearest.t_norm,
-                        profile_amount,
-                        profile_min_width,
-                        invert_profile,
-                        swap_tangent,
-                    )
-                } else {
-                    1.0
-                };
-                let thickness_factor = (taper_thickness * profile_thickness).clamp(0.0, 1.0);
-                let Some(side_u_full) =
-                    selected_normal_side_u(nearest.distance, normal_range, normal_side)
-                else {
-                    continue;
-                };
-                let Some((side_u, _band_width_u)) =
-                    remap_side_u_around_centerline(side_u_full, thickness_factor, center_line)
-                else {
-                    continue;
-                };
-
-                let at_start = nearest.best_t_norm < 0.01 && nearest.best_tangent_offset < 0.0;
-                let at_end = nearest.best_t_norm > 0.99 && nearest.best_tangent_offset > 0.0;
-                if at_start || at_end {
-                    continue;
-                }
-
-                let normal_w = normal_band_weight(side_u, center_line, normal_falloff, normal_bias);
-                max_normal_w = max_normal_w.max(normal_w.clamp(0.0, 1.0));
-                if max_normal_w >= 1.0 - 1e-6 {
-                    break;
-                }
-            }
-
-            values[y * width + x] = max_normal_w;
-        }
-    }
-
-    values
-}
-
-fn box_blur_channel_in_place(
-    values: &mut [f32],
-    width: usize,
-    height: usize,
-    radius: usize,
-    iterations: usize,
-    repeat_edge: bool,
-) {
-    if radius == 0 || iterations == 0 || values.is_empty() {
-        return;
-    }
-
-    let mut tmp = vec![0.0_f32; values.len()];
-    for _ in 0..iterations {
-        box_blur_horizontal_runsum(values, &mut tmp, width, height, radius, repeat_edge);
-        box_blur_vertical_runsum(&tmp, values, width, height, radius, repeat_edge);
-    }
-}
-
-fn box_blur_horizontal_runsum(
-    src: &[f32],
-    dst: &mut [f32],
-    width: usize,
-    height: usize,
-    radius: usize,
-    repeat_edge: bool,
-) {
-    if width == 0 {
-        return;
-    }
-
-    let radius = radius as isize;
-    let full_count = (radius * 2 + 1) as f32;
-    let mut prefix = vec![0.0_f32; width + 1];
-
-    for y in 0..height {
-        let row = y * width;
-        prefix[0] = 0.0;
-        for x in 0..width {
-            prefix[x + 1] = prefix[x] + src[row + x];
-        }
-
-        for x in 0..width {
-            let left = x as isize - radius;
-            let right = x as isize + radius;
-            let lo = left.max(0) as usize;
-            let hi = right.min(width as isize - 1) as usize;
-            let mut sum = prefix[hi + 1] - prefix[lo];
-            let count = if repeat_edge {
-                if left < 0 {
-                    sum += src[row] * (-left) as f32;
-                }
-                if right >= width as isize {
-                    sum += src[row + width - 1] * (right - width as isize + 1) as f32;
-                }
-                full_count
-            } else {
-                (hi - lo + 1) as f32
-            };
-            dst[row + x] = sum / count.max(1.0);
-        }
-    }
-}
-
-fn box_blur_vertical_runsum(
-    src: &[f32],
-    dst: &mut [f32],
-    width: usize,
-    height: usize,
-    radius: usize,
-    repeat_edge: bool,
-) {
-    if height == 0 {
-        return;
-    }
-
-    let radius = radius as isize;
-    let full_count = (radius * 2 + 1) as f32;
-    let mut prefix = vec![0.0_f32; height + 1];
-
-    for x in 0..width {
-        prefix[0] = 0.0;
-        for y in 0..height {
-            prefix[y + 1] = prefix[y] + src[y * width + x];
-        }
-
-        for y in 0..height {
-            let top = y as isize - radius;
-            let bottom = y as isize + radius;
-            let lo = top.max(0) as usize;
-            let hi = bottom.min(height as isize - 1) as usize;
-            let mut sum = prefix[hi + 1] - prefix[lo];
-            let count = if repeat_edge {
-                if top < 0 {
-                    sum += src[x] * (-top) as f32;
-                }
-                if bottom >= height as isize {
-                    sum += src[(height - 1) * width + x] * (bottom - height as isize + 1) as f32;
-                }
-                full_count
-            } else {
-                (hi - lo + 1) as f32
-            };
-            dst[y * width + x] = sum / count.max(1.0);
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 2D Voronoi cellular noise
 // ---------------------------------------------------------------------------
@@ -2212,10 +1935,12 @@ fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
     }
 }
 
-fn color_chroma(px: &PixelF32) -> f32 {
-    let min_v = px.red.min(px.green).min(px.blue);
-    let max_v = px.red.max(px.green).max(px.blue);
-    (max_v - min_v).clamp(0.0, 1.0)
+fn color_distance(a: &PixelF32, b: &PixelF32) -> f32 {
+    let dr = a.red - b.red;
+    let dg = a.green - b.green;
+    let db = a.blue - b.blue;
+    let da = a.alpha - b.alpha;
+    ((dr * dr + dg * dg + db * db + da * da).sqrt() * 0.5).clamp(0.0, 1.0)
 }
 
 fn blend_channel(base: f32, blend: f32, mode: i32) -> f32 {
@@ -2366,10 +2091,15 @@ fn sample_with_quality(
         0 => sample_point(layer, world_type, width, height, x, y),
         2 => {
             let offsets = [
-                (-0.25_f32, -0.25_f32),
-                (0.25, -0.25),
-                (-0.25, 0.25),
-                (0.25, 0.25),
+                (0.0_f32, 0.0_f32, 2.0_f32),
+                (-0.35, 0.0, 1.0),
+                (0.35, 0.0, 1.0),
+                (0.0, -0.35, 1.0),
+                (0.0, 0.35, 1.0),
+                (-0.25, -0.25, 0.75),
+                (0.25, -0.25, 0.75),
+                (-0.25, 0.25, 0.75),
+                (0.25, 0.25, 0.75),
             ];
             let mut sum = PixelF32 {
                 alpha: 0.0,
@@ -2377,18 +2107,20 @@ fn sample_with_quality(
                 green: 0.0,
                 blue: 0.0,
             };
-            for (ox, oy) in offsets {
+            let mut wsum = 0.0_f32;
+            for (ox, oy, w) in offsets {
                 let px = sample_bilinear(layer, world_type, width, height, x + ox, y + oy);
-                sum.alpha += px.alpha;
-                sum.red += px.red;
-                sum.green += px.green;
-                sum.blue += px.blue;
+                sum.alpha += px.alpha * w;
+                sum.red += px.red * w;
+                sum.green += px.green * w;
+                sum.blue += px.blue * w;
+                wsum += w;
             }
             PixelF32 {
-                alpha: sum.alpha * 0.25,
-                red: sum.red * 0.25,
-                green: sum.green * 0.25,
-                blue: sum.blue * 0.25,
+                alpha: sum.alpha / wsum.max(1e-6),
+                red: sum.red / wsum.max(1e-6),
+                green: sum.green / wsum.max(1e-6),
+                blue: sum.blue / wsum.max(1e-6),
             }
         }
         _ => sample_bilinear(layer, world_type, width, height, x, y),
