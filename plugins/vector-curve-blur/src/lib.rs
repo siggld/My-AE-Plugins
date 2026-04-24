@@ -1030,8 +1030,9 @@ impl Plugin {
             let normal_mat = (contrib.normal_w * contrib.ambiguity).clamp(0.0, 1.0);
             let tangent_mat = (contrib.edge_falloff * contrib.ambiguity).clamp(0.0, 1.0);
             let effect_mat = contrib.total_blend.clamp(0.0, 1.0);
-            let effect_strength =
-                normal_mat * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
+            let end_fade_factor =
+                1.0 - offset_end_fade.clamp(0.0, 1.0) * (1.0 - tangent_mat.clamp(0.0, 1.0));
+            let effect_strength = (effect_mat * end_fade_factor).clamp(0.0, 1.0);
             let arc_len = contrib.arc_len.max(1.0);
 
             let evo = evolution * 0.05;
