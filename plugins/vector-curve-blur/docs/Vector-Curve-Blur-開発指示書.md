@@ -28,20 +28,20 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - OFF 時は一致した最初の 1 本のみ使用する
 - `Normal Side`
   - `Positive` / `Negative` の片側だけに法線処理を適用する
-- `TangentAmount` / `SplitTangentDirection` / `NegativeTangentAmount`
+- `TangentAmount(+)` / `TangentAmount(-)` / `TangentOffset`
   - `Normal Band` グループの外に置き、その直上で接線方向の基本量を管理する
-  - `TangentAmount` は接線方向ブラー量だけでなく、Displace の基準量にも使う
-  - `NegativeTangentAmount` は `SplitTangentDirection` が ON の時だけ有効
+  - `TangentAmount(+)` は接線正方向の基準量で、ブラー量だけでなく Displace の基準量にも使う
+  - `TangentAmount(-)` は接線負方向の基準量で、常時有効かつ既定値は `0`
+  - `TangentOffset` は Displace / Blur 後の像全体を接線 `+/-` 方向へ戻し込む後段オフセット
 - `Normal Band`
-  - `Normal Range` から `Falloff Mode` までの法線帯域制御を 1 グループとして扱う
+  - `Normal Range` から `Normal Falloff Bias` までの法線帯域制御を 1 グループとして扱う
   - `Normal Range` は選択した片側へ広げる法線帯域の幅
   - `CenterLine (%)` は `0% = パス上`、`100% = NormalRange の外縁`
   - `CenterLine (%)` の初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
   - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
-  - `Falloff Mode` は互換性のため残っているが、現行レンダーでは `Blur Amount` 側の考え方に寄せて整理中
-- `Path Blur Offset` / `Subtraction Alpha`
-  - `Path Blur Offset` は Displace / Blur 後の像を接線 `+/-` 方向へずらす後段オフセット
+- `TangentOffset` / `Subtraction Alpha`
+  - `TangentOffset` は Displace / Blur 後の像を接線 `+/-` 方向へずらす後段オフセット
   - 端から薄くする効果は `Subtraction Alpha` で別制御する
 - `View Mode`
   - `Final`
@@ -85,12 +85,12 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - ブラー:
   - 画素から最短サンプル点を取得
   - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
-  - a. `TangentAmount` / `NegativeTangentAmount` と `Displace Multiplier` で、接線の正負両側を基準に変位像を作る
-  - b. `TangentAmount` / `NegativeTangentAmount` と `Blur Multiplier` で、正負量から決まる中心と幅を使って接線方向ブラーを掛ける
+  - a. `TangentAmount(+)` / `TangentAmount(-)` と `Displace Multiplier` で、接線の正負両側を基準に変位像を作る
+  - b. `TangentAmount(+)` / `TangentAmount(-)` と `Blur Multiplier` で、正負量から決まる中心と幅を使って接線方向ブラーを掛ける
   - c. `Ghost Multiplier` で Ghost 用の Displace / Blur を別結果として生成する
-  - d. `Ghost Alpha` で Ghost 結果を最終像へ上から重ね、`Path Blur Offset` は各結果を接線 `+/-` 方向へ後段オフセットする
+  - d. `Ghost Alpha` で Ghost 結果を最終像へ上から重ね、`TangentOffset` は各結果を接線 `+/-` 方向へ後段オフセットする
   - `Normal Falloff` / `Normal Falloff Bias` / `Tangent Falloff` / Taper で作られた最終マットは、Displace / Blur / Ghost 全ての減衰に共通適用する
-  - 最終合成は `Blur Amount` 側の考え方に寄せ、元画像の上へ単純平均色を重ねるのではなく、接線方向サンプルを主像として使う
+  - 最終合成は常に `Blur Amount` ベースの考え方を使い、元画像の上へ単純平均色を重ねるのではなく、接線方向サンプルを主像として使う
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む

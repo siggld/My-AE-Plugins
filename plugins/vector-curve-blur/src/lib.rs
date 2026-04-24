@@ -17,14 +17,13 @@ enum Params {
     NormalSide,
     SwapTangent,
     PathBlurAmount,
-    SplitTangent,
     NegativeBlurAmount,
+    PathBlurOffset,
     NormalBandGroupStart,
     NormalRange,
     CenterLine,
     NormalFalloff,
     NormalFalloffBias,
-    FalloffMode,
     NormalBandGroupEnd,
     TangentFalloffGroupStart,
     EnableTangentFalloff,
@@ -32,7 +31,6 @@ enum Params {
     TangentEndFallOff,
     TangentFalloffBias,
     TangentFalloffGroupEnd,
-    PathBlurOffset,
     OffsetEndFade,
     AntialiasingQuality,
     EdgePreserveGroupStart,
@@ -264,7 +262,7 @@ impl AdobePluginGlobal for Plugin {
         )?;
         params.add(
             Params::PathBlurAmount,
-            "TangentAmount",
+            "TangentAmount(+)",
             FloatSliderDef::setup(|d| {
                 d.set_valid_min(0.0);
                 d.set_valid_max(1024.0);
@@ -273,26 +271,29 @@ impl AdobePluginGlobal for Plugin {
                 d.set_default(36.0);
                 d.set_precision(1);
             }),
-        )?;
-        params.add_with_flags(
-            Params::SplitTangent,
-            "SplitTangentDirection",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
         )?;
         params.add(
             Params::NegativeBlurAmount,
-            "NegativeTangentAmount",
+            "TangentAmount(-)",
             FloatSliderDef::setup(|d| {
                 d.set_valid_min(0.0);
                 d.set_valid_max(1024.0);
                 d.set_slider_min(0.0);
                 d.set_slider_max(200.0);
-                d.set_default(36.0);
+                d.set_default(0.0);
                 d.set_precision(1);
+            }),
+        )?;
+        params.add(
+            Params::PathBlurOffset,
+            "TangentOffset",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(-100.0);
+                d.set_valid_max(100.0);
+                d.set_slider_min(-20.0);
+                d.set_slider_max(20.0);
+                d.set_default(0.0);
+                d.set_precision(2);
             }),
         )?;
         params.add_group(
@@ -347,14 +348,6 @@ impl AdobePluginGlobal for Plugin {
                         d.set_slider_max(300.0);
                         d.set_default(0.0);
                         d.set_precision(1);
-                    }),
-                )?;
-                params.add(
-                    Params::FalloffMode,
-                    "Falloff Mode",
-                    PopupDef::setup(|d| {
-                        d.set_options(&["Opacity", "Blur Amount"]);
-                        d.set_default(1);
                     }),
                 )?;
                 Ok(())
@@ -413,18 +406,6 @@ impl AdobePluginGlobal for Plugin {
                 )?;
                 Ok(())
             },
-        )?;
-        params.add(
-            Params::PathBlurOffset,
-            "Path Blur Offset",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-20.0);
-                d.set_slider_max(20.0);
-                d.set_default(0.0);
-                d.set_precision(2);
-            }),
         )?;
         params.add(
             Params::OffsetEndFade,
@@ -819,7 +800,6 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag(OutFlags::NonParamVary, true);
             }
             ae::Command::UpdateParamsUi => {
-                let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
                 let enable_tangent_falloff = params
                     .get(Params::EnableTangentFalloff)?
                     .as_checkbox()?
@@ -831,11 +811,6 @@ impl AdobePluginGlobal for Plugin {
                     .value();
                 let mut p = params.cloned();
 
-                {
-                    let mut pd = p.get_mut(Params::NegativeBlurAmount)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !split_tangent);
-                    pd.update_param_ui()?;
-                }
                 for k in [
                     Params::TangentStartFallOff,
                     Params::TangentEndFallOff,
@@ -934,15 +909,10 @@ impl Plugin {
             .get(Params::PathBlurAmount)?
             .as_float_slider()?
             .value() as f32;
-        let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
-        let negative_tangent_amount = if split_tangent {
-            params
-                .get(Params::NegativeBlurAmount)?
-                .as_float_slider()?
-                .value() as f32
-        } else {
-            tangent_amount
-        };
+        let negative_tangent_amount = params
+            .get(Params::NegativeBlurAmount)?
+            .as_float_slider()?
+            .value() as f32;
         let enable_tangent_falloff = params
             .get(Params::EnableTangentFalloff)?
             .as_checkbox()?
