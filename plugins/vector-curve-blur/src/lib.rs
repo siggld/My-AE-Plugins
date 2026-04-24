@@ -14,6 +14,7 @@ use utils::ToPixel;
 enum Params {
     ViewMode,
     EnableMasks,
+    AntialiasingQuality,
     NormalSide,
     SwapTangent,
     PathBlurAmount,
@@ -32,7 +33,6 @@ enum Params {
     TangentFalloffBias,
     TangentFalloffGroupEnd,
     OffsetEndFade,
-    AntialiasingQuality,
     EdgePreserveGroupStart,
     FractalAmount,
     EdgeDisplaceMultiplier,
@@ -87,6 +87,14 @@ const HIGH_SUPERSAMPLE_OFFSETS: [(f32, f32, f32); 9] = [
     (-0.25, 0.25, 0.75),
     (0.25, 0.25, 0.75),
 ];
+const LOW_SUPERSAMPLE_OFFSETS: [(f32, f32, f32); 5] = [
+    (0.0, 0.0, 2.0),
+    (-0.35, 0.0, 1.0),
+    (0.35, 0.0, 1.0),
+    (0.0, -0.35, 1.0),
+    (0.0, 0.35, 1.0),
+];
+const SINGLE_SAMPLE_OFFSET: [(f32, f32, f32); 1] = [(0.0, 0.0, 1.0)];
 
 #[derive(Clone, Copy)]
 struct PathSample {
@@ -241,6 +249,14 @@ impl AdobePluginGlobal for Plugin {
             "Use All Paths (path / path_[n])",
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
+            }),
+        )?;
+        params.add(
+            Params::AntialiasingQuality,
+            "Antialiasing Quality",
+            PopupDef::setup(|d| {
+                d.set_options(&["Non", "Low", "High"]);
+                d.set_default(2);
             }),
         )?;
         params.add(
@@ -419,18 +435,10 @@ impl AdobePluginGlobal for Plugin {
                 d.set_precision(1);
             }),
         )?;
-        params.add(
-            Params::AntialiasingQuality,
-            "Antialiasing Quality",
-            PopupDef::setup(|d| {
-                d.set_options(&["Non", "Low", "High"]);
-                d.set_default(2);
-            }),
-        )?;
         params.add_group(
             Params::EdgePreserveGroupStart,
             Params::EdgePreserveGroupEnd,
-            "Edge Preserve",
+            "Master Intensity",
             true,
             |params| {
                 params.add(
@@ -465,7 +473,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(400.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(200.0);
-                        d.set_default(100.0);
+                        d.set_default(10.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -489,7 +497,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(50.0);
+                        d.set_default(0.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -1106,11 +1114,9 @@ impl Plugin {
                 return Ok(());
             };
 
-            let total_blend = contrib.total_blend.clamp(0.0, 1.0);
             let normal_mat = (contrib.normal_w * contrib.ambiguity).clamp(0.0, 1.0);
             let tangent_mat = (contrib.edge_falloff * contrib.ambiguity).clamp(0.0, 1.0);
-            let effect_mat =
-                (contrib.normal_w * contrib.edge_falloff * contrib.ambiguity).clamp(0.0, 1.0);
+            let effect_mat = contrib.total_blend.clamp(0.0, 1.0);
             let arc_len = contrib.arc_len.max(1.0);
 
             let evo = evolution * 0.05;
@@ -1122,7 +1128,16 @@ impl Plugin {
             let fract_x = tangent_pos / fract_scale.max(0.1) / fract_tangent_scale.max(0.01)
                 + fract_tangent_offset;
             let fract_y = centered_normal_distance / fract_scale.max(0.1) * fract_iso;
-            let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
+            let fract_val = fractal_value_with_quality(
+                fract_x,
+                fract_y,
+                fract_scale,
+                fract_tangent_scale,
+                fract_iso,
+                fract_complexity,
+                evo,
+                sample_mode,
+            );
             let fract_mask = ((1.0 - fract_amount) + fract_val * fract_amount).clamp(0.0, 1.0);
 
             if view_mode == 2 {
@@ -1182,7 +1197,7 @@ impl Plugin {
                 post_offset_amount: post_offset,
                 sample_mode,
             });
-            let opacity = total_blend * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
+            let opacity = normal_mat * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
             let mut col = lerp_pixel(&original, &base_result, opacity);
             let blend_strength = opacity;
 
@@ -1373,7 +1388,7 @@ fn eval_pixel_contribution(
     cfg: &EvalConfig,
 ) -> Option<PixelContribution> {
     let mut chosen: Option<(Nearest, f32, f32, f32, f32, f32, f32)> = None;
-    let mut best_normal_w = 0.0_f32;
+    let mut best_effect_blend = 0.0_f32;
     let mut max_blend = 0.0_f32;
 
     for mask in &path_data.masks {
@@ -1452,10 +1467,10 @@ fn eval_pixel_contribution(
             continue;
         }
 
-        let blend_i = (normal_w * nearest.ambiguity).clamp(0.0, 1.0);
+        let blend_i = (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
         max_blend = max_blend.max(blend_i);
 
-        if normal_w > best_normal_w {
+        if blend_i > best_effect_blend {
             chosen = Some((
                 nearest,
                 arc_len,
@@ -1465,9 +1480,9 @@ fn eval_pixel_contribution(
                 side_u,
                 thickness_factor,
             ));
-            best_normal_w = normal_w;
+            best_effect_blend = blend_i;
         }
-        if max_blend >= 1.0 - 1e-6 && best_normal_w >= 1.0 - 1e-6 {
+        if max_blend >= 1.0 - 1e-6 && best_effect_blend >= 1.0 - 1e-6 {
             break;
         }
     }
@@ -1486,7 +1501,7 @@ fn eval_pixel_contribution(
                 arc_len,
                 normal_w,
                 edge_falloff,
-                total_blend: max_blend,
+                total_blend: max_blend.min(1.0),
             }
         },
     )
@@ -2174,6 +2189,38 @@ fn sample_with_quality(
         }
         _ => sample_bilinear(layer, world_type, width, height, x, y),
     }
+}
+
+fn fractal_value_with_quality(
+    fract_x: f32,
+    fract_y: f32,
+    fract_scale: f32,
+    fract_tangent_scale: f32,
+    fract_iso: f32,
+    fract_complexity: f32,
+    evo: f32,
+    sample_mode: i32,
+) -> f32 {
+    let x_step = 0.5 / fract_scale.max(0.1) / fract_tangent_scale.max(0.01);
+    let y_step = 0.5 / fract_scale.max(0.1) * fract_iso;
+    let offsets: &[(f32, f32, f32)] = match sample_mode {
+        2 => &HIGH_SUPERSAMPLE_OFFSETS,
+        1 => &LOW_SUPERSAMPLE_OFFSETS,
+        _ => &SINGLE_SAMPLE_OFFSET,
+    };
+
+    let mut sum = 0.0_f32;
+    let mut wsum = 0.0_f32;
+    for (ox, oy, w) in offsets {
+        sum += voronoi_2d(
+            fract_x + ox * x_step,
+            fract_y + oy * y_step,
+            fract_complexity,
+            evo,
+        ) * *w;
+        wsum += *w;
+    }
+    (sum / wsum.max(1e-6)).clamp(0.0, 1.0)
 }
 
 fn read_pixel_f32(layer: &Layer, world_type: ae::aegp::WorldType, x: usize, y: usize) -> PixelF32 {
