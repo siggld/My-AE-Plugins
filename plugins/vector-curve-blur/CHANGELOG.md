@@ -12,6 +12,9 @@
 * [Change] Rebuilt tangent processing around a shared fractal matte that drives displacement, tangent blur, and ghost compositing.
 * [Fix] Reduced detail loss between similar colors by replacing the dominant-sample shortcut with displaced-center-weighted accumulation.
 * [Fix] Removed the old `Fast Box Blur` softening path in favor of the new edge-preserve pipeline.
+* [UI] Renamed `Path Blur Amount` to `TangentAmount`, `Negative Blur Amount` to `NegativeTangentAmount`, moved the tangent amount controls above `Normal Band`, and set `Fractal Amount` default to `100`.
+* [Fix] Changed `NormalMat` / `TangentMat` to grayscale weight previews instead of UV-like color previews.
+* [Fix] Made the final normal/tangent matte attenuate displacement, blur, and ghost together, and changed `Path Blur Offset` into a post-process tangent offset.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.

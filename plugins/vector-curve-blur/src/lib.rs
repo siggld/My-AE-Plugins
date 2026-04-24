@@ -16,15 +16,15 @@ enum Params {
     EnableMasks,
     NormalSide,
     SwapTangent,
+    PathBlurAmount,
+    SplitTangent,
+    NegativeBlurAmount,
     NormalBandGroupStart,
     NormalRange,
     CenterLine,
     NormalFalloff,
     NormalFalloffBias,
     FalloffMode,
-    PathBlurAmount,
-    SplitTangent,
-    NegativeBlurAmount,
     NormalBandGroupEnd,
     TangentFalloffGroupStart,
     EnableTangentFalloff,
@@ -155,6 +155,39 @@ impl AdobePluginGlobal for Plugin {
             ParamFlag::SUPERVISE,
             ParamUIFlags::NONE,
         )?;
+        params.add(
+            Params::PathBlurAmount,
+            "TangentAmount",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1024.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(200.0);
+                d.set_default(36.0);
+                d.set_precision(1);
+            }),
+        )?;
+        params.add_with_flags(
+            Params::SplitTangent,
+            "SplitTangentDirection",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
+        params.add(
+            Params::NegativeBlurAmount,
+            "NegativeTangentAmount",
+            FloatSliderDef::setup(|d| {
+                d.set_valid_min(0.0);
+                d.set_valid_max(1024.0);
+                d.set_slider_min(0.0);
+                d.set_slider_max(200.0);
+                d.set_default(36.0);
+                d.set_precision(1);
+            }),
+        )?;
         params.add_group(
             Params::NormalBandGroupStart,
             Params::NormalBandGroupEnd,
@@ -215,39 +248,6 @@ impl AdobePluginGlobal for Plugin {
                     PopupDef::setup(|d| {
                         d.set_options(&["Opacity", "Blur Amount"]);
                         d.set_default(1);
-                    }),
-                )?;
-                params.add(
-                    Params::PathBlurAmount,
-                    "Path Blur Amount",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(1024.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(200.0);
-                        d.set_default(36.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add_with_flags(
-                    Params::SplitTangent,
-                    "Split Tangent Direction",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::NegativeBlurAmount,
-                    "Negative Blur Amount",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(1024.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(200.0);
-                        d.set_default(36.0);
-                        d.set_precision(1);
                     }),
                 )?;
                 Ok(())
@@ -367,7 +367,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(0.0);
+                        d.set_default(100.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -878,18 +878,18 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32;
         let falloff_mode = params.get(Params::FalloffMode)?.as_popup()?.value();
-        let blur_amount = params
+        let tangent_amount = params
             .get(Params::PathBlurAmount)?
             .as_float_slider()?
             .value() as f32;
         let split_tangent = params.get(Params::SplitTangent)?.as_checkbox()?.value();
-        let neg_blur_amount = if split_tangent {
+        let negative_tangent_amount = if split_tangent {
             params
                 .get(Params::NegativeBlurAmount)?
                 .as_float_slider()?
                 .value() as f32
         } else {
-            blur_amount
+            tangent_amount
         };
         let enable_tangent_falloff = params
             .get(Params::EnableTangentFalloff)?
@@ -1055,7 +1055,6 @@ impl Plugin {
             let mut chosen: Option<(&MaskSamples, Nearest, f32, f32, f32, f32, f32)> = None;
             let mut best_normal_w = 0.0_f32;
             let mut max_blend = 0.0_f32;
-            let mut max_preview_blend = 0.0_f32;
 
             for mask in &path_data.masks {
                 if mask.samples.is_empty() {
@@ -1104,14 +1103,14 @@ impl Plugin {
                 let edge_zone_start = if enable_tangent_falloff {
                     tangent_start_falloff.clamp(0.0, 1.0)
                 } else if split_tangent {
-                    (neg_blur_amount / arc_len).clamp(0.01, 0.5)
+                    (negative_tangent_amount / arc_len).clamp(0.01, 0.5)
                 } else {
-                    (blur_amount / arc_len).clamp(0.01, 0.5)
+                    (tangent_amount / arc_len).clamp(0.01, 0.5)
                 };
                 let edge_zone_end = if enable_tangent_falloff {
                     tangent_end_falloff.clamp(0.0, 1.0)
                 } else if split_tangent {
-                    (blur_amount / arc_len).clamp(0.01, 0.5)
+                    (tangent_amount / arc_len).clamp(0.01, 0.5)
                 } else {
                     edge_zone_start
                 };
@@ -1137,9 +1136,7 @@ impl Plugin {
 
                 let edge_opacity_i = if falloff_mode == 2 { 1.0 } else { edge_falloff };
                 let blend_i = (normal_w * edge_opacity_i * nearest.ambiguity).clamp(0.0, 1.0);
-                let preview_blend_i = (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
                 max_blend = max_blend.max(blend_i);
-                max_preview_blend = max_preview_blend.max(preview_blend_i);
 
                 if normal_w > best_normal_w {
                     chosen = Some((
@@ -1173,7 +1170,6 @@ impl Plugin {
             };
 
             let combined_blend = max_blend.clamp(0.0, 1.0);
-            let preview_blend = max_preview_blend.clamp(0.0, 1.0);
             let arc_len = mask.arc_len.max(1.0);
 
             let evo = evolution * 0.05;
@@ -1186,28 +1182,17 @@ impl Plugin {
             let fract_val = voronoi_2d(fract_x, fract_y, fract_complexity, evo);
             let fract_mask = ((1.0 - fract_amount) + fract_val * fract_amount).clamp(0.0, 1.0);
             let total_blend = combined_blend;
-            let normal_mat = preview_blend.clamp(0.0, 1.0);
-            let tangent_mat = (edge_falloff * normal_w).clamp(0.0, 1.0);
+            let normal_mat = (normal_w * nearest.ambiguity).clamp(0.0, 1.0);
+            let tangent_mat = (edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
+            let effect_mat = (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
 
             if view_mode == 2 {
-                let vis = PixelF32 {
-                    red: side_u.clamp(0.0, 1.0),
-                    green: normal_mat,
-                    blue: (1.0 - side_u).clamp(0.0, 1.0),
-                    alpha: 1.0,
-                };
-                let col = lerp_pixel(&original, &vis, normal_mat);
-                set_dst!(dst, col);
+                let vis = gray_pixel(normal_mat);
+                set_dst!(dst, vis);
                 return Ok(());
             } else if view_mode == 3 {
-                let vis = PixelF32 {
-                    red: nearest.t_norm.clamp(0.0, 1.0),
-                    green: tangent_mat,
-                    blue: (1.0 - nearest.t_norm).clamp(0.0, 1.0),
-                    alpha: 1.0,
-                };
-                let col = lerp_pixel(&original, &vis, tangent_mat);
-                set_dst!(dst, col);
+                let vis = gray_pixel(tangent_mat);
+                set_dst!(dst, vis);
                 return Ok(());
             } else if view_mode == 4 {
                 let vis = PixelF32 {
@@ -1236,13 +1221,14 @@ impl Plugin {
             } else {
                 (nearest.tx, nearest.ty)
             };
-            let displace_scale = (fract_mask * edge_displace_multiplier).max(0.0);
-            let blur_scale = (fract_mask * edge_blur_multiplier).max(0.0);
-            let ghost_scale = (fract_mask * edge_ghost_multiplier).clamp(0.0, 1.0);
+            let displace_scale = (fract_mask * edge_displace_multiplier * effect_mat).max(0.0);
+            let blur_scale = (fract_mask * edge_blur_multiplier * effect_mat).max(0.0);
+            let ghost_scale = (fract_mask * edge_ghost_multiplier * effect_mat).clamp(0.0, 1.0);
+            let post_offset = path_offset * effect_mat;
 
             let (mut col, blend_strength) = if falloff_mode == 2 {
-                let cur_pos_amt = blur_amount * tangent_mat * blur_scale;
-                let cur_neg_amt = neg_blur_amount * tangent_mat * blur_scale;
+                let cur_pos_amt = tangent_amount * blur_scale;
+                let cur_neg_amt = negative_tangent_amount * blur_scale;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
@@ -1254,7 +1240,8 @@ impl Plugin {
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
-                    displace_amount: path_offset * tangent_mat * displace_scale,
+                    displace_amount: tangent_amount * displace_scale,
+                    post_offset_amount: post_offset,
                     ghost_mix: ghost_scale,
                     sample_mode,
                     edge_mode: edge_preserve_mode,
@@ -1262,12 +1249,11 @@ impl Plugin {
                     edge_ghost_hold,
                     edge_hybrid_balance,
                 });
-                let opacity =
-                    total_blend * (1.0 - offset_end_fade) + preview_blend * offset_end_fade;
+                let opacity = total_blend * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
                 (lerp_pixel(&original, &blurred, opacity), opacity)
             } else {
-                let cur_pos_amt = blur_amount * edge_falloff * blur_scale;
-                let cur_neg_amt = neg_blur_amount * edge_falloff * blur_scale;
+                let cur_pos_amt = tangent_amount * blur_scale;
+                let cur_neg_amt = negative_tangent_amount * blur_scale;
                 let blurred = blur_along_tangent(&TangentBlurParams {
                     layer: &in_layer,
                     world: in_world,
@@ -1279,7 +1265,8 @@ impl Plugin {
                     tangent_y: blur_ty,
                     positive_amount: cur_pos_amt,
                     negative_amount: cur_neg_amt,
-                    displace_amount: path_offset * edge_falloff * displace_scale,
+                    displace_amount: tangent_amount * displace_scale,
+                    post_offset_amount: post_offset,
                     ghost_mix: ghost_scale,
                     sample_mode,
                     edge_mode: edge_preserve_mode,
@@ -1305,7 +1292,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * blend_strength * tangent_mat,
+                    add_color_opacity * blend_strength * effect_mat,
                 );
             }
 
@@ -1529,6 +1516,7 @@ struct TangentBlurParams<'a> {
     positive_amount: f32,
     negative_amount: f32,
     displace_amount: f32,
+    post_offset_amount: f32,
     ghost_mix: f32,
     sample_mode: i32,
     edge_mode: i32,
@@ -1542,8 +1530,10 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     let neg_r = p.negative_amount.max(0.0);
     let total = pos_r + neg_r;
 
-    let displaced_x = p.center_x + p.tangent_x * p.displace_amount;
-    let displaced_y = p.center_y + p.tangent_y * p.displace_amount;
+    let offset_center_x = p.center_x + p.tangent_x * p.post_offset_amount;
+    let offset_center_y = p.center_y + p.tangent_y * p.post_offset_amount;
+    let displaced_x = offset_center_x + p.tangent_x * p.displace_amount;
+    let displaced_y = offset_center_y + p.tangent_y * p.displace_amount;
     let displaced = sample_with_quality(
         p.layer,
         p.world,
@@ -1932,6 +1922,16 @@ fn lerp_pixel(a: &PixelF32, b: &PixelF32, t: f32) -> PixelF32 {
         red: a.red * s + b.red * t,
         green: a.green * s + b.green * t,
         blue: a.blue * s + b.blue * t,
+    }
+}
+
+fn gray_pixel(v: f32) -> PixelF32 {
+    let g = v.clamp(0.0, 1.0);
+    PixelF32 {
+        alpha: 1.0,
+        red: g,
+        green: g,
+        blue: g,
     }
 }
 
