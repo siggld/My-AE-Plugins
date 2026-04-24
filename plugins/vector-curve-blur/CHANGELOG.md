@@ -20,7 +20,7 @@
 * [Change] Simplified `Edge Preserve` to `Fractal Amount` / `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` / `Ghost Alpha`.
 * [Change] Removed `Source Edge Hold`, `Ghost Alpha Hold`, `Hybrid Balance`, and `Edge Preserve Mode` in favor of a separate ghost pass plus final `Ghost Alpha` overlay.
 * [Change] Removed `SplitTangentDirection` and `Falloff Mode` from the UI now that negative tangent amount is always explicit and falloff behavior is fixed to the blur-amount-style path.
-* [Fix] Aligned `NormalFalloff` compositing with the actual effect matte to reduce double-image artifacts between displaced and blurred regions.
+* [Fix] Applied `NormalFalloff` to effect strength itself instead of a final original/effect lerp so boundary double-image artifacts are reduced.
 * [Fix] Smoothed the Fractal-driven displacement mask per AA quality so strong displace settings produce fewer dot-like artifacts.
 * [UI] Moved `Antialiasing Quality` above `Normal Side`, renamed `Edge Preserve` to `Master Intensity`, set `Blur Multiplier` default to `10`, and set `Ghost Alpha` default to `0`.
 * [Change] Reordered the parameter list to match the new UI order, with known compatibility risk for existing AEP/project parameter indexing.

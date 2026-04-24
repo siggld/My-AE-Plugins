@@ -90,8 +90,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - b. `TangentAmount(+)` / `TangentAmount(-)` と `Blur Multiplier` で、正負量から決まる中心と幅を使って接線方向ブラーを掛ける
   - c. `Ghost Multiplier` で Ghost 用の Displace / Blur を別結果として生成する
   - d. `Ghost Alpha` で Ghost 結果を最終像へ上から重ね、`TangentOffset` は各結果を接線 `+/-` 方向へ後段オフセットする
-  - `Normal Falloff` / `Normal Falloff Bias` / `Tangent Falloff` / Taper で作られた最終マットは、Displace / Blur / Ghost 全ての減衰に共通適用する
-  - 最終合成は `NormalFalloff` が掛かった帯でも effect 側の減衰と同じ重み系を使い、二重像になりにくいよう揃える
+  - `Normal Falloff` / `Normal Falloff Bias` / `Tangent Falloff` / Taper で作られた最終マットは、Displace / Blur / Ghost / AddColor の処理量に共通適用する
+  - `NormalFalloff` の減衰は元絵との後段 lerp ではなく処理量そのものへ掛け、境界で原画とずれた像が二重に見えにくいようにする
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む

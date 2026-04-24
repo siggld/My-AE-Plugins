@@ -1117,6 +1117,8 @@ impl Plugin {
             let normal_mat = (contrib.normal_w * contrib.ambiguity).clamp(0.0, 1.0);
             let tangent_mat = (contrib.edge_falloff * contrib.ambiguity).clamp(0.0, 1.0);
             let effect_mat = contrib.total_blend.clamp(0.0, 1.0);
+            let effect_strength =
+                normal_mat * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
             let arc_len = contrib.arc_len.max(1.0);
 
             let evo = evolution * 0.05;
@@ -1175,10 +1177,11 @@ impl Plugin {
             } else {
                 (contrib.tx, contrib.ty)
             };
-            let displace_scale = (fract_mask * edge_displace_multiplier * effect_mat).max(0.0);
-            let blur_scale = (fract_mask * edge_blur_multiplier * effect_mat).max(0.0);
-            let ghost_scale = (fract_mask * edge_ghost_multiplier * effect_mat).clamp(0.0, 1.0);
-            let post_offset = path_offset * effect_mat;
+            let displace_scale = (fract_mask * edge_displace_multiplier * effect_strength).max(0.0);
+            let blur_scale = (fract_mask * edge_blur_multiplier * effect_strength).max(0.0);
+            let ghost_scale =
+                (fract_mask * edge_ghost_multiplier * effect_strength).clamp(0.0, 1.0);
+            let post_offset = path_offset * effect_strength;
             let cur_pos_amt = tangent_amount * blur_scale;
             let cur_neg_amt = negative_tangent_amount * blur_scale;
             let base_result = blur_along_tangent(&TangentBlurParams {
@@ -1197,9 +1200,8 @@ impl Plugin {
                 post_offset_amount: post_offset,
                 sample_mode,
             });
-            let opacity = normal_mat * (1.0 - offset_end_fade) + effect_mat * offset_end_fade;
-            let mut col = lerp_pixel(&original, &base_result, opacity);
-            let blend_strength = opacity;
+            let mut col = base_result;
+            let blend_strength = effect_strength;
 
             if ghost_scale > 0.001 && edge_ghost_alpha > 0.001 {
                 let ghost_result = blur_along_tangent(&TangentBlurParams {
@@ -1221,7 +1223,7 @@ impl Plugin {
                 col = lerp_pixel(
                     &col,
                     &ghost_result,
-                    (edge_ghost_alpha * effect_mat).clamp(0.0, 1.0),
+                    (edge_ghost_alpha * effect_strength).clamp(0.0, 1.0),
                 );
             }
 
@@ -1240,7 +1242,7 @@ impl Plugin {
                     &col,
                     &tinted,
                     add_color_mode,
-                    add_color_opacity * blend_strength * effect_mat,
+                    add_color_opacity * blend_strength,
                 );
             }
 
@@ -1389,7 +1391,6 @@ fn eval_pixel_contribution(
 ) -> Option<PixelContribution> {
     let mut chosen: Option<(Nearest, f32, f32, f32, f32, f32, f32)> = None;
     let mut best_effect_blend = 0.0_f32;
-    let mut max_blend = 0.0_f32;
 
     for mask in &path_data.masks {
         if mask.samples.is_empty() {
@@ -1468,8 +1469,6 @@ fn eval_pixel_contribution(
         }
 
         let blend_i = (normal_w * edge_falloff * nearest.ambiguity).clamp(0.0, 1.0);
-        max_blend = max_blend.max(blend_i);
-
         if blend_i > best_effect_blend {
             chosen = Some((
                 nearest,
@@ -1482,7 +1481,7 @@ fn eval_pixel_contribution(
             ));
             best_effect_blend = blend_i;
         }
-        if max_blend >= 1.0 - 1e-6 && best_effect_blend >= 1.0 - 1e-6 {
+        if best_effect_blend >= 1.0 - 1e-6 {
             break;
         }
     }
@@ -1501,7 +1500,7 @@ fn eval_pixel_contribution(
                 arc_len,
                 normal_w,
                 edge_falloff,
-                total_blend: max_blend.min(1.0),
+                total_blend: best_effect_blend.min(1.0),
             }
         },
     )
