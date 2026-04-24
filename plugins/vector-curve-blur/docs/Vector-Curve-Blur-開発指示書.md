@@ -64,6 +64,9 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `ProfileTaper(Curve)` はマスク名 `Curve` のパスを自動取得し、追加パラメータなしで `Curve` 形状と `NormalRange` だけを使って帯域幅を決める
 - `Master Intensity`
   - `Fractal Amount` はこのグループに含め、共通 Fractal マットの混入率を制御する
+  - `Dark Expand Threshold` は、マット内で近傍色に置き換える暗部の輝度しきい値。`0` で無効
+  - `Dark Expand Radius` は、最明ピクセルを探す半径。`0` で無効
+  - `Preserve Matte Edge` は、マット境界付近の画素を前処理から外し、境界が内側へ痩せにくいようにする
   - `Displace Multiplier` は元絵側 Displace の強さ
   - `Blur Multiplier` は元絵側 Blur の強さで、初期値は `10`
   - `Ghost Multiplier` は Ghost 側 Displace / Blur の強さ
@@ -89,6 +92,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Taper Mode = SimpleTaper` の時は `Start/End Taper Length` と `Start/End Taper Curve` を使う
   - `Taper Mode = ProfileTaper(Curve)` の時はマスク名 `Curve` の Y 形状をそのまま帯域乗数として使う
 - ブラー:
+  - 前処理として、マット内かつ `Dark Expand Threshold` 以下の暗部は、`Dark Expand Radius` 内で最も明るい 1 ピクセル色へ非ブレンド置換できる
+  - `Preserve Matte Edge` が ON の場合、探索半径内にマット外が見える境界付近は置換しない
   - 画素から最短サンプル点を取得
   - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
   - a. `TangentAmount(+)` / `TangentAmount(-)` と `Displace Multiplier` で、接線の正負両側を基準に変位像を作る

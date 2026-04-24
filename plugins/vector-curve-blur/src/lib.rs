@@ -35,6 +35,9 @@ enum Params {
     OffsetEndFade,
     EdgePreserveGroupStart,
     FractalAmount,
+    DarkExpandThreshold,
+    DarkExpandRadius,
+    PreserveMatteEdge,
     EdgeDisplaceMultiplier,
     EdgeBlurMultiplier,
     EdgeGhostMultiplier,
@@ -111,6 +114,13 @@ struct MaskSamples {
     arc_len: f32,
 }
 
+#[derive(Clone)]
+struct ImageBufferF32 {
+    width: usize,
+    height: usize,
+    pixels: Vec<PixelF32>,
+}
+
 #[derive(Clone, Copy)]
 struct ProfilePoint {
     x_norm: f32,
@@ -143,6 +153,13 @@ struct EvalConfig {
     enable_profile: bool,
     normal_side: i32,
     swap_tangent: bool,
+}
+
+#[derive(Clone, Copy)]
+struct DarkExpandConfig {
+    threshold: f32,
+    radius: usize,
+    preserve_matte_edge: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -442,6 +459,37 @@ impl AdobePluginGlobal for Plugin {
                         d.set_slider_max(100.0);
                         d.set_default(100.0);
                         d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::DarkExpandThreshold,
+                    "Dark Expand Threshold",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(1);
+                    }),
+                )?;
+                params.add(
+                    Params::DarkExpandRadius,
+                    "Dark Expand Radius",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(128.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(32.0);
+                        d.set_default(0.0);
+                        d.set_precision(2);
+                    }),
+                )?;
+                params.add(
+                    Params::PreserveMatteEdge,
+                    "Preserve Matte Edge",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(true);
                     }),
                 )?;
                 params.add(
@@ -903,6 +951,19 @@ impl Plugin {
             .as_float_slider()?
             .value() as f32
             / 100.0;
+        let dark_expand_threshold = params
+            .get(Params::DarkExpandThreshold)?
+            .as_float_slider()?
+            .value() as f32
+            / 100.0;
+        let dark_expand_radius = params
+            .get(Params::DarkExpandRadius)?
+            .as_float_slider()?
+            .value() as f32;
+        let preserve_matte_edge = params
+            .get(Params::PreserveMatteEdge)?
+            .as_checkbox()?
+            .value();
         let fract_scale = params.get(Params::FractalScale)?.as_float_slider()?.value() as f32;
         let fract_complexity = params
             .get(Params::FractalComplexity)?
@@ -971,6 +1032,7 @@ impl Plugin {
         let out_world = out_layer.world_type();
         let in_w = in_layer.width();
         let in_h = in_layer.height();
+        let original_buffer = ImageBufferF32::from_layer(&in_layer, in_world, in_w, in_h);
         let progress_final = out_layer.height() as i32;
         let eval_cfg = EvalConfig {
             normal_range,
@@ -993,6 +1055,19 @@ impl Plugin {
             normal_side,
             swap_tangent,
         };
+        let dark_expand_cfg = if dark_expand_threshold > 0.0 && dark_expand_radius > 0.0 {
+            Some(DarkExpandConfig {
+                threshold: dark_expand_threshold.clamp(0.0, 1.0),
+                radius: dark_expand_radius.round().max(0.0) as usize,
+                preserve_matte_edge,
+            })
+        } else {
+            None
+        };
+        let prefilled_source = dark_expand_cfg
+            .as_ref()
+            .map(|cfg| build_dark_expand_prefill(&original_buffer, &path_data, &eval_cfg, cfg));
+        let source_buffer = prefilled_source.as_ref().unwrap_or(&original_buffer);
 
         macro_rules! set_dst {
             ($dst:expr, $col:expr) => {
@@ -1007,7 +1082,7 @@ impl Plugin {
         out_layer.iterate(0, progress_final, None, |x, y, mut dst| {
             let xf = x as f32 + 0.5;
             let yf = y as f32 + 0.5;
-            let original = read_pixel_f32(&in_layer, in_world, x as usize, y as usize);
+            let original = original_buffer.pixel_at(x as usize, y as usize);
             let contrib = if sample_mode == 2 {
                 let mut accum = PixelContributionAccumulator::default();
                 for (ox, oy, w) in HIGH_SUPERSAMPLE_OFFSETS {
@@ -1099,10 +1174,7 @@ impl Plugin {
             let cur_pos_amt = tangent_amount * blur_scale;
             let cur_neg_amt = negative_tangent_amount * blur_scale;
             let base_result = blur_along_tangent(&TangentBlurParams {
-                layer: &in_layer,
-                world: in_world,
-                width: in_w,
-                height: in_h,
+                source: source_buffer,
                 center_x: xf,
                 center_y: yf,
                 tangent_x: blur_tx,
@@ -1119,10 +1191,7 @@ impl Plugin {
 
             if ghost_scale > 0.001 && edge_ghost_alpha > 0.001 {
                 let ghost_result = blur_along_tangent(&TangentBlurParams {
-                    layer: &in_layer,
-                    world: in_world,
-                    width: in_w,
-                    height: in_h,
+                    source: source_buffer,
                     center_x: xf,
                     center_y: yf,
                     tangent_x: blur_tx,
@@ -1487,10 +1556,7 @@ fn nearest_sample(samples: &[PathSample], x: f32, y: f32) -> Nearest {
 // Tangent blur with Gaussian kernel and asymmetric support (items 2, 2c)
 // ---------------------------------------------------------------------------
 struct TangentBlurParams<'a> {
-    layer: &'a Layer,
-    world: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
+    source: &'a ImageBufferF32,
     center_x: f32,
     center_y: f32,
     tangent_x: f32,
@@ -1515,21 +1581,11 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     let center_shift = (pos_disp - neg_disp) * 0.5;
     let blur_center_x = offset_center_x + p.tangent_x * center_shift;
     let blur_center_y = offset_center_y + p.tangent_y * center_shift;
-    let center_px = sample_with_quality(
-        p.layer,
-        p.world,
-        p.width,
-        p.height,
-        offset_center_x,
-        offset_center_y,
-        p.sample_mode,
-    );
+    let center_px =
+        sample_buffer_with_quality(p.source, offset_center_x, offset_center_y, p.sample_mode);
     let pos_px = if pos_disp > 0.001 {
-        sample_with_quality(
-            p.layer,
-            p.world,
-            p.width,
-            p.height,
+        sample_buffer_with_quality(
+            p.source,
             offset_center_x + p.tangent_x * pos_disp,
             offset_center_y + p.tangent_y * pos_disp,
             p.sample_mode,
@@ -1538,11 +1594,8 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         center_px
     };
     let neg_px = if neg_disp > 0.001 {
-        sample_with_quality(
-            p.layer,
-            p.world,
-            p.width,
-            p.height,
+        sample_buffer_with_quality(
+            p.source,
             offset_center_x - p.tangent_x * neg_disp,
             offset_center_y - p.tangent_y * neg_disp,
             p.sample_mode,
@@ -1591,7 +1644,7 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
         };
         let sx = blur_center_x + p.tangent_x * offset;
         let sy = blur_center_y + p.tangent_y * offset;
-        let px = sample_with_quality(p.layer, p.world, p.width, p.height, sx, sy, p.sample_mode);
+        let px = sample_buffer_with_quality(p.source, sx, sy, p.sample_mode);
         let detail_w = (1.15 - color_distance(&px, &displaced) * 0.65).clamp(0.35, 1.25);
         let center_w = if total < 0.25 {
             1.0
@@ -1913,6 +1966,159 @@ fn color_distance(a: &PixelF32, b: &PixelF32) -> f32 {
     ((dr * dr + dg * dg + db * db + da * da).sqrt() * 0.5).clamp(0.0, 1.0)
 }
 
+impl ImageBufferF32 {
+    fn from_layer(
+        layer: &Layer,
+        world_type: ae::aegp::WorldType,
+        width: usize,
+        height: usize,
+    ) -> Self {
+        let mut pixels = Vec::with_capacity(width * height);
+        for y in 0..height {
+            for x in 0..width {
+                pixels.push(read_pixel_f32(layer, world_type, x, y));
+            }
+        }
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    fn pixel_at(&self, x: usize, y: usize) -> PixelF32 {
+        self.pixels[y * self.width + x]
+    }
+
+    fn set_pixel(&mut self, x: usize, y: usize, pixel: PixelF32) {
+        self.pixels[y * self.width + x] = pixel;
+    }
+}
+
+fn luminance(pixel: &PixelF32) -> f32 {
+    (pixel.red * 0.2126 + pixel.green * 0.7152 + pixel.blue * 0.0722).clamp(0.0, 1.0)
+}
+
+fn build_dark_expand_prefill(
+    source: &ImageBufferF32,
+    path_data: &PathData,
+    eval_cfg: &EvalConfig,
+    dark_cfg: &DarkExpandConfig,
+) -> ImageBufferF32 {
+    let matte_mask = build_effect_mask(source.width, source.height, path_data, eval_cfg);
+    let mut out = source.clone();
+    let radius = dark_cfg.radius;
+    let radius_i = radius as isize;
+    let radius_sq = (radius * radius) as isize;
+
+    for y in 0..source.height {
+        for x in 0..source.width {
+            let idx = y * source.width + x;
+            if !matte_mask[idx] {
+                continue;
+            }
+
+            let current = source.pixel_at(x, y);
+            let current_luma = luminance(&current);
+            if current_luma > dark_cfg.threshold {
+                continue;
+            }
+
+            if dark_cfg.preserve_matte_edge
+                && touches_matte_edge(&matte_mask, source.width, source.height, x, y, radius)
+            {
+                continue;
+            }
+
+            let mut best = current;
+            let mut best_luma = current_luma;
+            let xi = x as isize;
+            let yi = y as isize;
+
+            for ny in (yi - radius_i).max(0)..=(yi + radius_i).min(source.height as isize - 1) {
+                for nx in (xi - radius_i).max(0)..=(xi + radius_i).min(source.width as isize - 1) {
+                    let dx = nx - xi;
+                    let dy = ny - yi;
+                    if dx * dx + dy * dy > radius_sq || (dx == 0 && dy == 0) {
+                        continue;
+                    }
+
+                    let nidx = ny as usize * source.width + nx as usize;
+                    if !matte_mask[nidx] {
+                        continue;
+                    }
+
+                    let candidate = source.pixel_at(nx as usize, ny as usize);
+                    let candidate_luma = luminance(&candidate);
+                    if candidate_luma > best_luma {
+                        best = candidate;
+                        best_luma = candidate_luma;
+                    }
+                }
+            }
+
+            if best_luma > current_luma + 1e-6 {
+                out.set_pixel(x, y, best);
+            }
+        }
+    }
+
+    out
+}
+
+fn build_effect_mask(
+    width: usize,
+    height: usize,
+    path_data: &PathData,
+    eval_cfg: &EvalConfig,
+) -> Vec<bool> {
+    let mut mask = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let inside =
+                eval_pixel_contribution(path_data, x as f32 + 0.5, y as f32 + 0.5, eval_cfg)
+                    .map(|c| c.total_blend > 0.001)
+                    .unwrap_or(false);
+            mask[y * width + x] = inside;
+        }
+    }
+    mask
+}
+
+fn touches_matte_edge(
+    matte_mask: &[bool],
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    radius: usize,
+) -> bool {
+    if radius == 0 {
+        return false;
+    }
+
+    let radius_i = radius as isize;
+    let radius_sq = (radius * radius) as isize;
+    let xi = x as isize;
+    let yi = y as isize;
+
+    for ny in (yi - radius_i).max(0)..=(yi + radius_i).min(height as isize - 1) {
+        for nx in (xi - radius_i).max(0)..=(xi + radius_i).min(width as isize - 1) {
+            let dx = nx - xi;
+            let dy = ny - yi;
+            if dx * dx + dy * dy > radius_sq {
+                continue;
+            }
+
+            if !matte_mask[ny as usize * width + nx as usize] {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn blend_channel(base: f32, blend: f32, mode: i32) -> f32 {
     match mode {
         2 => base * blend,
@@ -1975,15 +2181,8 @@ fn blend_pixel(base: &PixelF32, blend: &PixelF32, mode: i32, opacity: f32) -> Pi
     }
 }
 
-fn sample_bilinear(
-    layer: &Layer,
-    world_type: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
-    x: f32,
-    y: f32,
-) -> PixelF32 {
-    if width == 0 || height == 0 {
+fn sample_buffer_bilinear(source: &ImageBufferF32, x: f32, y: f32) -> PixelF32 {
+    if source.width == 0 || source.height == 0 {
         return PixelF32 {
             alpha: 0.0,
             red: 0.0,
@@ -1991,19 +2190,19 @@ fn sample_bilinear(
             blue: 0.0,
         };
     }
-    let fx = x.clamp(0.0, (width.saturating_sub(1)) as f32);
-    let fy = y.clamp(0.0, (height.saturating_sub(1)) as f32);
+    let fx = x.clamp(0.0, (source.width.saturating_sub(1)) as f32);
+    let fy = y.clamp(0.0, (source.height.saturating_sub(1)) as f32);
     let x0 = fx.floor() as usize;
     let y0 = fy.floor() as usize;
-    let x1 = (x0 + 1).min(width.saturating_sub(1));
-    let y1 = (y0 + 1).min(height.saturating_sub(1));
+    let x1 = (x0 + 1).min(source.width.saturating_sub(1));
+    let y1 = (y0 + 1).min(source.height.saturating_sub(1));
     let tx = fx - x0 as f32;
     let ty = fy - y0 as f32;
 
-    let p00 = read_pixel_f32(layer, world_type, x0, y0);
-    let p10 = read_pixel_f32(layer, world_type, x1, y0);
-    let p01 = read_pixel_f32(layer, world_type, x0, y1);
-    let p11 = read_pixel_f32(layer, world_type, x1, y1);
+    let p00 = source.pixel_at(x0, y0);
+    let p10 = source.pixel_at(x1, y0);
+    let p01 = source.pixel_at(x0, y1);
+    let p11 = source.pixel_at(x1, y1);
 
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
     PixelF32 {
@@ -2026,15 +2225,8 @@ fn sample_bilinear(
     }
 }
 
-fn sample_point(
-    layer: &Layer,
-    world_type: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
-    x: f32,
-    y: f32,
-) -> PixelF32 {
-    if width == 0 || height == 0 {
+fn sample_buffer_point(source: &ImageBufferF32, x: f32, y: f32) -> PixelF32 {
+    if source.width == 0 || source.height == 0 {
         return PixelF32 {
             alpha: 0.0,
             red: 0.0,
@@ -2043,22 +2235,23 @@ fn sample_point(
         };
     }
 
-    let xi = x.round().clamp(0.0, (width.saturating_sub(1)) as f32) as usize;
-    let yi = y.round().clamp(0.0, (height.saturating_sub(1)) as f32) as usize;
-    read_pixel_f32(layer, world_type, xi, yi)
+    let xi = x
+        .round()
+        .clamp(0.0, (source.width.saturating_sub(1)) as f32) as usize;
+    let yi = y
+        .round()
+        .clamp(0.0, (source.height.saturating_sub(1)) as f32) as usize;
+    source.pixel_at(xi, yi)
 }
 
-fn sample_with_quality(
-    layer: &Layer,
-    world_type: ae::aegp::WorldType,
-    width: usize,
-    height: usize,
+fn sample_buffer_with_quality(
+    source: &ImageBufferF32,
     x: f32,
     y: f32,
     sample_mode: i32,
 ) -> PixelF32 {
     match sample_mode {
-        0 => sample_point(layer, world_type, width, height, x, y),
+        0 => sample_buffer_point(source, x, y),
         2 => {
             let mut sum = PixelF32 {
                 alpha: 0.0,
@@ -2068,7 +2261,7 @@ fn sample_with_quality(
             };
             let mut wsum = 0.0_f32;
             for (ox, oy, w) in HIGH_SUPERSAMPLE_OFFSETS {
-                let px = sample_bilinear(layer, world_type, width, height, x + ox, y + oy);
+                let px = sample_buffer_bilinear(source, x + ox, y + oy);
                 sum.alpha += px.alpha * w;
                 sum.red += px.red * w;
                 sum.green += px.green * w;
@@ -2082,7 +2275,7 @@ fn sample_with_quality(
                 blue: sum.blue / wsum.max(1e-6),
             }
         }
-        _ => sample_bilinear(layer, world_type, width, height, x, y),
+        _ => sample_buffer_bilinear(source, x, y),
     }
 }
 

@@ -1,4 +1,8 @@
-## Unreleased
+## v1.1.0 (2026-04-23)
+* [Feature] Added `Dark Expand Threshold`, `Dark Expand Radius`, and `Preserve Matte Edge` so dark pixels inside the effect matte can be prefilled from the brightest nearby source pixel before Displace / Blur / Ghost.
+* [Change] Routed the Displace / Blur / Ghost source sampling through a preprocessed buffer, keeping the new dark-pixel expansion as a non-blended color fill that runs ahead of the existing tangent pipeline.
+
+## v1.0.0 (2026-04-23)
 * [Change] Limited source-path collection to mask names `path` and `path_[n]`, and profile taper collection to mask name `Curve`.
 * [Change] Replaced the old side selector with `Normal Side` and added `CenterLine (%)` for one-sided normal-band convergence control.
 * [UI] Updated path/profile labels to show required mask names and changed both taper-curve defaults to `0.5`.

@@ -1,7 +1,7 @@
 [package]
 name = "vector_curve_blur"
 description = "Path-driven vector blur with taper and slit fractal modulation."
-version = "0.2.0"
+version = "1.1.0"
 edition = "2024"
 
 [lib]
