@@ -39,6 +39,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `CenterLine (%)` の初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
   - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
+  - `Falloff Mode` は互換性のため残っているが、現行レンダーでは `Blur Amount` 側の考え方に寄せて整理中
 - `Path Blur Offset` / `Subtraction Alpha`
   - `Path Blur Offset` は Displace / Blur 後の像を接線 `+/-` 方向へずらす後段オフセット
   - 端から薄くする効果は `Subtraction Alpha` で別制御する
@@ -51,7 +52,7 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - `Antialiasing Quality`
   - `Non`: point sample
   - `Low`: bilinear
-  - `High`: 多点 supersample
+  - `High`: マット評価と色サンプルの両方に効く多点 supersample
 - `Start Taper Curve` / `End Taper Curve`
   - 初期値は `0.5`
 - `Profile Taper (Curve)`
@@ -60,9 +61,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Invert Profile` でカーブ形状を反転できる
   - `Profile Min Width` で最小帯域幅を制御する
 - `Edge Preserve`
-  - `Preserve Source Edge Color` / `Alpha Mask Ghost` / `Hybrid` を切り替える
   - `Fractal Amount` はこのグループに含め、共通 Fractal マットの混入率を制御する
-  - モード専用項目だけを有効化する
+  - 現行レンダーは `Source Edge Hold` / `Ghost Hold` / `Hybrid Balance` を主役にした Hybrid 系の合成へ寄せている
   - `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` で、共通 Fractal マットを a/b/c 各段へどれだけ掛けるかを調整する
 - `Fractal`
   - `Fractal Scale` / `Fractal Tangent Scale` / `Fractal Tangent Offset` / `Fractal Complexity` / `Evolution`
@@ -83,12 +83,12 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - ブラー:
   - 画素から最短サンプル点を取得
   - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
-  - a. `TangentAmount` と `Displace Multiplier` で接線方向へ元絵を変位する
-  - b. `TangentAmount` / `NegativeTangentAmount` と `Blur Multiplier` で、変位後の中心を基準に接線方向ブラーを掛ける
+  - a. `TangentAmount` / `NegativeTangentAmount` と `Displace Multiplier` で、接線の正負両側を基準に変位像を作る
+  - b. `TangentAmount` / `NegativeTangentAmount` と `Blur Multiplier` で、正負量から決まる中心と幅を使って接線方向ブラーを掛ける
   - c. `Ghost Multiplier` と `Alpha Mask Ghost` 系モードで Ghost 像を不透明度合成する
   - d. `Path Blur Offset` で a〜c の結果を接線 `+/-` 方向へ後段オフセットする
   - `Normal Falloff` / `Normal Falloff Bias` / `Tangent Falloff` / Taper で作られた最終マットは、Displace / Blur / Ghost 全ての減衰に共通適用する
-  - `Falloff Mode = Blur Amount` では、元画像の上に薄く平均色を重ねるのではなく、接線方向へずらした元絵サンプルを主像に寄せる
+  - 最終合成は `Blur Amount` 側の考え方に寄せ、元画像の上へ単純平均色を重ねるのではなく、接線方向サンプルを主像として使う
 - Taper:
   - `Start/End Taper Length` と `Curve` でパス始端/終端の厚みを制御する
   - 帯域の収束軸は `CenterLine (%)` と同期し、パス固定ではなく CenterLine を中心に縮む
@@ -106,9 +106,9 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Invert Profile` でカーブ形状を反転できる
   - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
 - 境界保持 / AA:
-  - `Edge Preserve` モードで、変位像・接線ブラー像・Ghost 像の混ぜ方を切り替える
+  - `Source Edge Hold` / `Ghost Hold` / `Hybrid Balance` で、変位像・接線ブラー像・Ghost 像の混ぜ方を調整する
   - 単純な代表色 1 点選抜ではなく、変位像を基準にした加重平均で近似色のディテールを残す
-  - `Antialiasing Quality` は `Non / Low / High` を切り替え、`High` は多点 supersample でドット感低減を優先する
+  - `Antialiasing Quality` は `Non / Low / High` を切り替え、`High` は効果全体の supersample で細線のドット欠け低減を優先する
 
 ## バージョン/アーカイブ運用
 - 形式: `vMajor.Minor.Patch`

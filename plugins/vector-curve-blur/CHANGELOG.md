@@ -15,6 +15,9 @@
 * [UI] Renamed `Path Blur Amount` to `TangentAmount`, `Negative Blur Amount` to `NegativeTangentAmount`, moved the tangent amount controls above `Normal Band`, and set `Fractal Amount` default to `100`.
 * [Fix] Changed `NormalMat` / `TangentMat` to grayscale weight previews instead of UV-like color previews.
 * [Fix] Made the final normal/tangent matte attenuate displacement, blur, and ghost together, and changed `Path Blur Offset` into a post-process tangent offset.
+* [Change] Reworked displacement to use positive/negative tangent amounts symmetrically, so split tangent settings keep displacement and blur aligned.
+* [Change] Unified rendering around the `Blur Amount` style falloff path and a Hybrid-style edge preserve blend.
+* [Feature] Upgraded `Antialiasing Quality = High` from color-only sampling to effect-wide supersampling for matte and geometry evaluation.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.
