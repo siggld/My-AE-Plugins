@@ -31,20 +31,21 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Non`: point sample
   - `Low`: bilinear + Fractal マットの軽い平滑化
   - `High`: マット評価・色サンプル・Fractal マットに効く多点 supersample
+  - 初期値は `High`
 - `Normal Side`
   - `Positive` / `Negative` の片側だけに法線処理を適用する
 - `TangentAmount(+)` / `TangentAmount(-)` / `TangentOffset`
-  - `Normal Band` グループの外に置き、その直上で接線方向の基本量を管理する
+  - `NormalControls` グループの外に置き、その直上で接線方向の基本量を管理する
   - `TangentAmount(+)` は接線正方向の基準量で、ブラー量だけでなく Displace の基準量にも使う
   - `TangentAmount(-)` は接線負方向の基準量で、常時有効かつ既定値は `0`
   - `TangentOffset` は Displace / Blur 後の像全体を接線 `+/-` 方向へ戻し込む後段オフセット
-- `Normal Band`
+- `NormalControls`
   - `Normal Range` から `Normal Falloff Bias` までの法線帯域制御を 1 グループとして扱う
   - `Normal Range` は選択した片側へ広げる法線帯域の幅
   - `CenterLine (%)` は `0% = パス上`、`100% = NormalRange の外縁`
   - `CenterLine (%)` の初期値は `50`
   - `Normal Falloff` / `Normal Falloff Bias` が収束する中心位置を法線帯域内でオフセットする
-  - `Simple Taper` / `Profile Taper` で帯域が細くなる時も、この値を軸に内外から収束する
+  - `Taper Mode` で `SimpleTaper` / `ProfileTaper(Curve)` を切り替えた時も、この値を軸に内外から収束する
 - `TangentOffset` / `Subtraction Alpha`
   - `TangentOffset` は Displace / Blur 後の像を接線 `+/-` 方向へずらす後段オフセット
   - 端から薄くする効果は `Subtraction Alpha` で別制御する
@@ -56,11 +57,11 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Taper`: Taper / Profile / CenterLine 反映後の幅マット表示
 - `Start Taper Curve` / `End Taper Curve`
   - 初期値は `0.5`
-- `Profile Taper (Curve)`
-  - `Enable Profile Curve (Curve)` を ON にすると、マスク名 `Curve` のパスをプロファイル用カーブとして使用する
-  - `Profile Amount` で `Curve` の影響量を制御する
-  - `Invert Profile` でカーブ形状を反転できる
-  - `Profile Min Width` で最小帯域幅を制御する
+- `Taper Mode`
+  - `Non`（初期値） / `SimpleTaper` / `ProfileTaper(Curve)` を切り替える
+  - `SimpleTaper` の時だけ `Simple Taper` グループ内の項目を編集できる
+  - `Non` と `ProfileTaper(Curve)` の時は `Simple Taper` グループ全体をグレーアウトする
+  - `ProfileTaper(Curve)` はマスク名 `Curve` のパスを自動取得し、追加パラメータなしで `Curve` 形状と `NormalRange` だけを使って帯域幅を決める
 - `Master Intensity`
   - `Fractal Amount` はこのグループに含め、共通 Fractal マットの混入率を制御する
   - `Displace Multiplier` は元絵側 Displace の強さ
@@ -83,6 +84,10 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
   - `Normal Side` で `Positive` / `Negative` の片側だけを処理対象にする
   - 法線距離を `0.0 = パス上`、`1.0 = NormalRange 外縁` に正規化する
   - `CenterLine (%)` を中心に、`Normal Falloff` / `Normal Falloff Bias` はパス側と外縁側の両端から収束する
+- Taper モード:
+  - `Taper Mode = Non` の時は追加の帯域変形を行わない
+  - `Taper Mode = SimpleTaper` の時は `Start/End Taper Length` と `Start/End Taper Curve` を使う
+  - `Taper Mode = ProfileTaper(Curve)` の時はマスク名 `Curve` の Y 形状をそのまま帯域乗数として使う
 - ブラー:
   - 画素から最短サンプル点を取得
   - 共通 Fractal マットを `normal/taper/profile` 後の帯域に対して評価する
@@ -105,9 +110,8 @@ After Effects 用 Rust プラグイン `Vector Curve Blur` の仕様・運用ル
 - Profile Curve:
   - カーブ始点X=0.0、終点X=1.0 の正規化空間でサンプリング
   - Y は始点/終点の上下関係から上側=1.0、下側=0.0 へ正規化
-  - `Profile Amount` と `Profile Min Width` を使って、`CenterLine (%)` 基準の帯域変形として適用する
-  - `Invert Profile` でカーブ形状を反転できる
-  - `Profile Taper (Curve)` による帯域変化も `CenterLine (%)` を軸に反映する
+  - `Taper Mode = ProfileTaper(Curve)` の時だけ `CenterLine (%)` 基準の帯域変形として適用する
+  - 個別の `Profile Amount` / `Invert Profile` / `Profile Min Width` は持たず、`Curve` 形状そのものを使う
 - 境界保持 / AA:
   - `Master Intensity` は `Fractal Amount` / `Displace Multiplier` / `Blur Multiplier` / `Ghost Multiplier` / `Ghost Alpha` の 5 項目で構成する
   - 単純な代表色 1 点選抜ではなく、変位像を基準にした加重平均で近似色のディテールを残す

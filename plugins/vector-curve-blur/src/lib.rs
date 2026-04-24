@@ -40,7 +40,7 @@ enum Params {
     EdgeGhostMultiplier,
     EdgeGhostAlpha,
     EdgePreserveGroupEnd,
-    EnableTaper,
+    TaperMode,
     TaperGroupStart,
     StartTaperLength,
     StartTaperCurve,
@@ -50,12 +50,6 @@ enum Params {
     FractalScale,
     FractalComplexity,
     Evolution,
-    ProfileGroupStart,
-    EnableProfileCurve,
-    PositiveScale,
-    LinkScales,
-    NegativeScale,
-    ProfileGroupEnd,
     TaperSCurve,
     FractalTangentScale,
     FractalTangentOffset,
@@ -147,9 +141,6 @@ struct EvalConfig {
     taper_e_curve: f32,
     taper_s_curve_enabled: bool,
     enable_profile: bool,
-    profile_amount: f32,
-    profile_min_width: f32,
-    invert_profile: bool,
     normal_side: i32,
     swap_tangent: bool,
 }
@@ -256,7 +247,7 @@ impl AdobePluginGlobal for Plugin {
             "Antialiasing Quality",
             PopupDef::setup(|d| {
                 d.set_options(&["Non", "Low", "High"]);
-                d.set_default(2);
+                d.set_default(3);
             }),
         )?;
         params.add(
@@ -315,7 +306,7 @@ impl AdobePluginGlobal for Plugin {
         params.add_group(
             Params::NormalBandGroupStart,
             Params::NormalBandGroupEnd,
-            "Normal Band",
+            "NormalControls",
             true,
             |params| {
                 params.add(
@@ -584,7 +575,7 @@ impl AdobePluginGlobal for Plugin {
                         d.set_valid_max(100.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
-                        d.set_default(0.0);
+                        d.set_default(100.0);
                         d.set_precision(1);
                     }),
                 )?;
@@ -594,9 +585,9 @@ impl AdobePluginGlobal for Plugin {
                     ColorDef::setup(|d| {
                         d.set_default(ae::Pixel8 {
                             alpha: 255,
-                            red: 140,
-                            green: 140,
-                            blue: 140,
+                            red: 128,
+                            green: 128,
+                            blue: 128,
                         });
                     }),
                 )?;
@@ -615,7 +606,7 @@ impl AdobePluginGlobal for Plugin {
                             "Color Dodge",
                             "Color Burn",
                         ]);
-                        d.set_default(1);
+                        d.set_default(4);
                     }),
                 )?;
                 params.add(
@@ -645,11 +636,22 @@ impl AdobePluginGlobal for Plugin {
                             "Color Dodge",
                             "Color Burn",
                         ]);
-                        d.set_default(1);
+                        d.set_default(4);
                     }),
                 )?;
                 Ok(())
             },
+        )?;
+
+        params.add_with_flags(
+            Params::TaperMode,
+            "Taper Mode",
+            PopupDef::setup(|d| {
+                d.set_options(&["Non", "SimpleTaper", "ProfileTaper(Curve)"]);
+                d.set_default(1);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
         )?;
 
         params.add_group(
@@ -658,15 +660,6 @@ impl AdobePluginGlobal for Plugin {
             "Simple Taper",
             true,
             |params| {
-                params.add_with_flags(
-                    Params::EnableTaper,
-                    "Enable Taper",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
                 params.add(
                     Params::StartTaperLength,
                     "Start Taper Length",
@@ -728,58 +721,6 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
-        params.add_group(
-            Params::ProfileGroupStart,
-            Params::ProfileGroupEnd,
-            "Profile Taper (Curve)",
-            true,
-            |params| {
-                params.add_with_flags(
-                    Params::EnableProfileCurve,
-                    "Enable Profile Curve (Curve)",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::PositiveScale,
-                    "Profile Amount",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(200.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(200.0);
-                        d.set_default(100.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                params.add_with_flags(
-                    Params::LinkScales,
-                    "Invert Profile",
-                    CheckBoxDef::setup(|d| {
-                        d.set_default(false);
-                    }),
-                    ParamFlag::SUPERVISE,
-                    ParamUIFlags::NONE,
-                )?;
-                params.add(
-                    Params::NegativeScale,
-                    "Profile Min Width",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(0.0);
-                        d.set_precision(1);
-                    }),
-                )?;
-                Ok(())
-            },
-        )?;
-
         Ok(())
     }
 
@@ -812,11 +753,8 @@ impl AdobePluginGlobal for Plugin {
                     .get(Params::EnableTangentFalloff)?
                     .as_checkbox()?
                     .value();
-                let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
-                let enable_profile = params
-                    .get(Params::EnableProfileCurve)?
-                    .as_checkbox()?
-                    .value();
+                let taper_mode = params.get(Params::TaperMode)?.as_popup()?.value();
+                let enable_taper = taper_mode == 2;
                 let mut p = params.cloned();
 
                 for k in [
@@ -837,15 +775,6 @@ impl AdobePluginGlobal for Plugin {
                 ] {
                     let mut pd = p.get_mut(k)?;
                     pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
-                    pd.update_param_ui()?;
-                }
-                for k in [
-                    Params::PositiveScale,
-                    Params::LinkScales,
-                    Params::NegativeScale,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_profile);
                     pd.update_param_ui()?;
                 }
             }
@@ -947,7 +876,9 @@ impl Plugin {
             .get(Params::PathBlurOffset)?
             .as_float_slider()?
             .value() as f32;
-        let enable_taper = params.get(Params::EnableTaper)?.as_checkbox()?.value();
+        let taper_mode = params.get(Params::TaperMode)?.as_popup()?.value();
+        let enable_taper = taper_mode == 2;
+        let enable_profile = taper_mode == 3;
         let taper_s_len = params
             .get(Params::StartTaperLength)?
             .as_float_slider()?
@@ -979,21 +910,6 @@ impl Plugin {
             .value() as f32
             / 100.0;
         let evolution = params.get(Params::Evolution)?.as_angle()?.float_value()? as f32;
-        let enable_profile = params
-            .get(Params::EnableProfileCurve)?
-            .as_checkbox()?
-            .value();
-        let profile_amount = params
-            .get(Params::PositiveScale)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
-        let invert_profile = params.get(Params::LinkScales)?.as_checkbox()?.value();
-        let profile_min_width = params
-            .get(Params::NegativeScale)?
-            .as_float_slider()?
-            .value() as f32
-            / 100.0;
         let normal_side = params.get(Params::NormalSide)?.as_popup()?.value();
         let swap_tangent = params.get(Params::SwapTangent)?.as_checkbox()?.value();
         let fract_tangent_scale = params
@@ -1074,9 +990,6 @@ impl Plugin {
             taper_e_curve,
             taper_s_curve_enabled,
             enable_profile,
-            profile_amount,
-            profile_min_width,
-            invert_profile,
             normal_side,
             swap_tangent,
         };
@@ -1267,10 +1180,8 @@ impl Plugin {
         let path_count = query.num_paths(effect_ref)?;
 
         let enable_masks = params.get(Params::EnableMasks)?.as_checkbox()?.value();
-        let enable_profile = params
-            .get(Params::EnableProfileCurve)?
-            .as_checkbox()?
-            .value();
+        let taper_mode = params.get(Params::TaperMode)?.as_popup()?.value();
+        let enable_profile = taper_mode == 3;
 
         let mut out = PathData::default();
         let mut profile_path_pts: Vec<(f32, f32)> = Vec::new();
@@ -1414,9 +1325,6 @@ fn eval_pixel_contribution(
             profile_multiplier(
                 path_data.profile_curve.as_ref(),
                 nearest.t_norm,
-                cfg.profile_amount,
-                cfg.profile_min_width,
-                cfg.invert_profile,
                 cfg.swap_tangent,
             )
         } else {
@@ -1949,22 +1857,9 @@ fn sample_profile_y(curve: Option<&ProfileCurve>, t: f32) -> f32 {
     best.y_norm
 }
 
-fn profile_multiplier(
-    curve: Option<&ProfileCurve>,
-    t_norm: f32,
-    profile_amount: f32,
-    profile_min_width: f32,
-    invert_profile: bool,
-    swap_tangent: bool,
-) -> f32 {
+fn profile_multiplier(curve: Option<&ProfileCurve>, t_norm: f32, swap_tangent: bool) -> f32 {
     let t = if swap_tangent { 1.0 - t_norm } else { t_norm };
-    let mut base = sample_profile_y(curve, t.clamp(0.0, 1.0));
-    if invert_profile {
-        base = 1.0 - base;
-    }
-    let shaped =
-        profile_min_width.clamp(0.0, 1.0) + (1.0 - profile_min_width.clamp(0.0, 1.0)) * base;
-    (1.0 + (shaped - 1.0) * profile_amount.max(0.0)).max(0.0)
+    sample_profile_y(curve, t.clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }
 
 // ---------------------------------------------------------------------------

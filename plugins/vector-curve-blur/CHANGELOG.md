@@ -24,6 +24,9 @@
 * [Fix] Smoothed the Fractal-driven displacement mask per AA quality so strong displace settings produce fewer dot-like artifacts.
 * [UI] Moved `Antialiasing Quality` above `Normal Side`, renamed `Edge Preserve` to `Master Intensity`, set `Blur Multiplier` default to `10`, and set `Ghost Alpha` default to `0`.
 * [Change] Reordered the parameter list to match the new UI order, with known compatibility risk for existing AEP/project parameter indexing.
+* [UI] Changed `Antialiasing Quality` default to `High`, renamed `Normal Band` to `NormalControls`, set `Add Color` defaults to `Opacity=100`, `Color=#808080`, and changed both color modes to `Overlay`.
+* [Change] Replaced the old `Enable Taper` / `Enable Profile Curve (Curve)` toggles with a single `Taper Mode` popup: `Non` / `SimpleTaper` / `ProfileTaper(Curve)`.
+* [Change] Removed `Profile Amount`, `Invert Profile`, and `Profile Min Width`; `ProfileTaper(Curve)` now uses the auto-detected `Curve` path shape directly with `NormalRange`.
 
 ## v0.2.0 (2026-03-23)
 * [Feature] Added Profile group (ID 20-28) with separate profile-mask extraction, per-side scaling, link mode, invert-X modes, and normal-side swap.
