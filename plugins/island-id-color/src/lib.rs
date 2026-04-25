@@ -1,49 +1,9 @@
 #![allow(clippy::drop_non_drop, clippy::question_mark, dead_code)]
 
 use after_effects as ae;
-use std::io::Write;
 
 use ae::pf::*;
 use utils::ToPixel;
-
-// #region agent log
-fn agent_log(location: &str, message: &str, data: &str) {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let data_esc = data.replace('\\', "\\\\").replace('"', "\\\"");
-    let line = format!(
-        r#"{{"sessionId":"d01594","location":"{}","message":"{}","data":{{"info":"{}"}},"timestamp":{},"hypothesisId":"H1"}}\n"#,
-        location, message, data_esc, ts
-    );
-    let paths = [
-        std::env::var("LOCALAPPDATA")
-            .ok()
-            .map(|s| format!("{}\\debug-d01594.log", s)),
-        std::env::var("TEMP")
-            .ok()
-            .map(|s| format!("{}\\debug-d01594.log", s)),
-    ];
-    for p in paths.into_iter().flatten() {
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&p)
-            .and_then(|mut f| f.write_all(line.as_bytes()));
-    }
-}
-// #endregion
-
-#[ctor::ctor]
-fn agent_log_dll_load() {
-    agent_log("lib.rs:ctor", "DLL load", "island_id_color cdylib loaded");
-}
-
-/// true のとき params_setup はパラメータを一切追加せず return（起動クラッシュ切り分け用）
-const CRASH_TEST_SKIP_PARAMS: bool = false;
-/// true のとき handle_command は全コマンドを無視（起動クラッシュ切り分け用）
-const CRASH_TEST_MINIMAL_HANDLER: bool = false;
 
 const EXTRACTION_SETS: usize = 32;
 const MERGE_ISLAND_SETS: usize = 32;
@@ -1379,9 +1339,6 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        if CRASH_TEST_SKIP_PARAMS {
-            return Ok(());
-        }
         params.add(
             Params::OutputMode,
             "Output Mode",
@@ -1902,16 +1859,6 @@ impl AdobePluginGlobal for Plugin {
         mut out_data: OutData,
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
-        // #region agent log
-        agent_log(
-            "lib.rs:handle_command",
-            "handle_command entered",
-            &format!("{:?}", cmd),
-        );
-        // #endregion
-        if CRASH_TEST_MINIMAL_HANDLER {
-            return Ok(());
-        }
         match cmd {
             ae::Command::About => {
                 out_data.set_return_msg(
@@ -2303,9 +2250,9 @@ fn island_number_pixel(
 // 【設計方針】
 // 3アルゴリズムはいずれも「Source Temp Color スロット ↔ CCL 島」の
 // 類似度スコアを計算するもので、1フレーム内で完結する（時系列不要）。
-//   1. color_match_tracking : 色差最小（現行ロジック）
-//   2. area_weighted_tracking: 色差 + 面積差の重み付きスコア（TODO）
-//   3. iou_tracking          : Source Temp Color ピクセルの BB と島 BB の IoU（TODO）
+//   1. color_match_tracking   : 色差最小（最近接スロット優先）
+//   2. area_weighted_tracking : 色差 + 面積類似の重み付きスコア
+//   3. iou_tracking            : Source 仮色の外接矩形と島外接矩形の IoU
 
 /// アルゴリズム1: 色差マッチング（最小色差スロット優先）
 ///
