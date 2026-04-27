@@ -7,6 +7,7 @@
 use ae::pf::*;
 use ae_ui::{apply_disabled, enable_update_params_ui};
 use after_effects as ae;
+use std::collections::VecDeque;
 use std::env;
 use std::f32::consts::TAU;
 use utils::ToPixel;
@@ -2030,6 +2031,12 @@ fn premult_luminance(pixel: &PixelF32) -> f32 {
     luminance(&p)
 }
 
+#[derive(Clone, Copy)]
+struct DarkExpandCandidate {
+    luma: f32,
+    pixel: PixelF32,
+}
+
 fn build_dark_expand_prefill(
     source: &ImageBufferF32,
     path_data: &PathData,
@@ -2039,16 +2046,24 @@ fn build_dark_expand_prefill(
     let matte_mask = build_effect_mask(source.width, source.height, path_data, eval_cfg);
     let mut out = source.clone();
     let radius = dark_cfg.radius;
-    let search_offsets = circular_offsets(radius);
     let edge_radius = radius.min(2);
     let edge_offsets = circular_offsets(edge_radius);
     let mut premult_luma = vec![0.0_f32; source.width * source.height];
+    let mut candidates = vec![invalid_dark_expand_candidate(); source.width * source.height];
     for y in 0..source.height {
         for x in 0..source.width {
             let idx = y * source.width + x;
-            premult_luma[idx] = premult_luminance(&source.pixel_at(x, y));
+            let pixel = source.pixel_at(x, y);
+            premult_luma[idx] = premult_luminance(&pixel);
+            if matte_mask[idx] && pixel.alpha > 1e-4 {
+                candidates[idx] = DarkExpandCandidate {
+                    luma: premult_luma[idx],
+                    pixel,
+                };
+            }
         }
     }
+    let best_candidates = max_filter_candidates(&candidates, source.width, source.height, radius);
     let mut targets: Vec<(usize, usize)> = Vec::new();
     for y in 0..source.height {
         for x in 0..source.width {
@@ -2076,65 +2091,134 @@ fn build_dark_expand_prefill(
             continue;
         }
         let idx = y * source.width + x;
-        let current = source.pixel_at(x, y);
         let current_luma = premult_luma[idx];
-        let mut best = current;
-        let mut best_luma = current_luma;
+        let best = best_candidates[idx];
 
-        for (dx, dy) in &search_offsets {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= source.width as isize || ny >= source.height as isize {
-                continue;
-            }
-            let nux = nx as usize;
-            let nuy = ny as usize;
-            let nidx = nuy * source.width + nux;
-            if !matte_mask[nidx] {
-                continue;
-            }
-            let candidate = source.pixel_at(nux, nuy);
-            if candidate.alpha <= 1e-4 {
-                continue;
-            }
-            let candidate_luma = premult_luma[nidx];
-            if candidate_luma > best_luma {
-                best = candidate;
-                best_luma = candidate_luma;
-            }
-        }
-
-        if best_luma > current_luma + 1e-6 {
-            out.set_pixel(x, y, best);
-            replaced.push((x, y, best));
+        if best.luma > current_luma + 1e-6 {
+            out.set_pixel(x, y, best.pixel);
+            replaced.push((x, y, best.pixel));
         }
     }
     if replaced.is_empty() {
         return out;
     }
 
+    let mut extension_candidates =
+        vec![invalid_dark_expand_candidate(); source.width * source.height];
     for (x, y, fill) in replaced {
-        for (dx, dy) in &search_offsets {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= source.width as isize || ny >= source.height as isize {
+        let idx = y * source.width + x;
+        extension_candidates[idx] = DarkExpandCandidate {
+            luma: premult_luminance(&fill),
+            pixel: fill,
+        };
+    }
+    let extension_map =
+        max_filter_candidates(&extension_candidates, source.width, source.height, radius);
+    for y in 0..source.height {
+        for x in 0..source.width {
+            let idx = y * source.width + x;
+            if matte_mask[idx] || extension_map[idx].luma < 0.0 {
                 continue;
             }
-            let nux = nx as usize;
-            let nuy = ny as usize;
-            let nidx = nuy * source.width + nux;
-            if matte_mask[nidx] {
-                continue;
-            }
-            let mut outer = out.pixel_at(nux, nuy);
+            let fill = extension_map[idx].pixel;
+            let mut outer = out.pixel_at(x, y);
             outer.red = fill.red;
             outer.green = fill.green;
             outer.blue = fill.blue;
-            out.set_pixel(nux, nuy, outer);
+            out.set_pixel(x, y, outer);
         }
     }
 
     out
+}
+
+fn invalid_dark_expand_candidate() -> DarkExpandCandidate {
+    DarkExpandCandidate {
+        luma: -1.0,
+        pixel: PixelF32 {
+            alpha: 0.0,
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+        },
+    }
+}
+
+fn max_filter_candidates(
+    input: &[DarkExpandCandidate],
+    width: usize,
+    height: usize,
+    radius: usize,
+) -> Vec<DarkExpandCandidate> {
+    if width == 0 || height == 0 || radius == 0 {
+        return input.to_vec();
+    }
+
+    let mut horizontal = vec![invalid_dark_expand_candidate(); width * height];
+    for y in 0..height {
+        let mut deque: VecDeque<usize> = VecDeque::new();
+        let mut right = 0_usize;
+        for x in 0..width {
+            let max_right = (x + radius).min(width - 1);
+            while right <= max_right {
+                let idx = y * width + right;
+                while deque
+                    .back()
+                    .map(|&back| input[y * width + back].luma <= input[idx].luma)
+                    .unwrap_or(false)
+                {
+                    deque.pop_back();
+                }
+                deque.push_back(right);
+                right += 1;
+            }
+
+            let min_left = x.saturating_sub(radius);
+            while deque
+                .front()
+                .map(|&front| front < min_left)
+                .unwrap_or(false)
+            {
+                deque.pop_front();
+            }
+
+            if let Some(&best_x) = deque.front() {
+                horizontal[y * width + x] = input[y * width + best_x];
+            }
+        }
+    }
+
+    let mut output = vec![invalid_dark_expand_candidate(); width * height];
+    for x in 0..width {
+        let mut deque: VecDeque<usize> = VecDeque::new();
+        let mut bottom = 0_usize;
+        for y in 0..height {
+            let max_bottom = (y + radius).min(height - 1);
+            while bottom <= max_bottom {
+                let idx = bottom * width + x;
+                while deque
+                    .back()
+                    .map(|&back| horizontal[back * width + x].luma <= horizontal[idx].luma)
+                    .unwrap_or(false)
+                {
+                    deque.pop_back();
+                }
+                deque.push_back(bottom);
+                bottom += 1;
+            }
+
+            let min_top = y.saturating_sub(radius);
+            while deque.front().map(|&front| front < min_top).unwrap_or(false) {
+                deque.pop_front();
+            }
+
+            if let Some(&best_y) = deque.front() {
+                output[y * width + x] = horizontal[best_y * width + x];
+            }
+        }
+    }
+
+    output
 }
 
 fn build_effect_mask(
