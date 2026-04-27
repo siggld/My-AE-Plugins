@@ -1863,7 +1863,7 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::About => {
                 out_data.set_return_msg(
                     format!(
-                        "AOD_IslandIdColor - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
+                        "TKG_IslandIdColor - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
                         version = env!("CARGO_PKG_VERSION"),
                         build_year = env!("BUILD_YEAR")
                     )
@@ -2742,7 +2742,7 @@ impl Plugin {
             return;
         }
         if let Ok(suite) = ae::aegp::suites::Utility::new()
-            && let Ok(id) = suite.register_with_aegp("AOD_IslandIdColor")
+            && let Ok(id) = suite.register_with_aegp("TKG_IslandIdColor")
         {
             self.my_id = id;
         }

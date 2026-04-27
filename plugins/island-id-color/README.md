@@ -1,8 +1,8 @@
-# island-id-color ( AOD_IslandIdColor )
+# island-id-color ( TKG_IslandIdColor )
 
 Tracks colored regions as islands and applies per-island gradients or temp colors.
 
-This is the After Effects plugin **AOD_IslandIdColor**, which provides the **IslandIdColor.aex** plugin file for Adobe After Effects.
+This is the After Effects plugin **TKG_IslandIdColor**, which provides the **IslandIdColor.aex** plugin file for Adobe After Effects.
 
 ## Building the Plugin
 

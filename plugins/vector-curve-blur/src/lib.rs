@@ -785,7 +785,7 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::About => {
                 out_data.set_return_msg(
                     format!(
-                        "AOD_VectorCurveBlur - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
+                        "TKG_VectorCurveBlur - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
                         version = env!("CARGO_PKG_VERSION"),
                         build_year = env!("BUILD_YEAR")
                     )

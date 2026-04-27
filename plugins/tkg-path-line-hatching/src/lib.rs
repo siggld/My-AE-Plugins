@@ -254,7 +254,7 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::About => {
                 out_data.set_return_msg(
                     format!(
-                        "AOD_TKG_PathLineHatching - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
+                        "TKG_PathLineHatching - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
                         version = env!("CARGO_PKG_VERSION"),
                         build_year = env!("BUILD_YEAR")
                     )
@@ -268,7 +268,7 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
 
                 if let Ok(suite) = ae::aegp::suites::Utility::new()
-                    && let Ok(id) = suite.register_with_aegp("AOD_TKG_PathLineHatching")
+                    && let Ok(id) = suite.register_with_aegp("TKG_PathLineHatching")
                 {
                     self.my_id = id;
                 }

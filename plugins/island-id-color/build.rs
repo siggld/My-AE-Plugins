@@ -28,7 +28,7 @@ fn main() {
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_IslandIdColor"),
+        Property::Name("TKG_IslandIdColor"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -66,7 +66,7 @@ fn main() {
                 | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
-        Property::AE_Effect_Match_Name("AOD_IslandIdColor_V3"),
+        Property::AE_Effect_Match_Name("TKG_IslandIdColor_V3"),
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
     ])
 }
