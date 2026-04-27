@@ -43,6 +43,8 @@ template.
   - 不透明または色領域をランダム・位置・インデックスで色分けします / Colors connected regions with random, positional, or index-based schemes.
 - AOD_VoronoiGenerate
   - ボロノイテクスチャマップを生成します / Generates Voronoi texture maps.
+- TKG_BoundaryColorSaturation
+  - 境界色抽出とブラー制御のベースUIを構築します / Creates a base UI for boundary color extraction and blur controls.
 
 ## 2. Issue / バグ報告
 

@@ -135,6 +135,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "boundary_color_saturation"
+version = "0.1.0"
+dependencies = [
+ "ae_ui",
+ "after-effects",
+ "chrono",
+ "pipl",
+ "utils",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

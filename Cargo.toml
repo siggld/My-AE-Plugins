@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ae_ui",
+    "plugins/boundary-color-saturation",
     "plugins/red-noise",
     "plugins/uv-distort-pro",
     "plugins/island-id-color",
