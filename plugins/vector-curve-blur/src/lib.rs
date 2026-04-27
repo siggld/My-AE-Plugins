@@ -1054,7 +1054,7 @@ impl Plugin {
         let dark_expand_cfg = if dark_expand_threshold > 0.0 && dark_expand_radius > 0.0 {
             Some(DarkExpandConfig {
                 threshold: dark_expand_threshold.clamp(0.0, 1.0),
-                radius: dark_expand_radius.round().max(0.0) as usize,
+                radius: dark_expand_radius.ceil().max(1.0) as usize,
                 preserve_matte_edge,
             })
         } else {
@@ -2039,61 +2039,92 @@ fn build_dark_expand_prefill(
     let matte_mask = build_effect_mask(source.width, source.height, path_data, eval_cfg);
     let mut out = source.clone();
     let radius = dark_cfg.radius;
-    let radius_i = radius as isize;
-    let radius_sq = (radius * radius) as isize;
-
+    let search_offsets = circular_offsets(radius);
+    let edge_radius = radius.min(2);
+    let edge_offsets = circular_offsets(edge_radius);
+    let mut premult_luma = vec![0.0_f32; source.width * source.height];
     for y in 0..source.height {
         for x in 0..source.width {
             let idx = y * source.width + x;
-            if !matte_mask[idx] {
+            premult_luma[idx] = premult_luminance(&source.pixel_at(x, y));
+        }
+    }
+    let mut targets: Vec<(usize, usize)> = Vec::new();
+    for y in 0..source.height {
+        for x in 0..source.width {
+            let idx = y * source.width + x;
+            if matte_mask[idx] && premult_luma[idx] <= dark_cfg.threshold {
+                targets.push((x, y));
+            }
+        }
+    }
+    let mut replaced: Vec<(usize, usize, PixelF32)> = Vec::new();
+    for (x, y) in targets {
+        if dark_cfg.preserve_matte_edge
+            && touches_matte_edge_with_offsets(
+                &matte_mask,
+                source.width,
+                source.height,
+                x,
+                y,
+                &edge_offsets,
+            )
+        {
+            continue;
+        }
+        let idx = y * source.width + x;
+        let current = source.pixel_at(x, y);
+        let current_luma = premult_luma[idx];
+        let mut best = current;
+        let mut best_luma = current_luma;
+
+        for (dx, dy) in &search_offsets {
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            if nx < 0 || ny < 0 || nx >= source.width as isize || ny >= source.height as isize {
                 continue;
             }
-
-            let current = source.pixel_at(x, y);
-            let current_luma = premult_luminance(&current);
-            if current_luma > dark_cfg.threshold {
+            let nux = nx as usize;
+            let nuy = ny as usize;
+            let nidx = nuy * source.width + nux;
+            if !matte_mask[nidx] {
                 continue;
             }
-
-            if dark_cfg.preserve_matte_edge
-                && touches_matte_edge(&matte_mask, source.width, source.height, x, y, radius)
-            {
+            let candidate = source.pixel_at(nux, nuy);
+            if candidate.alpha <= 1e-4 {
                 continue;
             }
-
-            let mut best = current;
-            let mut best_luma = current_luma;
-            let xi = x as isize;
-            let yi = y as isize;
-
-            for ny in (yi - radius_i).max(0)..=(yi + radius_i).min(source.height as isize - 1) {
-                for nx in (xi - radius_i).max(0)..=(xi + radius_i).min(source.width as isize - 1) {
-                    let dx = nx - xi;
-                    let dy = ny - yi;
-                    if dx * dx + dy * dy > radius_sq || (dx == 0 && dy == 0) {
-                        continue;
-                    }
-
-                    let nidx = ny as usize * source.width + nx as usize;
-                    if !matte_mask[nidx] {
-                        continue;
-                    }
-
-                    let candidate = source.pixel_at(nx as usize, ny as usize);
-                    if candidate.alpha <= 1e-4 {
-                        continue;
-                    }
-                    let candidate_luma = premult_luminance(&candidate);
-                    if candidate_luma > best_luma {
-                        best = candidate;
-                        best_luma = candidate_luma;
-                    }
-                }
+            let candidate_luma = premult_luma[nidx];
+            if candidate_luma > best_luma {
+                best = candidate;
+                best_luma = candidate_luma;
             }
+        }
 
-            if best_luma > current_luma + 1e-6 {
-                out.set_pixel(x, y, best);
+        if best_luma > current_luma + 1e-6 {
+            out.set_pixel(x, y, best);
+            replaced.push((x, y, best));
+        }
+    }
+
+    for (x, y, fill) in replaced {
+        for (dx, dy) in &search_offsets {
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            if nx < 0 || ny < 0 || nx >= source.width as isize || ny >= source.height as isize {
+                continue;
             }
+            let nux = nx as usize;
+            let nuy = ny as usize;
+            let nidx = nuy * source.width + nux;
+            if matte_mask[nidx] {
+                continue;
+            }
+            let mut outer = out.pixel_at(nux, nuy);
+            outer.red = fill.red;
+            outer.green = fill.green;
+            outer.blue = fill.blue;
+            out.set_pixel(nux, nuy, outer);
         }
     }
 
@@ -2119,38 +2150,45 @@ fn build_effect_mask(
     mask
 }
 
-fn touches_matte_edge(
+fn touches_matte_edge_with_offsets(
     matte_mask: &[bool],
     width: usize,
     height: usize,
     x: usize,
     y: usize,
-    radius: usize,
+    offsets: &[(isize, isize)],
 ) -> bool {
-    if radius == 0 {
-        return false;
+    for (dx, dy) in offsets {
+        let nx = x as isize + dx;
+        let ny = y as isize + dy;
+        if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize {
+            continue;
+        }
+        if !matte_mask[ny as usize * width + nx as usize] {
+            return true;
+        }
     }
+    false
+}
 
+fn circular_offsets(radius: usize) -> Vec<(isize, isize)> {
+    if radius == 0 {
+        return vec![(0, 0)];
+    }
     let radius_i = radius as isize;
     let radius_sq = (radius * radius) as isize;
-    let xi = x as isize;
-    let yi = y as isize;
-
-    for ny in (yi - radius_i).max(0)..=(yi + radius_i).min(height as isize - 1) {
-        for nx in (xi - radius_i).max(0)..=(xi + radius_i).min(width as isize - 1) {
-            let dx = nx - xi;
-            let dy = ny - yi;
-            if dx * dx + dy * dy > radius_sq {
+    let mut out: Vec<(isize, isize)> = Vec::new();
+    for dy in -radius_i..=radius_i {
+        for dx in -radius_i..=radius_i {
+            if dx == 0 && dy == 0 {
                 continue;
             }
-
-            if !matte_mask[ny as usize * width + nx as usize] {
-                return true;
+            if dx * dx + dy * dy <= radius_sq {
+                out.push((dx, dy));
             }
         }
     }
-
-    false
+    out
 }
 
 fn blend_channel(base: f32, blend: f32, mode: i32) -> f32 {
