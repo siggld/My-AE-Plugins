@@ -27,7 +27,7 @@ fn main() {
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_VectorCurveBlur"),
+        Property::Name("TKG_VectorCurveBlur"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
