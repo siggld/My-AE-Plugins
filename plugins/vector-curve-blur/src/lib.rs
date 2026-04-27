@@ -2095,8 +2095,12 @@ fn build_dark_expand_prefill(
         let best = best_candidates[idx];
 
         if best.luma > current_luma + 1e-6 {
-            out.set_pixel(x, y, best.pixel);
-            replaced.push((x, y, best.pixel));
+            let mut filled = source.pixel_at(x, y);
+            filled.red = best.pixel.red;
+            filled.green = best.pixel.green;
+            filled.blue = best.pixel.blue;
+            out.set_pixel(x, y, filled);
+            replaced.push((x, y, filled));
         }
     }
     if replaced.is_empty() {
