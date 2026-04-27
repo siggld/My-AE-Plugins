@@ -21,7 +21,7 @@ fn main() {
     let minor: u32 = version_parts[1].parse().expect("Invalid minor version");
     let patch: u32 = version_parts[2].parse().expect("Invalid patch version");
 
-    let stage = Stage::Develop;
+    let stage = Stage::Develop; 
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
