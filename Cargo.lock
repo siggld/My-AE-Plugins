@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "ae_ui"
+version = "0.1.0"
+dependencies = [
+ "after-effects",
+]
+
+[[package]]
 name = "after-effects"
 version = "0.3.0"
 source = "git+https://github.com/virtualritz/after-effects.git?rev=0e0b197850f28c1bb24e8c82fce2e3d4c120d1e9#0e0b197850f28c1bb24e8c82fce2e3d4c120d1e9"
@@ -809,6 +816,7 @@ dependencies = [
 name = "vector_curve_blur"
 version = "1.1.0"
 dependencies = [
+ "ae_ui",
  "after-effects",
  "chrono",
  "pipl",

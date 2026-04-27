@@ -128,8 +128,17 @@ cargo generate --path templates/plugin --destination plugins
 
 - `plugins/`: each plugin crate
 - `crates/utils/`: shared pixel conversion helpers
+- `crates/ae_ui/`: shared Effect Controls Window UI helpers for AE/Premiere
 - `templates/plugin/`: plugin template for `cargo-generate`
 - `tester/`: sample After Effects project for manual testing
+
+### Shared ECW UI policy
+
+- Reusable Effect Controls Window UI logic should live in `crates/ae_ui/`.
+- Plugin-specific parameters and render logic should remain in each plugin crate.
+- If you need a GUI sandbox, keep it as a test plugin or docs, not as a separate runtime dependency root.
+- See `docs/gui-architecture.md` for responsibilities and rollout steps.
+- See `docs/gui-development-flow.md` for multi-agent development flow and handoff.
 
 ### Contribution
 

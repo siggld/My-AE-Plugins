@@ -5,6 +5,7 @@
 )]
 
 use ae::pf::*;
+use ae_ui::{apply_disabled, enable_update_params_ui};
 use after_effects as ae;
 use std::env;
 use std::f32::consts::TAU;
@@ -793,7 +794,7 @@ impl AdobePluginGlobal for Plugin {
             ae::Command::GlobalSetup => {
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
-                out_data.set_out_flag(OutFlags::SendUpdateParamsUi, true);
+                enable_update_params_ui(&mut out_data);
                 out_data.set_out_flag(OutFlags::NonParamVary, true);
             }
             ae::Command::UpdateParamsUi => {
@@ -803,28 +804,23 @@ impl AdobePluginGlobal for Plugin {
                     .value();
                 let taper_mode = params.get(Params::TaperMode)?.as_popup()?.value();
                 let enable_taper = taper_mode == 2;
-                let mut p = params.cloned();
-
-                for k in [
+                let tangent_rules = [
                     Params::TangentStartFallOff,
                     Params::TangentEndFallOff,
                     Params::TangentFalloffBias,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_tangent_falloff);
-                    pd.update_param_ui()?;
-                }
-                for k in [
+                ]
+                .map(|param| (param, enable_tangent_falloff));
+                apply_disabled(params, &tangent_rules)?;
+
+                let taper_rules = [
                     Params::StartTaperLength,
                     Params::StartTaperCurve,
                     Params::EndTaperLength,
                     Params::EndTaperCurve,
                     Params::TaperSCurve,
-                ] {
-                    let mut pd = p.get_mut(k)?;
-                    pd.set_ui_flag(ParamUIFlags::DISABLED, !enable_taper);
-                    pd.update_param_ui()?;
-                }
+                ]
+                .map(|param| (param, enable_taper));
+                apply_disabled(params, &taper_rules)?;
             }
             ae::Command::Render {
                 in_layer,
@@ -1652,10 +1648,11 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
             (1.0 - (offset.abs() / total.max(1.0)) * 0.35).clamp(0.65, 1.0)
         };
         let blur_w = gaussian_w * detail_w * center_w;
-        blur_sum.alpha += px.alpha * blur_w;
-        blur_sum.red += px.red * blur_w;
-        blur_sum.green += px.green * blur_w;
-        blur_sum.blue += px.blue * blur_w;
+        let premult_px = to_premultiplied(px);
+        blur_sum.alpha += premult_px.alpha * blur_w;
+        blur_sum.red += premult_px.red * blur_w;
+        blur_sum.green += premult_px.green * blur_w;
+        blur_sum.blue += premult_px.blue * blur_w;
         blur_wsum += blur_w;
         if total < 0.25 {
             break;
@@ -1663,12 +1660,12 @@ fn blur_along_tangent(p: &TangentBlurParams<'_>) -> PixelF32 {
     }
 
     if blur_wsum > 0.0 {
-        PixelF32 {
+        from_premultiplied(PixelF32 {
             alpha: blur_sum.alpha / blur_wsum,
             red: blur_sum.red / blur_wsum,
             green: blur_sum.green / blur_wsum,
             blue: blur_sum.blue / blur_wsum,
-        }
+        })
     } else {
         displaced
     }
@@ -1966,6 +1963,35 @@ fn color_distance(a: &PixelF32, b: &PixelF32) -> f32 {
     ((dr * dr + dg * dg + db * db + da * da).sqrt() * 0.5).clamp(0.0, 1.0)
 }
 
+fn to_premultiplied(pixel: PixelF32) -> PixelF32 {
+    let a = pixel.alpha.clamp(0.0, 1.0);
+    PixelF32 {
+        alpha: a,
+        red: pixel.red.clamp(0.0, 1.0) * a,
+        green: pixel.green.clamp(0.0, 1.0) * a,
+        blue: pixel.blue.clamp(0.0, 1.0) * a,
+    }
+}
+
+fn from_premultiplied(pixel: PixelF32) -> PixelF32 {
+    let a = pixel.alpha.clamp(0.0, 1.0);
+    if a <= 1e-6 {
+        return PixelF32 {
+            alpha: 0.0,
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+        };
+    }
+    let inv_a = 1.0 / a;
+    PixelF32 {
+        alpha: a,
+        red: (pixel.red * inv_a).clamp(0.0, 1.0),
+        green: (pixel.green * inv_a).clamp(0.0, 1.0),
+        blue: (pixel.blue * inv_a).clamp(0.0, 1.0),
+    }
+}
+
 impl ImageBufferF32 {
     fn from_layer(
         layer: &Layer,
@@ -2199,13 +2225,13 @@ fn sample_buffer_bilinear(source: &ImageBufferF32, x: f32, y: f32) -> PixelF32 {
     let tx = fx - x0 as f32;
     let ty = fy - y0 as f32;
 
-    let p00 = source.pixel_at(x0, y0);
-    let p10 = source.pixel_at(x1, y0);
-    let p01 = source.pixel_at(x0, y1);
-    let p11 = source.pixel_at(x1, y1);
+    let p00 = to_premultiplied(source.pixel_at(x0, y0));
+    let p10 = to_premultiplied(source.pixel_at(x1, y0));
+    let p01 = to_premultiplied(source.pixel_at(x0, y1));
+    let p11 = to_premultiplied(source.pixel_at(x1, y1));
 
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
-    PixelF32 {
+    let premult = PixelF32 {
         alpha: lerp(
             lerp(p00.alpha, p10.alpha, tx),
             lerp(p01.alpha, p11.alpha, tx),
@@ -2222,7 +2248,8 @@ fn sample_buffer_bilinear(source: &ImageBufferF32, x: f32, y: f32) -> PixelF32 {
             lerp(p01.blue, p11.blue, tx),
             ty,
         ),
-    }
+    };
+    from_premultiplied(premult)
 }
 
 fn sample_buffer_point(source: &ImageBufferF32, x: f32, y: f32) -> PixelF32 {
@@ -2261,19 +2288,20 @@ fn sample_buffer_with_quality(
             };
             let mut wsum = 0.0_f32;
             for (ox, oy, w) in HIGH_SUPERSAMPLE_OFFSETS {
-                let px = sample_buffer_bilinear(source, x + ox, y + oy);
+                let px = to_premultiplied(sample_buffer_bilinear(source, x + ox, y + oy));
                 sum.alpha += px.alpha * w;
                 sum.red += px.red * w;
                 sum.green += px.green * w;
                 sum.blue += px.blue * w;
                 wsum += w;
             }
-            PixelF32 {
+            let premult = PixelF32 {
                 alpha: sum.alpha / wsum.max(1e-6),
                 red: sum.red / wsum.max(1e-6),
                 green: sum.green / wsum.max(1e-6),
                 blue: sum.blue / wsum.max(1e-6),
-            }
+            };
+            from_premultiplied(premult)
         }
         _ => sample_buffer_bilinear(source, x, y),
     }
