@@ -36,7 +36,7 @@ fn main() {
     // Build the plugin with PiPL
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("AOD_{{ crate_name | pascal_case }}"),
+        Property::Name("TKG_{{ crate_name | pascal_case }}"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
