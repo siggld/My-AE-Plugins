@@ -2036,27 +2036,37 @@ fn build_dark_expand_prefill(
     eval_cfg: &EvalConfig,
     dark_cfg: &DarkExpandConfig,
 ) -> ImageBufferF32 {
-    let matte_mask = build_effect_mask(source.width, source.height, path_data, eval_cfg);
+    const DARK_EXPAND_MASK_MARGIN_PX: f32 = 6.0;
+    let mask_radius =
+        (eval_cfg.normal_range.max(0.0) + dark_cfg.radius as f32 + DARK_EXPAND_MASK_MARGIN_PX)
+            .ceil() as usize;
+    let matte_mask = build_path_proximity_mask(source.width, source.height, path_data, mask_radius);
     let mut out = source.clone();
+    let Some(roi) = mask_bounds(&matte_mask, source.width, source.height) else {
+        return out;
+    };
     let radius = dark_cfg.radius;
     let search_offsets = circular_offsets(radius);
     let edge_radius = radius.min(2);
     let edge_offsets = circular_offsets(edge_radius);
     let mut premult_luma = vec![0.0_f32; source.width * source.height];
-    for y in 0..source.height {
-        for x in 0..source.width {
+    for y in roi.min_y..=roi.max_y {
+        for x in roi.min_x..=roi.max_x {
             let idx = y * source.width + x;
             premult_luma[idx] = premult_luminance(&source.pixel_at(x, y));
         }
     }
     let mut targets: Vec<(usize, usize)> = Vec::new();
-    for y in 0..source.height {
-        for x in 0..source.width {
+    for y in roi.min_y..=roi.max_y {
+        for x in roi.min_x..=roi.max_x {
             let idx = y * source.width + x;
             if matte_mask[idx] && premult_luma[idx] <= dark_cfg.threshold {
                 targets.push((x, y));
             }
         }
+    }
+    if targets.is_empty() {
+        return out;
     }
     let mut replaced: Vec<(usize, usize, PixelF32)> = Vec::new();
     for (x, y) in targets {
@@ -2106,6 +2116,9 @@ fn build_dark_expand_prefill(
             replaced.push((x, y, best));
         }
     }
+    if replaced.is_empty() {
+        return out;
+    }
 
     for (x, y, fill) in replaced {
         for (dx, dy) in &search_offsets {
@@ -2131,23 +2144,72 @@ fn build_dark_expand_prefill(
     out
 }
 
-fn build_effect_mask(
+#[derive(Clone, Copy)]
+struct RoiBounds {
+    min_x: usize,
+    min_y: usize,
+    max_x: usize,
+    max_y: usize,
+}
+
+fn build_path_proximity_mask(
     width: usize,
     height: usize,
     path_data: &PathData,
-    eval_cfg: &EvalConfig,
+    radius: usize,
 ) -> Vec<bool> {
     let mut mask = vec![false; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let inside =
-                eval_pixel_contribution(path_data, x as f32 + 0.5, y as f32 + 0.5, eval_cfg)
-                    .map(|c| c.total_blend > 0.001)
-                    .unwrap_or(false);
-            mask[y * width + x] = inside;
+    if width == 0 || height == 0 {
+        return mask;
+    }
+    let offsets = circular_offsets(radius.max(1));
+    for m in &path_data.masks {
+        for s in &m.samples {
+            let cx = s.x.round() as isize;
+            let cy = s.y.round() as isize;
+            if cx >= 0 && cy >= 0 && cx < width as isize && cy < height as isize {
+                mask[cy as usize * width + cx as usize] = true;
+            }
+            for (dx, dy) in &offsets {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize {
+                    continue;
+                }
+                mask[ny as usize * width + nx as usize] = true;
+            }
         }
     }
     mask
+}
+
+fn mask_bounds(mask: &[bool], width: usize, height: usize) -> Option<RoiBounds> {
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0_usize;
+    let mut max_y = 0_usize;
+    let mut found = false;
+    for y in 0..height {
+        for x in 0..width {
+            if !mask[y * width + x] {
+                continue;
+            }
+            found = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+    if !found {
+        return None;
+    }
+    Some(RoiBounds {
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+    })
 }
 
 fn touches_matte_edge_with_offsets(
