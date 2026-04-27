@@ -2025,6 +2025,11 @@ fn luminance(pixel: &PixelF32) -> f32 {
     (pixel.red * 0.2126 + pixel.green * 0.7152 + pixel.blue * 0.0722).clamp(0.0, 1.0)
 }
 
+fn premult_luminance(pixel: &PixelF32) -> f32 {
+    let p = to_premultiplied(*pixel);
+    luminance(&p)
+}
+
 fn build_dark_expand_prefill(
     source: &ImageBufferF32,
     path_data: &PathData,
@@ -2045,7 +2050,7 @@ fn build_dark_expand_prefill(
             }
 
             let current = source.pixel_at(x, y);
-            let current_luma = luminance(&current);
+            let current_luma = premult_luminance(&current);
             if current_luma > dark_cfg.threshold {
                 continue;
             }
@@ -2075,7 +2080,10 @@ fn build_dark_expand_prefill(
                     }
 
                     let candidate = source.pixel_at(nx as usize, ny as usize);
-                    let candidate_luma = luminance(&candidate);
+                    if candidate.alpha <= 1e-4 {
+                        continue;
+                    }
+                    let candidate_luma = premult_luminance(&candidate);
                     if candidate_luma > best_luma {
                         best = candidate;
                         best_luma = candidate_luma;
