@@ -7,7 +7,7 @@ members = [
     "plugins/island-id-color",
     "plugins/vector-curve-blur",
     "plugins/tkg-path-line-hatching",
-]
+]　
 
 [workspace.package]
 edition = "2024"
