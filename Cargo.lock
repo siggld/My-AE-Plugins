@@ -242,6 +242,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "custom_gui_test"
+version = "0.1.0"
+dependencies = [
+ "ae_ui",
+ "after-effects",
+ "chrono",
+ "pipl",
+ "utils",
+]
+
+[[package]]
 name = "dashmap"
 version = "5.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -606,16 +617,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "red_noise"
-version = "0.1.0"
-dependencies = [
- "after-effects",
- "chrono",
- "pipl",
- "utils",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -811,16 +812,6 @@ version = "0.1.0"
 dependencies = [
  "after-effects",
  "anyhow",
-]
-
-[[package]]
-name = "uv_distort_pro"
-version = "0.1.0"
-dependencies = [
- "after-effects",
- "chrono",
- "pipl",
- "utils",
 ]
 
 [[package]]

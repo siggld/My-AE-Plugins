@@ -25,7 +25,7 @@ fn main() {
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("TKG_BoundaryColorSaturation"),
+        Property::Name("TKG_CustomGUITest"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -62,7 +62,7 @@ fn main() {
                 | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
-        Property::AE_Effect_Match_Name("BoundaryColorSaturation"),
+        Property::AE_Effect_Match_Name("CustomGUITest"),
         Property::AE_Reserved_Info(8),
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aod-AE-plugin"),
     ])

@@ -1,64 +1,41 @@
 # aod-AE-plugin
 
-[![CI](https://github.com/Aodaruma/aod-AE-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/Aodaruma/aod-AE-plugin/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Aodaruma/aod-AE-plugin)](https://github.com/Aodaruma/aod-AE-plugin/releases/latest)
-[![Pre-release](https://img.shields.io/github/v/release/Aodaruma/aod-AE-plugin?include_prereleases&label=pre-release)](https://github.com/Aodaruma/aod-AE-plugin/releases)
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ff69b4?logo=githubsponsors)](https://github.com/sponsors/Aodaruma)
+このリポジトリは、Rust で書かれた Adobe After Effects 向けプラグインの Fork 版ワークスペースです。  
+`AOD_` で始まるプラグインはオリジナル作者の制作物として `plugins_aod/` に隔離し、この Fork では `TKG_` で始まるプラグインを中心に管理します。
 
-[Aodaruma](https://aodaruma.net/)によって開発された、Rust で書かれた Adobe After Effects プラグイン集です。
-複数のAEエフェクトプラグインを、テンプレートを用いて構築・量産、自動でMacOS/Windows向けにビルド・リリースします。
- 
-A collection of Adobe After Effects plugins written in Rust, developed by [Aodaruma](https://aodaruma.net/).
-This repository is a Cargo
-workspace that builds multiple AE effect plugins, plus shared utilities and a plugin
-template.
+This repository is a forked Cargo workspace for Adobe After Effects plugins written in Rust.  
+Plugins prefixed with `AOD_` are isolated under `plugins_aod/` as original author works, while this fork focuses on `TKG_` plugins.
 
 ## 1. Plugins / プラグイン説明
 
 > [!TIP]
-> リリース済みのプラグインは [Releases](https://github.com/Aodaruma/aod-AE-plugin/releases) からダウンロードできます。  
-> You can download released plugins from [Releases](https://github.com/Aodaruma/aod-AE-plugin/releases).
+> この Fork の公開・配布状況はリポジトリ運用方針に従ってください。  
+> Follow this fork's own release policy for distribution status.
 
-- AOD_ColorAjust
-  - OKLCH/HSLで色相・彩度・明度を調整します / Adjusts hue, chroma, and lightness in OKLCH or HSL color spaces
-- AOD_ColorChange:
-  - 指定色を別の色に置換します / Changes a specific color to another color with tolerance
-- AOD_ColorConvert
-  - RGBと各色空間を相互変換します / Converts between RGB and multiple color spaces
-- AOD_ContourGenerate
-  - Canny法でレイヤーから輪郭線を抽出します / Extracts contour lines from a layer using the Canny method
-- AOD_DifferentialGenerate
-  - レイヤーの画像勾配からRGBA微分マップを生成します / Generates RGBA differential maps from image gradients.
-- AOD_DistanceGenerate
-  - 色領域の輪郭から距離画像を生成します / Generates distance images from the contours of colored regions
-- AOD_ImageCalculate
-  - 1つまたは2つのレイヤーにBlender風の数式演算を適用します / Applies Blender-style math operations to one or two input layers.
-- AOD_IslandIdColor
-  - 色領域をアイランドとしてトラッキングし、アイランドごとにグラデーションや仮色を適用します / Tracks colored regions as islands and applies per-island gradients or temp colors.
-- AOD_MobiusTransform
-  - レイヤーにメビウス変換を適用します / Applies Mobius transformation to layers
-- AOD_NormalGenerate
-  - 色領域から法線マップを生成します / Generate a normal map from the color region.
-- AOD_RegionColorize
-  - 不透明または色領域をランダム・位置・インデックスで色分けします / Colors connected regions with random, positional, or index-based schemes.
-- AOD_VoronoiGenerate
-  - ボロノイテクスチャマップを生成します / Generates Voronoi texture maps.
+- TKG_BoundaryColorSaturation（制作中）
+  - 境界色抽出と彩度制御のための基礎エフェクトです / Base effect for boundary color extraction and saturation control.
+- TKG_IslandIdColor（制作中）
+  - 領域ごとにIDや色情報を扱うためのエフェクトです / Effect for handling per-region IDs and color information.
+- TKG_PathLineHatching（制作中）
+  - パス方向を利用した線ハッチ表現を生成します / Generates line hatching based on path direction.
+- TKG_VectorCurveBlur（制作中）
+  - ベクトルや曲線情報を利用したブラー表現を検証中です / Work-in-progress blur effect using vector and curve information.
+- TKG_CustomGUITest（制作中）
+  - カスタムGUI実装の実機検証用サンドボックスです / Reusable sandbox for validating custom GUI implementations in AE.
 - TKG_BoundaryColorSaturation
   - 境界色抽出とブラー制御のベースUIを構築します / Creates a base UI for boundary color extraction and blur controls.
 
 ## 2. Issue / バグ報告
 
-もしバグを見つけた場合は、[Issues](https://github.com/Aodaruma/aod-AE-plugin/issues) ページで報告してください。
+もしバグを見つけた場合は、この Fork の Issue ページで報告してください。
 
-If you find a bug, please report it on the [Issues](https://github.com/Aodaruma/aod-AE-plugin/issues).
+If you find a bug, please report it on this fork's issue tracker.
 
 ## 3. Support / 支援
 
 > [!NOTE]
-> もしこのプロジェクトが役に立ったら、GitHub Sponsors での支援をご検討ください。  
-> If this project helps you, please consider supporting it via GitHub Sponsors.
-
-https://github.com/sponsors/Aodaruma
+> 支援・連絡先はこの Fork の運用者ポリシーに従ってください。  
+> Follow this fork maintainer policy for support/contact.
 
 ## 4. License
 
@@ -112,7 +89,7 @@ Outputs:
 You can also build a single plugin:
 
 ```sh
-just -f plugins/color-ajust/Justfile build
+just -f plugins/boundary-color-saturation/Justfile build
 ```
 
 ### Create a new plugin
@@ -128,7 +105,8 @@ cargo generate --path templates/plugin --destination plugins
 
 ### Repository layout
 
-- `plugins/`: each plugin crate
+- `plugins/`: `TKG_` 系の開発対象プラグイン / actively developed `TKG_` plugins
+- `plugins_aod/`: `AOD_` 系の隔離済みプラグイン / isolated `AOD_` plugins
 - `crates/utils/`: shared pixel conversion helpers
 - `crates/ae_ui/`: shared Effect Controls Window UI helpers for AE/Premiere
 - `templates/plugin/`: plugin template for `cargo-generate`
