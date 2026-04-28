@@ -3,9 +3,6 @@
 use ae::pf::*;
 use after_effects as ae;
 use std::env;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
@@ -22,6 +19,14 @@ enum Params {
     Offset,
     BlurIterations,
     KeepDivision,
+    SssGroupStart,
+    AdditionalColor,
+    SssSpread,
+    SssBias,
+    EdgeAlongBlur,
+    EdgeAcrossBlur,
+    SssGroupEnd,
+    ViewMode,
 }
 
 #[derive(Default)]
@@ -31,25 +36,6 @@ ae::define_effect!(Plugin, (), Params);
 
 const PLUGIN_DESCRIPTION: &str =
     "Creates boundary color extraction and blur control UI for compositing.";
-
-fn debug_log(run_id: &str, hypothesis_id: &str, location: &str, message: &str, data: &str) {
-    let escaped_message = message.replace('\"', "\\\"");
-    let escaped_data = data.replace('\"', "\\\"");
-    let line = format!(
-        "{{\"sessionId\":\"9dbf07\",\"runId\":\"{run_id}\",\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{escaped_message}\",\"data\":\"{escaped_data}\",\"timestamp\":{}}}\n",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("debug-9dbf07.log")
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
 
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
@@ -174,6 +160,85 @@ impl AdobePluginGlobal for Plugin {
                 d.set_default(true);
             }),
         )?;
+        params.add_group(
+            Params::SssGroupStart,
+            Params::SssGroupEnd,
+            "SSS",
+            true,
+            |params| {
+                params.add(
+                    Params::AdditionalColor,
+                    "Additional Color",
+                    ColorDef::setup(|d| {
+                        d.set_default(ae::Pixel8 {
+                            alpha: 255,
+                            red: 255,
+                            green: 180,
+                            blue: 140,
+                        });
+                    }),
+                )?;
+                params.add(
+                    Params::SssSpread,
+                    "Spread",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(25.0);
+                        d.set_precision(Precision::Tenths);
+                    }),
+                )?;
+                params.add(
+                    Params::SssBias,
+                    "Bias",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(-100.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(-100.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(0.0);
+                        d.set_precision(Precision::Tenths);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeAlongBlur,
+                    "Edge Along Blur",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(20.0);
+                        d.set_precision(Precision::Tenths);
+                    }),
+                )?;
+                params.add(
+                    Params::EdgeAcrossBlur,
+                    "Edge Across Blur",
+                    FloatSliderDef::setup(|d| {
+                        d.set_valid_min(0.0);
+                        d.set_valid_max(100.0);
+                        d.set_slider_min(0.0);
+                        d.set_slider_max(100.0);
+                        d.set_default(8.0);
+                        d.set_precision(Precision::Tenths);
+                    }),
+                )?;
+                Ok(())
+            },
+        )?;
+        params.add_with_flags(
+            Params::ViewMode,
+            "View Mode",
+            PopupDef::setup(|d| {
+                d.set_options(&["Final", "Effect Only", "SSS Band Only"]);
+                d.set_default(1);
+            }),
+            ParamFlag::SUPERVISE,
+            ParamUIFlags::NONE,
+        )?;
 
         Ok(())
     }
@@ -187,15 +252,6 @@ impl AdobePluginGlobal for Plugin {
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
-                // #region agent log
-                debug_log(
-                    "pre-fix",
-                    "H4",
-                    "boundary-color-saturation/src/lib.rs:About",
-                    "About command reached",
-                    "About command executed successfully",
-                );
-                // #endregion
                 out_data.set_return_msg(
                     format!(
                         "TKG_BoundaryColorSaturation - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
@@ -206,33 +262,17 @@ impl AdobePluginGlobal for Plugin {
                 );
             }
             ae::Command::GlobalSetup => {
-                // #region agent log
-                debug_log(
-                    "pre-fix",
-                    "H1|H2|H3",
-                    "boundary-color-saturation/src/lib.rs:GlobalSetup.enter",
-                    "Entered GlobalSetup",
-                    "Setting OutFlags2::SupportsThreadedRendering=true, ParamGroupStartCollapsedFlag=true, OutFlags::SendUpdateParamsUi=true",
-                );
-                // #endregion
                 out_data.set_out_flag2(ae::OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag2(ae::OutFlags2::ParamGroupStartCollapsedFlag, true);
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
             }
             ae::Command::UpdateParamsUi => {
-                // #region agent log
-                debug_log(
-                    "pre-fix",
-                    "H4",
-                    "boundary-color-saturation/src/lib.rs:UpdateParamsUi.enter",
-                    "Entered UpdateParamsUi",
-                    "Mode-based UI disable logic about to run",
-                );
-                // #endregion
                 let mut p = params.cloned();
                 let mode = p.get(Params::Mode)?.as_popup()?.value();
                 let is_radial = mode == 1;
                 let is_directional = mode == 2;
+                let view_mode = p.get(Params::ViewMode)?.as_popup()?.value();
+                let is_sss_band_only = view_mode == 3;
 
                 let mut pd_center = p.get_mut(Params::Center)?;
                 pd_center.set_ui_flag(ae::ParamUIFlags::DISABLED, is_directional);
@@ -241,6 +281,26 @@ impl AdobePluginGlobal for Plugin {
                 let mut pd_angle = p.get_mut(Params::Angle)?;
                 pd_angle.set_ui_flag(ae::ParamUIFlags::DISABLED, is_radial);
                 pd_angle.update_param_ui()?;
+
+                let mut pd_additional_color = p.get_mut(Params::AdditionalColor)?;
+                pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_additional_color.update_param_ui()?;
+
+                let mut pd_sss_spread = p.get_mut(Params::SssSpread)?;
+                pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_sss_spread.update_param_ui()?;
+
+                let mut pd_sss_bias = p.get_mut(Params::SssBias)?;
+                pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_sss_bias.update_param_ui()?;
+
+                let mut pd_edge_along_blur = p.get_mut(Params::EdgeAlongBlur)?;
+                pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_edge_along_blur.update_param_ui()?;
+
+                let mut pd_edge_across_blur = p.get_mut(Params::EdgeAcrossBlur)?;
+                pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_edge_across_blur.update_param_ui()?;
             }
             _ => {}
         }

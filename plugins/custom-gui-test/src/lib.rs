@@ -9,11 +9,12 @@ use std::env;
 
 use crate::curve_editor::CurveEditorModel;
 use crate::ui_adapter::{
-    CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData,
+    CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData, UiMarker,
 };
 
 const UI_BOX_WIDTH: u16 = 320;
 const UI_BOX_HEIGHT: u16 = 180;
+const EDITOR_ASPECT: f32 = UI_BOX_WIDTH as f32 / UI_BOX_HEIGHT as f32;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -143,14 +144,30 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
+    fn fixed_aspect_viewport(frame: ae::Rect) -> EditorViewport {
+        let area_w = (frame.right - frame.left).max(1) as f32;
+        let area_h = (frame.bottom - frame.top).max(1) as f32;
+        let area_aspect = area_w / area_h;
+        let (width, height) = if area_aspect > EDITOR_ASPECT {
+            let h = area_h;
+            let w = h * EDITOR_ASPECT;
+            (w, h)
+        } else {
+            let w = area_w;
+            let h = w / EDITOR_ASPECT;
+            (w, h)
+        };
+        EditorViewport {
+            left: frame.left as f32 + (area_w - width) * 0.5,
+            top: frame.top as f32 + (area_h - height) * 0.5,
+            width,
+            height,
+        }
+    }
+
     fn sync_viewport(&mut self, extra: &ae::EventExtra) {
         let frame = extra.current_frame();
-        let viewport = EditorViewport {
-            left: frame.left as f32,
-            top: frame.top as f32,
-            width: (frame.right - frame.left).max(1) as f32,
-            height: (frame.bottom - frame.top).max(1) as f32,
-        };
+        let viewport = Self::fixed_aspect_viewport(frame);
         self.adapter.set_viewport(viewport);
     }
 
@@ -177,7 +194,7 @@ impl Plugin {
 
         extra.set_event_out_flags(
             ae::EventOutFlags::HANDLED_EVENT
-                | ae::EventOutFlags::ALWAYS_UPDATE
+                | ae::EventOutFlags::NEVER_UPDATE
                 | ae::EventOutFlags::UPDATE_NOW,
         );
         Ok(())
@@ -208,7 +225,7 @@ impl Plugin {
 
         extra.set_event_out_flags(
             ae::EventOutFlags::HANDLED_EVENT
-                | ae::EventOutFlags::ALWAYS_UPDATE
+                | ae::EventOutFlags::NEVER_UPDATE
                 | ae::EventOutFlags::UPDATE_NOW,
         );
         Ok(())
@@ -226,11 +243,18 @@ impl Plugin {
         let surface = drawbot.surface()?;
 
         let frame = extra.current_frame();
+        let viewport = Self::fixed_aspect_viewport(frame);
         let bg_rect = ae::drawbot::RectF32 {
             left: frame.left as f32 + 0.5,
             top: frame.top as f32 + 0.5,
             width: (frame.right - frame.left).max(1) as f32,
             height: (frame.bottom - frame.top).max(1) as f32,
+        };
+        let editor_rect = ae::drawbot::RectF32 {
+            left: viewport.left + 0.5,
+            top: viewport.top + 0.5,
+            width: viewport.width,
+            height: viewport.height,
         };
 
         let bg = ae::drawbot::ColorRgba {
@@ -277,6 +301,13 @@ impl Plugin {
         };
 
         surface.paint_rect(&bg, &bg_rect)?;
+        let editor_panel = ae::drawbot::ColorRgba {
+            red: 0.1,
+            green: 0.1,
+            blue: 0.1,
+            alpha: 1.0,
+        };
+        surface.paint_rect(&editor_panel, &editor_rect)?;
 
         let draw: UiDrawData = self.adapter.build_draw_data(&self.model);
 
@@ -307,28 +338,63 @@ impl Plugin {
             surface.stroke_path(&curve_pen, &path)?;
         }
 
-        let in_handle_brush = supplier.new_brush(&in_handle_color)?;
-        for p in &draw.in_handles {
-            let mut shape = supplier.new_path()?;
-            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 3.0, 0.0, 360.0)?;
-            surface.fill_path(&in_handle_brush, &shape, ae::drawbot::FillType::Winding)?;
-        }
-
-        let out_handle_brush = supplier.new_brush(&out_handle_color)?;
-        for p in &draw.out_handles {
-            let mut shape = supplier.new_path()?;
-            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 3.0, 0.0, 360.0)?;
-            surface.fill_path(&out_handle_brush, &shape, ae::drawbot::FillType::Winding)?;
-        }
-
-        let anchor_brush = supplier.new_brush(&anchor_color)?;
-        for p in &draw.anchors {
-            let mut shape = supplier.new_path()?;
-            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 4.0, 0.0, 360.0)?;
-            surface.fill_path(&anchor_brush, &shape, ae::drawbot::FillType::Winding)?;
-        }
+        Self::draw_marker_squares(&supplier, &surface, &draw.in_handles, &in_handle_color, 6.0)?;
+        Self::draw_marker_squares(
+            &supplier,
+            &surface,
+            &draw.out_handles,
+            &out_handle_color,
+            6.0,
+        )?;
+        Self::draw_marker_squares(&supplier, &surface, &draw.anchors, &anchor_color, 8.0)?;
 
         extra.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
+        Ok(())
+    }
+
+    fn draw_marker_squares(
+        supplier: &ae::drawbot::Supplier,
+        surface: &ae::drawbot::Surface,
+        markers: &[UiMarker],
+        color: &ae::drawbot::ColorRgba,
+        size: f32,
+    ) -> Result<(), ae::Error> {
+        let pen = supplier.new_pen(color, 1.0)?;
+        let brush = supplier.new_brush(color)?;
+        let half = size * 0.5;
+        for marker in markers {
+            let left = marker.center.x - half;
+            let top = marker.center.y - half;
+            let rect = ae::drawbot::RectF32 {
+                left,
+                top,
+                width: size,
+                height: size,
+            };
+            if marker.selected {
+                surface.paint_rect(color, &rect)?;
+            }
+            let mut path = supplier.new_path()?;
+            path.move_to(left, top)?;
+            path.line_to(left + size, top)?;
+            path.line_to(left + size, top + size)?;
+            path.line_to(left, top + size)?;
+            path.line_to(left, top)?;
+            surface.stroke_path(&pen, &path)?;
+            if marker.selected {
+                let mut center_dot = supplier.new_path()?;
+                center_dot.add_arc(
+                    &ae::drawbot::PointF32 {
+                        x: marker.center.x,
+                        y: marker.center.y,
+                    },
+                    1.0,
+                    0.0,
+                    360.0,
+                )?;
+                surface.fill_path(&brush, &center_dot, ae::drawbot::FillType::Winding)?;
+            }
+        }
         Ok(())
     }
 }

@@ -36,14 +36,20 @@ pub struct UiLine {
     pub b: Point2D,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct UiMarker {
+    pub center: Point2D,
+    pub selected: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct UiDrawData {
     pub grid_lines: Vec<UiLine>,
     pub handle_lines: Vec<UiLine>,
     pub curve_polyline: Vec<Point2D>,
-    pub anchors: Vec<Point2D>,
-    pub in_handles: Vec<Point2D>,
-    pub out_handles: Vec<Point2D>,
+    pub anchors: Vec<UiMarker>,
+    pub in_handles: Vec<UiMarker>,
+    pub out_handles: Vec<UiMarker>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,6 +81,13 @@ struct DragTarget {
     node_index: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Selection {
+    Anchor(usize),
+    InHandle(usize),
+    OutHandle(usize),
+}
+
 pub struct CustomGraphEditorUiAdapter {
     viewport: EditorViewport,
     grid_div_x: i32,
@@ -82,6 +95,7 @@ pub struct CustomGraphEditorUiAdapter {
     segments_per_span: i32,
     picking_radius_px: f32,
     active_drag: DragTarget,
+    selected: Option<Selection>,
 }
 
 impl Default for CustomGraphEditorUiAdapter {
@@ -102,6 +116,7 @@ impl CustomGraphEditorUiAdapter {
                 kind: DragTargetType::None,
                 node_index: 0,
             },
+            selected: None,
         }
     }
 
@@ -154,13 +169,21 @@ impl CustomGraphEditorUiAdapter {
         draw.in_handles.reserve(nodes.len());
         draw.out_handles.reserve(nodes.len());
         for (i, n) in nodes.iter().enumerate() {
-            draw.anchors.push(self.normalized_to_screen(n.anchor));
+            draw.anchors.push(UiMarker {
+                center: self.normalized_to_screen(n.anchor),
+                selected: self.selected == Some(Selection::Anchor(i)),
+            });
             if i > 0 {
-                draw.in_handles.push(self.normalized_to_screen(n.in_handle));
+                draw.in_handles.push(UiMarker {
+                    center: self.normalized_to_screen(n.in_handle),
+                    selected: self.selected == Some(Selection::InHandle(i)),
+                });
             }
             if i + 1 < nodes.len() {
-                draw.out_handles
-                    .push(self.normalized_to_screen(n.out_handle));
+                draw.out_handles.push(UiMarker {
+                    center: self.normalized_to_screen(n.out_handle),
+                    selected: self.selected == Some(Selection::OutHandle(i)),
+                });
             }
         }
 
@@ -189,6 +212,7 @@ impl CustomGraphEditorUiAdapter {
                     kind: DragTargetType::None,
                     node_index: 0,
                 };
+                self.selected = None;
                 return true;
             }
 
@@ -197,6 +221,7 @@ impl CustomGraphEditorUiAdapter {
                     kind: DragTargetType::Anchor,
                     node_index,
                 };
+                self.selected = Some(Selection::Anchor(node_index));
                 return true;
             }
         }
@@ -207,6 +232,7 @@ impl CustomGraphEditorUiAdapter {
                     kind: DragTargetType::OutHandle,
                     node_index,
                 };
+                self.selected = Some(Selection::OutHandle(node_index));
                 return true;
             }
             if let Some(node_index) = self.hit_test_handle(model, screen, false) {
@@ -214,6 +240,7 @@ impl CustomGraphEditorUiAdapter {
                     kind: DragTargetType::InHandle,
                     node_index,
                 };
+                self.selected = Some(Selection::InHandle(node_index));
                 return true;
             }
             if let Some(new_node_x) = self.hit_test_curve(model, screen) {
@@ -222,6 +249,7 @@ impl CustomGraphEditorUiAdapter {
                     kind: DragTargetType::Anchor,
                     node_index: inserted,
                 };
+                self.selected = Some(Selection::Anchor(inserted));
                 return true;
             }
         }
@@ -230,6 +258,7 @@ impl CustomGraphEditorUiAdapter {
             kind: DragTargetType::None,
             node_index: 0,
         };
+        self.selected = None;
         false
     }
 
