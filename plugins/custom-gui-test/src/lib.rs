@@ -28,12 +28,20 @@ fn debug_log(hypothesis_id: &str, location: &str, message: &str, data_json: &str
         hypothesis_id, location, message, data_json, ts
     );
     // #region agent log
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("debug-1e940a.log")
-    {
-        let _ = f.write_all(line.as_bytes());
+    let mut paths: Vec<std::path::PathBuf> = Vec::new();
+    // 1) relative to current working directory
+    paths.push(std::path::PathBuf::from("debug-1e940a.log"));
+    // 2) absolute workspace path for local debug runs
+    paths.push(std::path::PathBuf::from(
+        r"W:\work\My-AE-Plugins\debug-1e940a.log",
+    ));
+    // 3) temp directory fallback
+    paths.push(std::env::temp_dir().join("debug-1e940a.log"));
+
+    for p in &paths {
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(p) {
+            let _ = f.write_all(line.as_bytes());
+        }
     }
     // #endregion
 }
