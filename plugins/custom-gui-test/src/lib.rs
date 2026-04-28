@@ -14,7 +14,6 @@ use crate::ui_adapter::{
 
 const UI_BOX_WIDTH: u16 = 320;
 const UI_BOX_HEIGHT: u16 = 180;
-const EDITOR_ASPECT: f32 = UI_BOX_WIDTH as f32 / UI_BOX_HEIGHT as f32;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -147,21 +146,13 @@ impl Plugin {
     fn fixed_aspect_viewport(frame: ae::Rect) -> EditorViewport {
         let area_w = (frame.right - frame.left).max(1) as f32;
         let area_h = (frame.bottom - frame.top).max(1) as f32;
-        let area_aspect = area_w / area_h;
-        let (width, height) = if area_aspect > EDITOR_ASPECT {
-            let h = area_h;
-            let w = h * EDITOR_ASPECT;
-            (w, h)
-        } else {
-            let w = area_w;
-            let h = w / EDITOR_ASPECT;
-            (w, h)
-        };
+        // Keep square viewport; max size follows available width.
+        let side = area_w.min(area_h);
         EditorViewport {
-            left: frame.left as f32 + (area_w - width) * 0.5,
-            top: frame.top as f32 + (area_h - height) * 0.5,
-            width,
-            height,
+            left: frame.left as f32 + (area_w - side) * 0.5,
+            top: frame.top as f32 + (area_h - side) * 0.5,
+            width: side,
+            height: side,
         }
     }
 
@@ -180,7 +171,10 @@ impl Plugin {
         extra.set_send_drag(true);
 
         let p = extra.screen_point();
+        let modifiers = extra.modifiers();
         let shift_down = extra.modifiers().contains(Modifiers::SHIFT_KEY);
+        let alt_down = modifiers.contains(Modifiers::OPT_ALT_KEY);
+        let ctrl_down = modifiers.contains(Modifiers::CMD_CTRL_KEY);
 
         self.adapter.on_mouse_down(
             &mut self.model,
@@ -189,6 +183,8 @@ impl Plugin {
                 y: p.v as f32,
                 button: MouseButton::Left,
                 shift_down,
+                alt_down,
+                ctrl_down,
             },
         );
 
@@ -208,13 +204,18 @@ impl Plugin {
         self.sync_viewport(extra);
 
         let p = extra.screen_point();
-        let shift_down = extra.modifiers().contains(Modifiers::SHIFT_KEY);
+        let modifiers = extra.modifiers();
+        let shift_down = modifiers.contains(Modifiers::SHIFT_KEY);
+        let alt_down = modifiers.contains(Modifiers::OPT_ALT_KEY);
+        let ctrl_down = modifiers.contains(Modifiers::CMD_CTRL_KEY);
         let last = extra.last_time();
         let mouse = MouseEvent {
             x: p.h as f32,
             y: p.v as f32,
             button: MouseButton::Left,
             shift_down,
+            alt_down,
+            ctrl_down,
         };
 
         if last {

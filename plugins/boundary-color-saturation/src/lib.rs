@@ -7,6 +7,9 @@ use std::env;
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 enum Params {
+    ViewMode,
+    Link,
+    ColorSet1GroupStart,
     ColorSelectGroupStart,
     ColorA,
     ColorB,
@@ -20,13 +23,14 @@ enum Params {
     BlurIterations,
     KeepDivision,
     SssGroupStart,
+    EnableSss,
     AdditionalColor,
     SssSpread,
     SssBias,
     EdgeAlongBlur,
     EdgeAcrossBlur,
     SssGroupEnd,
-    ViewMode,
+    ColorSet1GroupEnd,
 }
 
 #[derive(Default)]
@@ -44,146 +48,106 @@ impl AdobePluginGlobal for Plugin {
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
-        params.add_group(
-            Params::ColorSelectGroupStart,
-            Params::ColorSelectGroupEnd,
-            "Color Select",
-            true,
-            |params| {
-                params.add(
-                    Params::ColorA,
-                    "Color A",
-                    ColorDef::setup(|d| {
-                        d.set_default(ae::Pixel8 {
-                            alpha: 255,
-                            red: 255,
-                            green: 255,
-                            blue: 255,
-                        });
-                    }),
-                )?;
-                params.add(
-                    Params::ColorB,
-                    "Color B",
-                    ColorDef::setup(|d| {
-                        d.set_default(ae::Pixel8 {
-                            alpha: 255,
-                            red: 0,
-                            green: 0,
-                            blue: 0,
-                        });
-                    }),
-                )?;
-                params.add(
-                    Params::ColorThreshold,
-                    "Color Threshold",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(10.0);
-                        d.set_precision(Precision::Tenths);
-                        d.set_display_flags(ValueDisplayFlag::PERCENT);
-                    }),
-                )?;
-                Ok(())
-            },
-        )?;
-
-        params.add_with_flags(
-            Params::Mode,
-            "Mode",
+        params.add(
+            Params::ViewMode,
+            "View Mode",
             PopupDef::setup(|d| {
-                d.set_options(&["Radial", "Directional"]);
+                d.set_options(&["Final", "Effect Only"]);
                 d.set_default(1);
             }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
-        )?;
-
-        params.add(
-            Params::Center,
-            "Center",
-            PointDef::setup(|d| {
-                d.set_default_x(0.5);
-                d.set_default_y(0.5);
-            }),
         )?;
         params.add(
-            Params::Angle,
-            "Angle",
-            AngleDef::setup(|d| {
-                d.set_default(0.0);
-            }),
-        )?;
-        params.add(
-            Params::Amount,
-            "Amount",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(0.0);
-                d.set_valid_max(1000.0);
-                d.set_slider_min(0.0);
-                d.set_slider_max(100.0);
-                d.set_default(25.0);
-                d.set_precision(Precision::Tenths);
-            }),
-        )?;
-        params.add(
-            Params::Offset,
-            "Offset",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(-100.0);
-                d.set_valid_max(100.0);
-                d.set_slider_min(-100.0);
-                d.set_slider_max(100.0);
-                d.set_default(0.0);
-                d.set_precision(Precision::Tenths);
-            }),
-        )?;
-        params.add(
-            Params::BlurIterations,
-            "Blur Iterations",
-            FloatSliderDef::setup(|d| {
-                d.set_valid_min(1.0);
-                d.set_valid_max(512.0);
-                d.set_slider_min(1.0);
-                d.set_slider_max(128.0);
-                d.set_default(16.0);
-                d.set_precision(Precision::Integer);
-            }),
-        )?;
-        params.add(
-            Params::KeepDivision,
-            "Keep Division",
+            Params::Link,
+            "Link",
             CheckBoxDef::setup(|d| {
-                d.set_default(true);
+                d.set_default(false);
             }),
         )?;
         params.add_group(
-            Params::SssGroupStart,
-            Params::SssGroupEnd,
-            "SSS",
+            Params::ColorSet1GroupStart,
+            Params::ColorSet1GroupEnd,
+            "ColorSet_1",
             true,
             |params| {
+                params.add_group(
+                    Params::ColorSelectGroupStart,
+                    Params::ColorSelectGroupEnd,
+                    "Color Select",
+                    true,
+                    |params| {
+                        params.add(
+                            Params::ColorA,
+                            "Color A",
+                            ColorDef::setup(|d| {
+                                d.set_default(ae::Pixel8 {
+                                    alpha: 255,
+                                    red: 255,
+                                    green: 255,
+                                    blue: 255,
+                                });
+                            }),
+                        )?;
+                        params.add(
+                            Params::ColorB,
+                            "Color B",
+                            ColorDef::setup(|d| {
+                                d.set_default(ae::Pixel8 {
+                                    alpha: 255,
+                                    red: 0,
+                                    green: 0,
+                                    blue: 0,
+                                });
+                            }),
+                        )?;
+                        params.add(
+                            Params::ColorThreshold,
+                            "Color Threshold",
+                            FloatSliderDef::setup(|d| {
+                                d.set_valid_min(0.0);
+                                d.set_valid_max(100.0);
+                                d.set_slider_min(0.0);
+                                d.set_slider_max(100.0);
+                                d.set_default(10.0);
+                                d.set_precision(Precision::Tenths);
+                                d.set_display_flags(ValueDisplayFlag::PERCENT);
+                            }),
+                        )?;
+                        Ok(())
+                    },
+                )?;
+
+                params.add_with_flags(
+                    Params::Mode,
+                    "Mode",
+                    PopupDef::setup(|d| {
+                        d.set_options(&["Radial", "Directional"]);
+                        d.set_default(1);
+                    }),
+                    ParamFlag::SUPERVISE,
+                    ParamUIFlags::NONE,
+                )?;
+
                 params.add(
-                    Params::AdditionalColor,
-                    "Additional Color",
-                    ColorDef::setup(|d| {
-                        d.set_default(ae::Pixel8 {
-                            alpha: 255,
-                            red: 255,
-                            green: 180,
-                            blue: 140,
-                        });
+                    Params::Center,
+                    "Center",
+                    PointDef::setup(|d| {
+                        d.set_default_x(0.5);
+                        d.set_default_y(0.5);
                     }),
                 )?;
                 params.add(
-                    Params::SssSpread,
-                    "Spread",
+                    Params::Angle,
+                    "Angle",
+                    AngleDef::setup(|d| {
+                        d.set_default(0.0);
+                    }),
+                )?;
+                params.add(
+                    Params::Amount,
+                    "Amount",
                     FloatSliderDef::setup(|d| {
                         d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
+                        d.set_valid_max(1000.0);
                         d.set_slider_min(0.0);
                         d.set_slider_max(100.0);
                         d.set_default(25.0);
@@ -191,8 +155,8 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
-                    Params::SssBias,
-                    "Bias",
+                    Params::Offset,
+                    "Offset",
                     FloatSliderDef::setup(|d| {
                         d.set_valid_min(-100.0);
                         d.set_valid_max(100.0);
@@ -203,41 +167,104 @@ impl AdobePluginGlobal for Plugin {
                     }),
                 )?;
                 params.add(
-                    Params::EdgeAlongBlur,
-                    "Edge Along Blur",
+                    Params::BlurIterations,
+                    "Blur Iterations",
                     FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(20.0);
-                        d.set_precision(Precision::Tenths);
+                        d.set_valid_min(1.0);
+                        d.set_valid_max(512.0);
+                        d.set_slider_min(1.0);
+                        d.set_slider_max(128.0);
+                        d.set_default(16.0);
+                        d.set_precision(Precision::Integer);
                     }),
                 )?;
                 params.add(
-                    Params::EdgeAcrossBlur,
-                    "Edge Across Blur",
-                    FloatSliderDef::setup(|d| {
-                        d.set_valid_min(0.0);
-                        d.set_valid_max(100.0);
-                        d.set_slider_min(0.0);
-                        d.set_slider_max(100.0);
-                        d.set_default(8.0);
-                        d.set_precision(Precision::Tenths);
+                    Params::KeepDivision,
+                    "Keep Division",
+                    CheckBoxDef::setup(|d| {
+                        d.set_default(true);
                     }),
+                )?;
+                params.add_group(
+                    Params::SssGroupStart,
+                    Params::SssGroupEnd,
+                    "SSS",
+                    true,
+                    |params| {
+                        params.add_with_flags(
+                            Params::EnableSss,
+                            "Enable SSS",
+                            CheckBoxDef::setup(|d| {
+                                d.set_default(false);
+                            }),
+                            ParamFlag::SUPERVISE,
+                            ParamUIFlags::NONE,
+                        )?;
+                        params.add(
+                            Params::AdditionalColor,
+                            "Additional Color",
+                            ColorDef::setup(|d| {
+                                d.set_default(ae::Pixel8 {
+                                    alpha: 255,
+                                    red: 255,
+                                    green: 180,
+                                    blue: 140,
+                                });
+                            }),
+                        )?;
+                        params.add(
+                            Params::SssSpread,
+                            "Spread",
+                            FloatSliderDef::setup(|d| {
+                                d.set_valid_min(0.0);
+                                d.set_valid_max(100.0);
+                                d.set_slider_min(0.0);
+                                d.set_slider_max(100.0);
+                                d.set_default(25.0);
+                                d.set_precision(Precision::Tenths);
+                            }),
+                        )?;
+                        params.add(
+                            Params::SssBias,
+                            "Bias",
+                            FloatSliderDef::setup(|d| {
+                                d.set_valid_min(-100.0);
+                                d.set_valid_max(100.0);
+                                d.set_slider_min(-100.0);
+                                d.set_slider_max(100.0);
+                                d.set_default(0.0);
+                                d.set_precision(Precision::Tenths);
+                            }),
+                        )?;
+                        params.add(
+                            Params::EdgeAlongBlur,
+                            "Edge Along Blur",
+                            FloatSliderDef::setup(|d| {
+                                d.set_valid_min(0.0);
+                                d.set_valid_max(100.0);
+                                d.set_slider_min(0.0);
+                                d.set_slider_max(100.0);
+                                d.set_default(20.0);
+                                d.set_precision(Precision::Tenths);
+                            }),
+                        )?;
+                        params.add(
+                            Params::EdgeAcrossBlur,
+                            "Edge Across Blur",
+                            FloatSliderDef::setup(|d| {
+                                d.set_valid_min(0.0);
+                                d.set_valid_max(100.0);
+                                d.set_slider_min(0.0);
+                                d.set_slider_max(100.0);
+                                d.set_default(8.0);
+                                d.set_precision(Precision::Tenths);
+                            }),
+                        )?;
+                        Ok(())
+                    },
                 )?;
                 Ok(())
             },
-        )?;
-        params.add_with_flags(
-            Params::ViewMode,
-            "View Mode",
-            PopupDef::setup(|d| {
-                d.set_options(&["Final", "Effect Only", "SSS Band Only"]);
-                d.set_default(1);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
         )?;
 
         Ok(())
@@ -271,8 +298,7 @@ impl AdobePluginGlobal for Plugin {
                 let mode = p.get(Params::Mode)?.as_popup()?.value();
                 let is_radial = mode == 1;
                 let is_directional = mode == 2;
-                let view_mode = p.get(Params::ViewMode)?.as_popup()?.value();
-                let is_sss_band_only = view_mode == 3;
+                let enable_sss = p.get(Params::EnableSss)?.as_checkbox()?.value();
 
                 let mut pd_center = p.get_mut(Params::Center)?;
                 pd_center.set_ui_flag(ae::ParamUIFlags::DISABLED, is_directional);
@@ -283,23 +309,23 @@ impl AdobePluginGlobal for Plugin {
                 pd_angle.update_param_ui()?;
 
                 let mut pd_additional_color = p.get_mut(Params::AdditionalColor)?;
-                pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                 pd_additional_color.update_param_ui()?;
 
                 let mut pd_sss_spread = p.get_mut(Params::SssSpread)?;
-                pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                 pd_sss_spread.update_param_ui()?;
 
                 let mut pd_sss_bias = p.get_mut(Params::SssBias)?;
-                pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                 pd_sss_bias.update_param_ui()?;
 
                 let mut pd_edge_along_blur = p.get_mut(Params::EdgeAlongBlur)?;
-                pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                 pd_edge_along_blur.update_param_ui()?;
 
                 let mut pd_edge_across_blur = p.get_mut(Params::EdgeAcrossBlur)?;
-                pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !is_sss_band_only);
+                pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                 pd_edge_across_blur.update_param_ui()?;
             }
             _ => {}

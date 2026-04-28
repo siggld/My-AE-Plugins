@@ -65,6 +65,8 @@ pub struct MouseEvent {
     pub y: f32,
     pub button: MouseButton,
     pub shift_down: bool,
+    pub alt_down: bool,
+    pub ctrl_down: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,6 +84,12 @@ struct DragTarget {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HandleDragMode {
+    LinkedHorizontal,
+    Single,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Selection {
     Anchor(usize),
     InHandle(usize),
@@ -96,6 +104,8 @@ pub struct CustomGraphEditorUiAdapter {
     picking_radius_px: f32,
     active_drag: DragTarget,
     selected: Option<Selection>,
+    handle_drag_mode: Option<HandleDragMode>,
+    handle_enabled: Vec<bool>,
 }
 
 impl Default for CustomGraphEditorUiAdapter {
@@ -117,7 +127,43 @@ impl CustomGraphEditorUiAdapter {
                 node_index: 0,
             },
             selected: None,
+            handle_drag_mode: None,
+            handle_enabled: Vec::new(),
         }
+    }
+
+    fn sync_node_state(&mut self, model: &CurveEditorModel) {
+        let n = model.node_count();
+        if self.handle_enabled.len() != n {
+            self.handle_enabled.resize(n, false);
+        }
+    }
+
+    fn apply_handles_for_anchor(&mut self, model: &mut CurveEditorModel, index: usize) {
+        if index == 0 || index + 1 >= model.node_count() {
+            return;
+        }
+        let nodes = model.get_nodes();
+        let anchor = nodes[index].anchor;
+        let prev = nodes[index - 1].anchor;
+        let next = nodes[index + 1].anchor;
+        let span_l = (anchor.x - prev.x).max(1e-4);
+        let span_r = (next.x - anchor.x).max(1e-4);
+        let in_target = Point2D::new(anchor.x - span_l / 3.0, anchor.y);
+        let out_target = Point2D::new(anchor.x + span_r / 3.0, anchor.y);
+        model.move_in_handle(index, in_target);
+        model.move_out_handle(index, out_target);
+        self.handle_enabled[index] = true;
+    }
+
+    fn remove_handles_for_anchor(&mut self, model: &mut CurveEditorModel, index: usize) {
+        if index >= model.node_count() {
+            return;
+        }
+        let anchor = model.get_node(index).anchor;
+        model.move_in_handle(index, anchor);
+        model.move_out_handle(index, anchor);
+        self.handle_enabled[index] = false;
     }
 
     pub fn set_viewport(&mut self, viewport: EditorViewport) {
@@ -158,6 +204,14 @@ impl CustomGraphEditorUiAdapter {
         let links = model.get_handle_links();
         draw.handle_lines.reserve(links.len());
         for h in &links {
+            if !self
+                .handle_enabled
+                .get(h.node_index)
+                .copied()
+                .unwrap_or(false)
+            {
+                continue;
+            }
             draw.handle_lines.push(UiLine {
                 a: self.normalized_to_screen(h.anchor),
                 b: self.normalized_to_screen(h.handle),
@@ -174,12 +228,18 @@ impl CustomGraphEditorUiAdapter {
                 selected: self.selected == Some(Selection::Anchor(i)),
             });
             if i > 0 {
+                if !self.handle_enabled.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
                 draw.in_handles.push(UiMarker {
                     center: self.normalized_to_screen(n.in_handle),
                     selected: self.selected == Some(Selection::InHandle(i)),
                 });
             }
             if i + 1 < nodes.len() {
+                if !self.handle_enabled.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
                 draw.out_handles.push(UiMarker {
                     center: self.normalized_to_screen(n.out_handle),
                     selected: self.selected == Some(Selection::OutHandle(i)),
@@ -198,6 +258,7 @@ impl CustomGraphEditorUiAdapter {
 
     // Returns true if the event was consumed.
     pub fn on_mouse_down(&mut self, model: &mut CurveEditorModel, e: MouseEvent) -> bool {
+        self.sync_node_state(model);
         if e.button != MouseButton::Left && e.button != MouseButton::Right {
             return false;
         }
@@ -206,13 +267,33 @@ impl CustomGraphEditorUiAdapter {
 
         if let Some(node_index) = self.hit_test_anchor(model, screen) {
             let is_interior = node_index > 0 && node_index + 1 < model.node_count();
+            if e.button == MouseButton::Left && e.alt_down && is_interior {
+                if self.handle_enabled[node_index] {
+                    self.remove_handles_for_anchor(model, node_index);
+                    self.active_drag = DragTarget {
+                        kind: DragTargetType::None,
+                        node_index: 0,
+                    };
+                } else {
+                    self.apply_handles_for_anchor(model, node_index);
+                    self.active_drag = DragTarget {
+                        kind: DragTargetType::Anchor,
+                        node_index,
+                    };
+                }
+                self.selected = Some(Selection::Anchor(node_index));
+                self.handle_drag_mode = None;
+                return true;
+            }
             if (e.button == MouseButton::Right || e.shift_down) && is_interior {
                 model.remove_node(node_index);
+                self.sync_node_state(model);
                 self.active_drag = DragTarget {
                     kind: DragTargetType::None,
                     node_index: 0,
                 };
                 self.selected = None;
+                self.handle_drag_mode = None;
                 return true;
             }
 
@@ -222,6 +303,7 @@ impl CustomGraphEditorUiAdapter {
                     node_index,
                 };
                 self.selected = Some(Selection::Anchor(node_index));
+                self.handle_drag_mode = None;
                 return true;
             }
         }
@@ -233,6 +315,11 @@ impl CustomGraphEditorUiAdapter {
                     node_index,
                 };
                 self.selected = Some(Selection::OutHandle(node_index));
+                self.handle_drag_mode = Some(if e.ctrl_down {
+                    HandleDragMode::Single
+                } else {
+                    HandleDragMode::LinkedHorizontal
+                });
                 return true;
             }
             if let Some(node_index) = self.hit_test_handle(model, screen, false) {
@@ -241,15 +328,23 @@ impl CustomGraphEditorUiAdapter {
                     node_index,
                 };
                 self.selected = Some(Selection::InHandle(node_index));
+                self.handle_drag_mode = Some(if e.ctrl_down {
+                    HandleDragMode::Single
+                } else {
+                    HandleDragMode::LinkedHorizontal
+                });
                 return true;
             }
             if let Some(new_node_x) = self.hit_test_curve(model, screen) {
                 let inserted = model.add_node_on_curve(new_node_x);
+                self.sync_node_state(model);
+                self.remove_handles_for_anchor(model, inserted);
                 self.active_drag = DragTarget {
                     kind: DragTargetType::Anchor,
                     node_index: inserted,
                 };
                 self.selected = Some(Selection::Anchor(inserted));
+                self.handle_drag_mode = None;
                 return true;
             }
         }
@@ -259,25 +354,73 @@ impl CustomGraphEditorUiAdapter {
             node_index: 0,
         };
         self.selected = None;
+        self.handle_drag_mode = None;
         false
     }
 
     pub fn on_mouse_move(&mut self, model: &mut CurveEditorModel, e: MouseEvent) -> bool {
+        self.sync_node_state(model);
         if self.active_drag.kind == DragTargetType::None {
             return false;
         }
         let normalized = self.screen_to_normalized(Point2D::new(e.x, e.y));
         match self.active_drag.kind {
             DragTargetType::Anchor => {
+                if e.alt_down
+                    && self.active_drag.node_index > 0
+                    && self.active_drag.node_index + 1 < model.node_count()
+                {
+                    // Alt+drag on anchor extends in/out handles in the drag direction.
+                    let index = self.active_drag.node_index;
+                    let anchor = model.get_node(index).anchor;
+                    let dx = normalized.x - anchor.x;
+                    let dy = normalized.y - anchor.y;
+                    self.handle_enabled[index] = true;
+                    model.move_out_handle(index, Point2D::new(anchor.x + dx, anchor.y + dy));
+                    model.move_in_handle(index, Point2D::new(anchor.x - dx, anchor.y - dy));
+                    return true;
+                }
                 model.move_anchor(self.active_drag.node_index, normalized);
                 true
             }
             DragTargetType::InHandle => {
-                model.move_in_handle(self.active_drag.node_index, normalized);
+                let index = self.active_drag.node_index;
+                self.handle_enabled[index] = true;
+                match self
+                    .handle_drag_mode
+                    .unwrap_or(HandleDragMode::LinkedHorizontal)
+                {
+                    HandleDragMode::Single => {
+                        model.move_in_handle(index, normalized);
+                    }
+                    HandleDragMode::LinkedHorizontal => {
+                        let anchor = model.get_node(index).anchor;
+                        let dx = normalized.x - anchor.x;
+                        let current_out = model.get_node(index).out_handle;
+                        model.move_in_handle(index, Point2D::new(anchor.x + dx, normalized.y));
+                        model.move_out_handle(index, Point2D::new(anchor.x - dx, current_out.y));
+                    }
+                }
                 true
             }
             DragTargetType::OutHandle => {
-                model.move_out_handle(self.active_drag.node_index, normalized);
+                let index = self.active_drag.node_index;
+                self.handle_enabled[index] = true;
+                match self
+                    .handle_drag_mode
+                    .unwrap_or(HandleDragMode::LinkedHorizontal)
+                {
+                    HandleDragMode::Single => {
+                        model.move_out_handle(index, normalized);
+                    }
+                    HandleDragMode::LinkedHorizontal => {
+                        let anchor = model.get_node(index).anchor;
+                        let dx = normalized.x - anchor.x;
+                        let current_in = model.get_node(index).in_handle;
+                        model.move_out_handle(index, Point2D::new(anchor.x + dx, normalized.y));
+                        model.move_in_handle(index, Point2D::new(anchor.x - dx, current_in.y));
+                    }
+                }
                 true
             }
             DragTargetType::None => false,
@@ -290,6 +433,7 @@ impl CustomGraphEditorUiAdapter {
             kind: DragTargetType::None,
             node_index: 0,
         };
+        self.handle_drag_mode = None;
         had_drag
     }
 
@@ -468,6 +612,8 @@ mod tests {
                 y: mid.y,
                 button: MouseButton::Left,
                 shift_down: false,
+                alt_down: false,
+                ctrl_down: false,
             },
         );
         assert!(consumed);
@@ -482,6 +628,8 @@ mod tests {
                 y: drag_to.y,
                 button: MouseButton::Left,
                 shift_down: false,
+                alt_down: false,
+                ctrl_down: false,
             },
         );
         let n1 = m.get_node(1).anchor;
@@ -493,6 +641,8 @@ mod tests {
             y: drag_to.y,
             button: MouseButton::Left,
             shift_down: false,
+            alt_down: false,
+            ctrl_down: false,
         });
     }
 
@@ -510,6 +660,8 @@ mod tests {
                 y: target.y,
                 button: MouseButton::Left,
                 shift_down: true,
+                alt_down: false,
+                ctrl_down: false,
             },
         );
         assert!(consumed);
@@ -528,8 +680,99 @@ mod tests {
                 y: target.y,
                 button: MouseButton::Left,
                 shift_down: true,
+                alt_down: false,
+                ctrl_down: false,
             },
         );
         assert_eq!(m.node_count(), 2);
+    }
+
+    #[test]
+    fn alt_click_anchor_toggles_handles() {
+        let mut a = make_adapter();
+        let mut m = CurveEditorModel::new();
+        m.add_node_on_curve(0.5);
+        let p = a.normalized_to_screen(m.get_node(1).anchor);
+
+        a.on_mouse_down(
+            &mut m,
+            MouseEvent {
+                x: p.x,
+                y: p.y,
+                button: MouseButton::Left,
+                shift_down: false,
+                alt_down: true,
+                ctrl_down: false,
+            },
+        );
+        let n = m.get_node(1);
+        assert!(
+            !approx(n.in_handle.x, n.anchor.x, 1e-4) || !approx(n.out_handle.x, n.anchor.x, 1e-4)
+        );
+
+        a.on_mouse_down(
+            &mut m,
+            MouseEvent {
+                x: p.x,
+                y: p.y,
+                button: MouseButton::Left,
+                shift_down: false,
+                alt_down: true,
+                ctrl_down: false,
+            },
+        );
+        let n = m.get_node(1);
+        assert!(approx(n.in_handle.x, n.anchor.x, 1e-4));
+        assert!(approx(n.out_handle.x, n.anchor.x, 1e-4));
+    }
+
+    #[test]
+    fn ctrl_drag_handle_edits_single_handle() {
+        let mut a = make_adapter();
+        let mut m = CurveEditorModel::new();
+        m.add_node_on_curve(0.5);
+        let p = a.normalized_to_screen(m.get_node(1).anchor);
+        a.on_mouse_down(
+            &mut m,
+            MouseEvent {
+                x: p.x,
+                y: p.y,
+                button: MouseButton::Left,
+                shift_down: false,
+                alt_down: true,
+                ctrl_down: false,
+            },
+        );
+        let out_screen = a.normalized_to_screen(m.get_node(1).out_handle);
+        let before_in_x = m.get_node(1).in_handle.x;
+        a.on_mouse_down(
+            &mut m,
+            MouseEvent {
+                x: out_screen.x,
+                y: out_screen.y,
+                button: MouseButton::Left,
+                shift_down: false,
+                alt_down: false,
+                ctrl_down: true,
+            },
+        );
+        let drag = a.normalized_to_screen(Point2D::new(0.8, 0.9));
+        a.on_mouse_move(
+            &mut m,
+            MouseEvent {
+                x: drag.x,
+                y: drag.y,
+                button: MouseButton::Left,
+                shift_down: false,
+                alt_down: false,
+                ctrl_down: true,
+            },
+        );
+        assert!(!approx(
+            m.get_node(1).out_handle.x,
+            m.get_node(1).anchor.x,
+            1e-4
+        ));
+        assert!(approx(m.get_node(1).in_handle.x, before_in_x, 1e-4));
     }
 }
