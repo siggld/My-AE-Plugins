@@ -8,7 +8,9 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
-enum Params {}
+enum Params {
+    EnableGuiTest,
+}
 
 #[derive(Default)]
 struct Plugin {}
@@ -49,15 +51,22 @@ fn debug_log(hypothesis_id: &str, location: &str, message: &str, data_json: &str
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
         &self,
-        _params: &mut ae::Parameters<Params>,
+        params: &mut ae::Parameters<Params>,
         _in_data: InData,
         _: OutData,
     ) -> Result<(), Error> {
+        params.add(
+            Params::EnableGuiTest,
+            "Enable GUI Test",
+            CheckBoxDef::setup(|d| {
+                d.set_default(true);
+            }),
+        )?;
         debug_log(
             "H2",
             "plugins/custom-gui-test/src/lib.rs:params_setup",
             "params_setup called",
-            "{\"paramsDeclared\":0}",
+            "{\"paramsDeclared\":1}",
         );
         Ok(())
     }
@@ -146,7 +155,7 @@ impl AdobePluginGlobal for Plugin {
                     "H4",
                     "plugins/custom-gui-test/src/lib.rs:update_params_ui",
                     "update params ui reached",
-                    "{\"uiElements\":0}",
+                    "{\"uiElements\":1}",
                 );
             }
             _ => {}
