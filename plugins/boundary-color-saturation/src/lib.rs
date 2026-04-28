@@ -2,10 +2,10 @@
 
 use ae::pf::*;
 use after_effects as ae;
+use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::env;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
