@@ -154,7 +154,7 @@ impl CustomGraphEditorUiAdapter {
             return;
         }
         let anchor = model.get_node(index).anchor;
-        let min_norm_x = (18.0 / self.viewport.width.max(1.0)).min(0.25);
+        let min_norm_x = (48.0 / self.viewport.width.max(1.0)).min(0.35);
         if index > 0 {
             let prev = model.get_node(index - 1).anchor;
             let span_l = (anchor.x - prev.x).max(1e-4);
@@ -411,8 +411,10 @@ impl CustomGraphEditorUiAdapter {
                     model.move_in_handle(index, Point2D::new(anchor.x - dx, anchor.y - dy));
                     return true;
                 }
-                model.move_anchor(self.active_drag.node_index, normalized);
-                self.sync_linear_handles_if_disabled(model, self.active_drag.node_index);
+                let new_index = model.move_anchor(self.active_drag.node_index, normalized);
+                self.active_drag.node_index = new_index;
+                self.selected = Some(Selection::Anchor(new_index));
+                self.sync_linear_handles_if_disabled(model, new_index);
                 true
             }
             DragTargetType::InHandle => {
@@ -435,6 +437,13 @@ impl CustomGraphEditorUiAdapter {
                         model.move_in_handle(index, normalized);
                         model.move_out_handle(index, out);
                     }
+                }
+                self.sync_linear_handles_if_disabled(model, index);
+                if index > 0 {
+                    self.sync_linear_handles_if_disabled(model, index - 1);
+                }
+                if index + 1 < model.node_count() {
+                    self.sync_linear_handles_if_disabled(model, index + 1);
                 }
                 true
             }
@@ -461,6 +470,13 @@ impl CustomGraphEditorUiAdapter {
                         model.move_out_handle(index, normalized);
                         model.move_in_handle(index, inn);
                     }
+                }
+                self.sync_linear_handles_if_disabled(model, index);
+                if index > 0 {
+                    self.sync_linear_handles_if_disabled(model, index - 1);
+                }
+                if index + 1 < model.node_count() {
+                    self.sync_linear_handles_if_disabled(model, index + 1);
                 }
                 true
             }
@@ -635,8 +651,17 @@ impl CustomGraphEditorUiAdapter {
     }
 
     fn sync_linear_handles_if_disabled(&mut self, model: &mut CurveEditorModel, index: usize) {
+        if index >= model.node_count() {
+            return;
+        }
         if index < self.handle_enabled.len() && !self.handle_enabled[index] {
             self.remove_handles_for_anchor(model, index);
+            if index > 0 && !self.handle_enabled[index - 1] {
+                self.remove_handles_for_anchor(model, index - 1);
+            }
+            if index + 1 < self.handle_enabled.len() && !self.handle_enabled[index + 1] {
+                self.remove_handles_for_anchor(model, index + 1);
+            }
         }
     }
 }

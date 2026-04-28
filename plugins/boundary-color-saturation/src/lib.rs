@@ -391,6 +391,8 @@ impl Plugin {
         if width == 0 || height == 0 {
             return Ok(());
         }
+        let in_width = in_layer.width();
+        let in_height = in_layer.height();
 
         let color_a = params.get(Params::ColorA)?.as_color()?.value().to_pixel32();
         let color_b = params.get(Params::ColorB)?.as_color()?.value().to_pixel32();
@@ -421,7 +423,14 @@ impl Plugin {
         let mut source: Vec<ae::PixelF32> = Vec::with_capacity(width * height);
         for y in 0..height {
             for x in 0..width {
-                source.push(read_pixel_f32(&in_layer, in_world_type, x, y));
+                source.push(read_pixel_f32_safe(
+                    &in_layer,
+                    in_world_type,
+                    x,
+                    y,
+                    in_width,
+                    in_height,
+                ));
             }
         }
 
@@ -533,6 +542,25 @@ fn read_pixel_f32(
         ae::aegp::WorldType::U15 => layer.as_pixel16(x, y).to_pixel32(),
         ae::aegp::WorldType::F32 | ae::aegp::WorldType::None => *layer.as_pixel32(x, y),
     }
+}
+
+fn read_pixel_f32_safe(
+    layer: &Layer,
+    world_type: ae::aegp::WorldType,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> ae::PixelF32 {
+    if x >= width || y >= height {
+        return ae::PixelF32 {
+            alpha: 0.0,
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+        };
+    }
+    read_pixel_f32(layer, world_type, x, y)
 }
 
 fn color_distance(a: ae::PixelF32, b: ae::PixelF32) -> f32 {

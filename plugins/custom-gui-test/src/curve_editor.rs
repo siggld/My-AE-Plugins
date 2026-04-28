@@ -292,9 +292,9 @@ impl CurveEditorModel {
         true
     }
 
-    pub fn move_anchor(&mut self, index: usize, target: Point2D) {
+    pub fn move_anchor(&mut self, index: usize, target: Point2D) -> usize {
         if index >= self.nodes.len() {
-            return;
+            return index;
         }
 
         let mut next = Point2D::new(clamp01(target.x), clamp01(target.y));
@@ -310,6 +310,7 @@ impl CurveEditorModel {
         self.nodes[index].in_handle = self.nodes[index].in_handle + delta;
         self.nodes[index].out_handle = self.nodes[index].out_handle + delta;
 
+        let mut new_index = index;
         if index > 0 && index + 1 < self.nodes.len() {
             let moved = self.nodes.remove(index);
             let mut insert_at = 1usize;
@@ -319,6 +320,7 @@ impl CurveEditorModel {
                 insert_at += 1;
             }
             self.nodes.insert(insert_at, moved);
+            new_index = insert_at;
 
             // Resolve exact x-ties locally so points can cross without pushing others to ends.
             let pad = 1e-4_f32;
@@ -336,6 +338,7 @@ impl CurveEditorModel {
         for i in 0..self.nodes.len() - 1 {
             self.fix_segment(i);
         }
+        new_index
     }
 
     pub fn move_in_handle(&mut self, index: usize, target: Point2D) {

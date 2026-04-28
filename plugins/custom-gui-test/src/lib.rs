@@ -159,15 +159,11 @@ impl Plugin {
         // Square viewport with min/max size.
         let min_side = 300.0_f32;
         let max_side = 420.0_f32;
-        let side = area_w
-            .min(area_h)
-            .clamp(min_side, max_side)
-            .min(area_w)
-            .min(area_h);
+        let side = area_w.min(area_h).clamp(min_side, max_side);
         EditorViewport {
             left: frame.left as f32 + (area_w - side) * 0.5,
-            // Bottom-align to reduce empty area below grid.
-            top: frame.top as f32 + (area_h - side),
+            // Keep equal margin ratio above/below.
+            top: frame.top as f32 + (area_h - side) * 0.5,
             width: side,
             height: side,
         }
