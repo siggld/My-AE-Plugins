@@ -50,6 +50,7 @@ fn main() {
                 | OutFlags::UseOutputExtent
                 | OutFlags::DeepColorAware
                 | OutFlags::WideTimeInput
+                | OutFlags::CustomUI
                 | OutFlags::SendUpdateParamsUI
             ,
         ),

@@ -2,6 +2,9 @@
 
 use ae::pf::*;
 use after_effects as ae;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
@@ -28,6 +31,25 @@ ae::define_effect!(Plugin, (), Params);
 
 const PLUGIN_DESCRIPTION: &str =
     "Creates boundary color extraction and blur control UI for compositing.";
+
+fn debug_log(run_id: &str, hypothesis_id: &str, location: &str, message: &str, data: &str) {
+    let escaped_message = message.replace('\"', "\\\"");
+    let escaped_data = data.replace('\"', "\\\"");
+    let line = format!(
+        "{{\"sessionId\":\"9dbf07\",\"runId\":\"{run_id}\",\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{escaped_message}\",\"data\":\"{escaped_data}\",\"timestamp\":{}}}\n",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("debug-9dbf07.log")
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
 
 impl AdobePluginGlobal for Plugin {
     fn params_setup(
@@ -165,6 +187,15 @@ impl AdobePluginGlobal for Plugin {
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
+                // #region agent log
+                debug_log(
+                    "pre-fix",
+                    "H4",
+                    "boundary-color-saturation/src/lib.rs:About",
+                    "About command reached",
+                    "About command executed successfully",
+                );
+                // #endregion
                 out_data.set_return_msg(
                     format!(
                         "TKG_BoundaryColorSaturation - {version}\r\r{PLUGIN_DESCRIPTION}\rCopyright (c) 2026-{build_year} Aodaruma",
@@ -175,11 +206,29 @@ impl AdobePluginGlobal for Plugin {
                 );
             }
             ae::Command::GlobalSetup => {
+                // #region agent log
+                debug_log(
+                    "pre-fix",
+                    "H1|H2|H3",
+                    "boundary-color-saturation/src/lib.rs:GlobalSetup.enter",
+                    "Entered GlobalSetup",
+                    "Setting OutFlags2::SupportsThreadedRendering=true, ParamGroupStartCollapsedFlag=true, OutFlags::SendUpdateParamsUi=true",
+                );
+                // #endregion
                 out_data.set_out_flag2(ae::OutFlags2::SupportsThreadedRendering, true);
                 out_data.set_out_flag2(ae::OutFlags2::ParamGroupStartCollapsedFlag, true);
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
             }
             ae::Command::UpdateParamsUi => {
+                // #region agent log
+                debug_log(
+                    "pre-fix",
+                    "H4",
+                    "boundary-color-saturation/src/lib.rs:UpdateParamsUi.enter",
+                    "Entered UpdateParamsUi",
+                    "Mode-based UI disable logic about to run",
+                );
+                // #endregion
                 let mut p = params.cloned();
                 let mode = p.get(Params::Mode)?.as_popup()?.value();
                 let is_radial = mode == 1;
