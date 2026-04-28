@@ -65,7 +65,7 @@ impl AdobePluginGlobal for Plugin {
     fn handle_command(
         &mut self,
         cmd: ae::Command,
-        _in_data: InData,
+        in_data: InData,
         mut out_data: OutData,
         _params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
@@ -92,29 +92,51 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_out_flag2(ae::OutFlags2::ParamGroupStartCollapsedFlag, true);
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
             }
-            ae::Command::SmartPreRender { .. } => {
+            ae::Command::SmartPreRender { mut extra } => {
                 debug_log(
                     "H1",
                     "plugins/custom-gui-test/src/lib.rs:smart_pre_render",
                     "smart pre render reached",
-                    "{\"handlerImplemented\":false}",
+                    "{\"handlerImplemented\":true}",
                 );
+                let req = extra.output_request();
+                if let Ok(in_result) = extra.callbacks().checkout_layer(
+                    0,
+                    0,
+                    &req,
+                    in_data.current_time(),
+                    in_data.time_step(),
+                    in_data.time_scale(),
+                ) {
+                    let _ = extra.union_result_rect(in_result.result_rect.into());
+                    let _ = extra.union_max_result_rect(in_result.max_result_rect.into());
+                } else {
+                    return Err(Error::InterruptCancel);
+                }
             }
-            ae::Command::SmartRender { .. } => {
+            ae::Command::SmartRender { extra } => {
                 debug_log(
                     "H1",
                     "plugins/custom-gui-test/src/lib.rs:smart_render",
                     "smart render reached",
-                    "{\"handlerImplemented\":false}",
+                    "{\"handlerImplemented\":true}",
                 );
+                let cb = extra.callbacks();
+                let in_layer_opt = cb.checkout_layer_pixels(0)?;
+                let out_layer_opt = cb.checkout_output()?;
+                if let (Some(in_layer), Some(mut out_layer)) = (in_layer_opt, out_layer_opt) {
+                    out_layer.copy_from(&in_layer, None, None)?;
+                }
+                cb.checkin_layer_pixels(0)?;
             }
-            ae::Command::Render { .. } => {
+            ae::Command::Render { in_layer, mut out_layer } => {
                 debug_log(
                     "H3",
                     "plugins/custom-gui-test/src/lib.rs:render",
                     "legacy render reached",
-                    "{\"path\":\"legacy-render\"}",
+                    "{\"path\":\"legacy-render\",\"implemented\":true}",
                 );
+                out_layer.copy_from(&in_layer, None, None)?;
             }
             ae::Command::UpdateParamsUi => {
                 debug_log(
