@@ -176,7 +176,6 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::GlobalSetup => {
                 out_data.set_out_flag2(ae::OutFlags2::SupportsThreadedRendering, true);
-                out_data.set_out_flag2(ae::OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(ae::OutFlags2::ParamGroupStartCollapsedFlag, true);
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
             }

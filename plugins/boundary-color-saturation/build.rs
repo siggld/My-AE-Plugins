@@ -58,7 +58,6 @@ fn main() {
                 | OutFlags2::SupportsThreadedRendering
                 | OutFlags2::SupportsGetFlattenedSequenceData
                 | OutFlags2::AutomaticWideTimeInput
-                | OutFlags2::SupportsSmartRender
                 | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
