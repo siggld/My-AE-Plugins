@@ -313,31 +313,28 @@ impl CurveEditorModel {
         if index > 0 && index + 1 < self.nodes.len() {
             let moved = self.nodes.remove(index);
             let mut insert_at = 1usize;
-            while insert_at + 1 < self.nodes.len()
-                && self.nodes[insert_at].anchor.x <= moved.anchor.x
+            while insert_at < self.nodes.len() - 1
+                && self.nodes[insert_at].anchor.x < moved.anchor.x
             {
                 insert_at += 1;
             }
             self.nodes.insert(insert_at, moved);
 
-            // Keep interior anchors strictly ascending by tiny epsilon gaps.
+            // Resolve exact x-ties locally so points can cross without pushing others to ends.
             let pad = 1e-4_f32;
-            for i in 2..self.nodes.len() - 1 {
+            for i in 1..self.nodes.len() - 1 {
                 if self.nodes[i].anchor.x <= self.nodes[i - 1].anchor.x {
-                    self.nodes[i].anchor.x = (self.nodes[i - 1].anchor.x + pad).min(1.0 - pad);
+                    self.nodes[i].anchor.x = self.nodes[i - 1].anchor.x + pad;
                 }
             }
-            for i in (1..self.nodes.len() - 2).rev() {
+            for i in (1..self.nodes.len() - 1).rev() {
                 if self.nodes[i].anchor.x >= self.nodes[i + 1].anchor.x {
-                    self.nodes[i].anchor.x = (self.nodes[i + 1].anchor.x - pad).max(pad);
+                    self.nodes[i].anchor.x = self.nodes[i + 1].anchor.x - pad;
                 }
             }
-
-            for i in 0..self.nodes.len() - 1 {
-                self.fix_segment(i);
-            }
-        } else {
-            self.enforce_monotonicity_around(index);
+        }
+        for i in 0..self.nodes.len() - 1 {
+            self.fix_segment(i);
         }
     }
 

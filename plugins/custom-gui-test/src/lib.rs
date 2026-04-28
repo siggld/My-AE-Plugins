@@ -12,8 +12,7 @@ use crate::ui_adapter::{
     CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData, UiMarker,
 };
 
-const UI_BOX_BASE: u16 = 320;
-const UI_BOX_SIZE: u16 = ((UI_BOX_BASE as f32) * 1.75) as u16;
+const UI_BOX_SIZE: u16 = 420;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -157,11 +156,12 @@ impl Plugin {
     fn fixed_aspect_viewport(frame: ae::Rect) -> EditorViewport {
         let area_w = (frame.right - frame.left).max(1) as f32;
         let area_h = (frame.bottom - frame.top).max(1) as f32;
-        // Keep square viewport; max size follows available width.
-        let side = area_w.min(area_h);
+        // Keep square viewport and reduce top/bottom empty margin.
+        let pad = 2.0_f32;
+        let side = (area_w.min(area_h) - pad * 2.0).max(1.0);
         EditorViewport {
             left: frame.left as f32 + (area_w - side) * 0.5,
-            top: frame.top as f32 + (area_h - side) * 0.5,
+            top: frame.top as f32 + pad,
             width: side,
             height: side,
         }
@@ -259,14 +259,11 @@ impl Plugin {
         key_event: ae::KeyDownEventInfo,
         params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
-        if extra.effect_area() != ae::EffectArea::Control {
-            return Ok(());
-        }
         self.sync_snap_toggle(params)?;
         let keycode = key_event.as_ref().keycode as u16;
-        if keycode == ae::sys::PF_ControlCode_Delete as u16
-            && self.adapter.delete_selected(&mut self.model)
-        {
+        if keycode == ae::sys::PF_ControlCode_Delete as u16 {
+            let _ = self.adapter.delete_selected(&mut self.model);
+            // Always consume Delete to avoid AE removing the whole effect.
             extra.set_event_out_flags(
                 ae::EventOutFlags::HANDLED_EVENT
                     | ae::EventOutFlags::NEVER_UPDATE

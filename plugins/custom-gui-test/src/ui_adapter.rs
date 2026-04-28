@@ -172,19 +172,16 @@ impl CustomGraphEditorUiAdapter {
             return;
         }
         let anchor = model.get_node(index).anchor;
+        let linear_lerp = |a: Point2D, b: Point2D, t: f32| -> Point2D {
+            Point2D::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+        };
         if index > 0 {
             let prev = model.get_node(index - 1).anchor;
-            model.move_in_handle(
-                index,
-                Point2D::new(anchor.x - (anchor.x - prev.x) / 3.0, anchor.y),
-            );
+            model.move_in_handle(index, linear_lerp(prev, anchor, 2.0 / 3.0));
         }
         if index + 1 < model.node_count() {
             let next = model.get_node(index + 1).anchor;
-            model.move_out_handle(
-                index,
-                Point2D::new(anchor.x + (next.x - anchor.x) / 3.0, anchor.y),
-            );
+            model.move_out_handle(index, linear_lerp(anchor, next, 1.0 / 3.0));
         }
         self.handle_enabled[index] = false;
     }

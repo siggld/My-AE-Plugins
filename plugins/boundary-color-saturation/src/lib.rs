@@ -303,6 +303,7 @@ impl AdobePluginGlobal for Plugin {
                 let mut pd_center = p.get_mut(Params::Center)?;
                 let center_disabled_now = pd_center.ui_flags().contains(ae::ParamUIFlags::DISABLED);
                 if center_disabled_now != is_directional {
+                    pd_center.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_center.set_ui_flag(ae::ParamUIFlags::DISABLED, is_directional);
                     pd_center.update_param_ui()?;
                 }
@@ -310,6 +311,7 @@ impl AdobePluginGlobal for Plugin {
                 let mut pd_angle = p.get_mut(Params::Angle)?;
                 let angle_disabled_now = pd_angle.ui_flags().contains(ae::ParamUIFlags::DISABLED);
                 if angle_disabled_now != is_radial {
+                    pd_angle.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_angle.set_ui_flag(ae::ParamUIFlags::DISABLED, is_radial);
                     pd_angle.update_param_ui()?;
                 }
@@ -319,6 +321,7 @@ impl AdobePluginGlobal for Plugin {
                     .ui_flags()
                     .contains(ae::ParamUIFlags::DISABLED);
                 if additional_color_disabled_now == enable_sss {
+                    pd_additional_color.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                     pd_additional_color.update_param_ui()?;
                 }
@@ -328,6 +331,7 @@ impl AdobePluginGlobal for Plugin {
                     .ui_flags()
                     .contains(ae::ParamUIFlags::DISABLED);
                 if sss_spread_disabled_now == enable_sss {
+                    pd_sss_spread.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                     pd_sss_spread.update_param_ui()?;
                 }
@@ -336,6 +340,7 @@ impl AdobePluginGlobal for Plugin {
                 let sss_bias_disabled_now =
                     pd_sss_bias.ui_flags().contains(ae::ParamUIFlags::DISABLED);
                 if sss_bias_disabled_now == enable_sss {
+                    pd_sss_bias.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                     pd_sss_bias.update_param_ui()?;
                 }
@@ -345,6 +350,7 @@ impl AdobePluginGlobal for Plugin {
                     .ui_flags()
                     .contains(ae::ParamUIFlags::DISABLED);
                 if edge_along_blur_disabled_now == enable_sss {
+                    pd_edge_along_blur.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                     pd_edge_along_blur.update_param_ui()?;
                 }
@@ -354,6 +360,7 @@ impl AdobePluginGlobal for Plugin {
                     .ui_flags()
                     .contains(ae::ParamUIFlags::DISABLED);
                 if edge_across_blur_disabled_now == enable_sss {
+                    pd_edge_across_blur.set_flag(ae::ParamFlag::START_COLLAPSED, true);
                     pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
                     pd_edge_across_blur.update_param_ui()?;
                 }
