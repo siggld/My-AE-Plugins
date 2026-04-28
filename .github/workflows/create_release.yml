@@ -72,6 +72,39 @@ jobs:
       - name: Build (release)
         run: just release
 
+      - name: Debug release outputs
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $logPath = Join-Path $env:GITHUB_WORKSPACE "debug-1e940a.log"
+          $releaseDir = Join-Path $env:CARGO_TARGET_DIR "release"
+          Add-Content -Path $logPath -Value ((@{
+            sessionId = "1e940a"
+            runId = "pre-fix-3"
+            hypothesisId = "H9"
+            location = ".github/workflows/create_release.yml:Debug release outputs"
+            message = "post-build workflow inspection"
+            data = @{
+              cargoTargetDir = $env:CARGO_TARGET_DIR
+              releaseDirExists = Test-Path $releaseDir
+              releaseFiles = @(Get-ChildItem -Path $releaseDir -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+            }
+            timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          } | ConvertTo-Json -Compress))
+          if (Test-Path $logPath) {
+            Write-Host "----- debug-1e940a.log -----"
+            Get-Content -Path $logPath
+            Write-Host "----- end debug-1e940a.log -----"
+          } else {
+            Write-Host "debug-1e940a.log was not created"
+          }
+          if (Test-Path $releaseDir) {
+            Write-Host "----- target/release recursive listing -----"
+            Get-ChildItem -Path $releaseDir -Force -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+            Write-Host "----- end target/release recursive listing -----"
+          }
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         shell: bash
