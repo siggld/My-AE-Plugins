@@ -1,8 +1,16 @@
 #![allow(clippy::drop_non_drop, clippy::question_mark)]
 
+mod curve_editor;
+mod ui_adapter;
+
 use ae::pf::*;
 use after_effects as ae;
 use std::env;
+
+use crate::curve_editor::CurveEditorModel;
+use crate::ui_adapter::{
+    CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData,
+};
 
 const UI_BOX_WIDTH: u16 = 320;
 const UI_BOX_HEIGHT: u16 = 180;
@@ -10,12 +18,14 @@ const UI_BOX_HEIGHT: u16 = 180;
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     EnableGuiTest,
-    AnchorPoint,
     GraphEditor,
 }
 
 #[derive(Default)]
-struct Plugin {}
+struct Plugin {
+    model: CurveEditorModel,
+    adapter: CustomGraphEditorUiAdapter,
+}
 
 ae::define_effect!(Plugin, (), Params);
 
@@ -35,17 +45,6 @@ impl AdobePluginGlobal for Plugin {
             CheckBoxDef::setup(|d| {
                 d.set_default(true);
             }),
-        )?;
-
-        params.add_with_flags(
-            Params::AnchorPoint,
-            "Anchor (debug)",
-            PointDef::setup(|d| {
-                d.set_default_x(0.5);
-                d.set_default_y(0.5);
-            }),
-            ParamFlag::SUPERVISE,
-            ParamUIFlags::NONE,
         )?;
 
         params.add_customized(
@@ -73,7 +72,7 @@ impl AdobePluginGlobal for Plugin {
         cmd: ae::Command,
         in_data: InData,
         mut out_data: OutData,
-        params: &mut ae::Parameters<Params>,
+        _params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
@@ -126,14 +125,13 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::Event { mut extra } => match extra.event() {
                 ae::Event::Draw(_) => {
-                    Self::draw_graph_editor(params, &mut extra)?;
+                    self.handle_draw(&mut extra)?;
                 }
                 ae::Event::Click(_) => {
-                    extra.set_send_drag(true);
-                    extra.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
+                    self.handle_click(&mut extra)?;
                 }
                 ae::Event::Drag(_) => {
-                    Self::update_anchor_from_mouse(params, &mut extra)?;
+                    self.handle_drag(&mut extra)?;
                 }
                 _ => {}
             },
@@ -145,21 +143,38 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
-    fn update_anchor_from_mouse(
-        params: &mut ae::Parameters<Params>,
-        extra: &mut ae::EventExtra,
-    ) -> Result<(), ae::Error> {
+    fn sync_viewport(&mut self, extra: &ae::EventExtra) {
+        let frame = extra.current_frame();
+        let viewport = EditorViewport {
+            left: frame.left as f32,
+            top: frame.top as f32,
+            width: (frame.right - frame.left).max(1) as f32,
+            height: (frame.bottom - frame.top).max(1) as f32,
+        };
+        self.adapter.set_viewport(viewport);
+    }
+
+    fn handle_click(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
-        let frame = extra.current_frame();
-        let w = (frame.right - frame.left).max(1) as f32;
-        let h = (frame.bottom - frame.top).max(1) as f32;
+
+        self.sync_viewport(extra);
+        extra.set_send_drag(true);
+
         let p = extra.screen_point();
-        let nx = ((p.h - frame.left) as f32 / w).clamp(0.0, 1.0);
-        let ny = (1.0 - ((p.v - frame.top) as f32 / h)).clamp(0.0, 1.0);
-        let mut anchor = params.get_mut(Params::AnchorPoint)?;
-        anchor.as_point_mut()?.set_value((nx, ny));
+        let shift_down = extra.modifiers().contains(Modifiers::SHIFT_KEY);
+
+        self.adapter.on_mouse_down(
+            &mut self.model,
+            MouseEvent {
+                x: p.h as f32,
+                y: p.v as f32,
+                button: MouseButton::Left,
+                shift_down,
+            },
+        );
+
         extra.set_event_out_flags(
             ae::EventOutFlags::HANDLED_EVENT
                 | ae::EventOutFlags::ALWAYS_UPDATE
@@ -168,22 +183,55 @@ impl Plugin {
         Ok(())
     }
 
-    fn draw_graph_editor(
-        params: &mut ae::Parameters<Params>,
-        extra: &mut ae::EventExtra,
-    ) -> Result<(), ae::Error> {
+    fn handle_drag(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
+        self.sync_viewport(extra);
+
+        let p = extra.screen_point();
+        let shift_down = extra.modifiers().contains(Modifiers::SHIFT_KEY);
+        let last = extra.last_time();
+        let mouse = MouseEvent {
+            x: p.h as f32,
+            y: p.v as f32,
+            button: MouseButton::Left,
+            shift_down,
+        };
+
+        if last {
+            self.adapter.on_mouse_up(mouse);
+        } else {
+            self.adapter.on_mouse_move(&mut self.model, mouse);
+        }
+
+        extra.set_event_out_flags(
+            ae::EventOutFlags::HANDLED_EVENT
+                | ae::EventOutFlags::ALWAYS_UPDATE
+                | ae::EventOutFlags::UPDATE_NOW,
+        );
+        Ok(())
+    }
+
+    fn handle_draw(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+        if extra.effect_area() != ae::EffectArea::Control {
+            return Ok(());
+        }
+
+        self.sync_viewport(extra);
+
         let drawbot = extra.context_handle().drawing_reference()?;
         let supplier = drawbot.supplier()?;
         let surface = drawbot.surface()?;
+
         let frame = extra.current_frame();
-        let left = frame.left as f32 + 0.5;
-        let top = frame.top as f32 + 0.5;
-        let width = (frame.right - frame.left).max(1) as f32;
-        let height = (frame.bottom - frame.top).max(1) as f32;
+        let bg_rect = ae::drawbot::RectF32 {
+            left: frame.left as f32 + 0.5,
+            top: frame.top as f32 + 0.5,
+            width: (frame.right - frame.left).max(1) as f32,
+            height: (frame.bottom - frame.top).max(1) as f32,
+        };
 
         let bg = ae::drawbot::ColorRgba {
             red: 0.12,
@@ -191,13 +239,19 @@ impl Plugin {
             blue: 0.12,
             alpha: 1.0,
         };
-        let grid = ae::drawbot::ColorRgba {
+        let grid_color = ae::drawbot::ColorRgba {
             red: 0.28,
             green: 0.28,
             blue: 0.28,
             alpha: 1.0,
         };
-        let curve = ae::drawbot::ColorRgba {
+        let handle_line_color = ae::drawbot::ColorRgba {
+            red: 0.55,
+            green: 0.55,
+            blue: 0.55,
+            alpha: 1.0,
+        };
+        let curve_color = ae::drawbot::ColorRgba {
             red: 0.95,
             green: 0.8,
             blue: 0.2,
@@ -209,56 +263,70 @@ impl Plugin {
             blue: 0.35,
             alpha: 1.0,
         };
-
-        surface.paint_rect(
-            &bg,
-            &ae::drawbot::RectF32 {
-                left,
-                top,
-                width,
-                height,
-            },
-        )?;
-
-        let grid_pen = supplier.new_pen(&grid, 1.0)?;
-        for i in 0..=4 {
-            let t = i as f32 / 4.0;
-            let x = left + width * t;
-            let y = top + height * t;
-
-            let mut v = supplier.new_path()?;
-            v.move_to(x, top)?;
-            v.line_to(x, top + height)?;
-            surface.stroke_path(&grid_pen, &v)?;
-
-            let mut h = supplier.new_path()?;
-            h.move_to(left, y)?;
-            h.line_to(left + width, y)?;
-            surface.stroke_path(&grid_pen, &h)?;
-        }
-
-        let anchor = params.get(Params::AnchorPoint)?.as_point()?.value();
-        let to_screen = |nx: f32, ny: f32| -> (f32, f32) {
-            let sx = left + nx * width;
-            let sy = top + (1.0 - ny) * height;
-            (sx, sy)
+        let in_handle_color = ae::drawbot::ColorRgba {
+            red: 0.4,
+            green: 0.65,
+            blue: 0.95,
+            alpha: 1.0,
+        };
+        let out_handle_color = ae::drawbot::ColorRgba {
+            red: 0.45,
+            green: 0.85,
+            blue: 0.55,
+            alpha: 1.0,
         };
 
-        let p0 = to_screen(0.0, 0.0);
-        let p1 = to_screen(anchor.0, anchor.1);
-        let p2 = to_screen(1.0, 1.0);
+        surface.paint_rect(&bg, &bg_rect)?;
 
-        let curve_pen = supplier.new_pen(&curve, 2.0)?;
-        let mut curve_path = supplier.new_path()?;
-        curve_path.move_to(p0.0, p0.1)?;
-        curve_path.line_to(p1.0, p1.1)?;
-        curve_path.line_to(p2.0, p2.1)?;
-        surface.stroke_path(&curve_pen, &curve_path)?;
+        let draw: UiDrawData = self.adapter.build_draw_data(&self.model);
+
+        let grid_pen = supplier.new_pen(&grid_color, 1.0)?;
+        for line in &draw.grid_lines {
+            let mut path = supplier.new_path()?;
+            path.move_to(line.a.x, line.a.y)?;
+            path.line_to(line.b.x, line.b.y)?;
+            surface.stroke_path(&grid_pen, &path)?;
+        }
+
+        let handle_pen = supplier.new_pen(&handle_line_color, 1.0)?;
+        for line in &draw.handle_lines {
+            let mut path = supplier.new_path()?;
+            path.move_to(line.a.x, line.a.y)?;
+            path.line_to(line.b.x, line.b.y)?;
+            surface.stroke_path(&handle_pen, &path)?;
+        }
+
+        if draw.curve_polyline.len() >= 2 {
+            let curve_pen = supplier.new_pen(&curve_color, 2.0)?;
+            let mut path = supplier.new_path()?;
+            let first = draw.curve_polyline[0];
+            path.move_to(first.x, first.y)?;
+            for p in &draw.curve_polyline[1..] {
+                path.line_to(p.x, p.y)?;
+            }
+            surface.stroke_path(&curve_pen, &path)?;
+        }
+
+        let in_handle_brush = supplier.new_brush(&in_handle_color)?;
+        for p in &draw.in_handles {
+            let mut shape = supplier.new_path()?;
+            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 3.0, 0.0, 360.0)?;
+            surface.fill_path(&in_handle_brush, &shape, ae::drawbot::FillType::Winding)?;
+        }
+
+        let out_handle_brush = supplier.new_brush(&out_handle_color)?;
+        for p in &draw.out_handles {
+            let mut shape = supplier.new_path()?;
+            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 3.0, 0.0, 360.0)?;
+            surface.fill_path(&out_handle_brush, &shape, ae::drawbot::FillType::Winding)?;
+        }
 
         let anchor_brush = supplier.new_brush(&anchor_color)?;
-        let mut anchor_shape = supplier.new_path()?;
-        anchor_shape.add_arc(&ae::drawbot::PointF32 { x: p1.0, y: p1.1 }, 4.0, 0.0, 360.0)?;
-        surface.fill_path(&anchor_brush, &anchor_shape, ae::drawbot::FillType::Winding)?;
+        for p in &draw.anchors {
+            let mut shape = supplier.new_path()?;
+            shape.add_arc(&ae::drawbot::PointF32 { x: p.x, y: p.y }, 4.0, 0.0, 360.0)?;
+            surface.fill_path(&anchor_brush, &shape, ae::drawbot::FillType::Winding)?;
+        }
 
         extra.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
         Ok(())

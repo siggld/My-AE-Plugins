@@ -54,8 +54,7 @@ fn main() {
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2(
-            OutFlags2::FloatColorAware
-                | OutFlags2::SupportsThreadedRendering
+            OutFlags2::SupportsThreadedRendering
                 | OutFlags2::SupportsGetFlattenedSequenceData
                 | OutFlags2::AutomaticWideTimeInput
                 | OutFlags2::ParamGroupStartCollapsedFlag
