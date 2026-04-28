@@ -131,8 +131,8 @@ impl AdobePluginGlobal for Plugin {
                     Params::Center,
                     "Center",
                     PointDef::setup(|d| {
-                        d.set_default_x(0.5);
-                        d.set_default_y(0.5);
+                        d.set_default_x(50.0);
+                        d.set_default_y(50.0);
                     }),
                 )?;
                 params.add(
@@ -301,32 +301,62 @@ impl AdobePluginGlobal for Plugin {
                 let enable_sss = p.get(Params::EnableSss)?.as_checkbox()?.value();
 
                 let mut pd_center = p.get_mut(Params::Center)?;
-                pd_center.set_ui_flag(ae::ParamUIFlags::DISABLED, is_directional);
-                pd_center.update_param_ui()?;
+                let center_disabled_now = pd_center.ui_flags().contains(ae::ParamUIFlags::DISABLED);
+                if center_disabled_now != is_directional {
+                    pd_center.set_ui_flag(ae::ParamUIFlags::DISABLED, is_directional);
+                    pd_center.update_param_ui()?;
+                }
 
                 let mut pd_angle = p.get_mut(Params::Angle)?;
-                pd_angle.set_ui_flag(ae::ParamUIFlags::DISABLED, is_radial);
-                pd_angle.update_param_ui()?;
+                let angle_disabled_now = pd_angle.ui_flags().contains(ae::ParamUIFlags::DISABLED);
+                if angle_disabled_now != is_radial {
+                    pd_angle.set_ui_flag(ae::ParamUIFlags::DISABLED, is_radial);
+                    pd_angle.update_param_ui()?;
+                }
 
                 let mut pd_additional_color = p.get_mut(Params::AdditionalColor)?;
-                pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
-                pd_additional_color.update_param_ui()?;
+                let additional_color_disabled_now = pd_additional_color
+                    .ui_flags()
+                    .contains(ae::ParamUIFlags::DISABLED);
+                if additional_color_disabled_now == enable_sss {
+                    pd_additional_color.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
+                    pd_additional_color.update_param_ui()?;
+                }
 
                 let mut pd_sss_spread = p.get_mut(Params::SssSpread)?;
-                pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
-                pd_sss_spread.update_param_ui()?;
+                let sss_spread_disabled_now = pd_sss_spread
+                    .ui_flags()
+                    .contains(ae::ParamUIFlags::DISABLED);
+                if sss_spread_disabled_now == enable_sss {
+                    pd_sss_spread.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
+                    pd_sss_spread.update_param_ui()?;
+                }
 
                 let mut pd_sss_bias = p.get_mut(Params::SssBias)?;
-                pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
-                pd_sss_bias.update_param_ui()?;
+                let sss_bias_disabled_now =
+                    pd_sss_bias.ui_flags().contains(ae::ParamUIFlags::DISABLED);
+                if sss_bias_disabled_now == enable_sss {
+                    pd_sss_bias.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
+                    pd_sss_bias.update_param_ui()?;
+                }
 
                 let mut pd_edge_along_blur = p.get_mut(Params::EdgeAlongBlur)?;
-                pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
-                pd_edge_along_blur.update_param_ui()?;
+                let edge_along_blur_disabled_now = pd_edge_along_blur
+                    .ui_flags()
+                    .contains(ae::ParamUIFlags::DISABLED);
+                if edge_along_blur_disabled_now == enable_sss {
+                    pd_edge_along_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
+                    pd_edge_along_blur.update_param_ui()?;
+                }
 
                 let mut pd_edge_across_blur = p.get_mut(Params::EdgeAcrossBlur)?;
-                pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
-                pd_edge_across_blur.update_param_ui()?;
+                let edge_across_blur_disabled_now = pd_edge_across_blur
+                    .ui_flags()
+                    .contains(ae::ParamUIFlags::DISABLED);
+                if edge_across_blur_disabled_now == enable_sss {
+                    pd_edge_across_blur.set_ui_flag(ae::ParamUIFlags::DISABLED, !enable_sss);
+                    pd_edge_across_blur.update_param_ui()?;
+                }
             }
             _ => {}
         }

@@ -303,16 +303,6 @@ impl CurveEditorModel {
             next.x = self.nodes.first().unwrap().anchor.x;
         } else if index + 1 == self.nodes.len() {
             next.x = self.nodes.last().unwrap().anchor.x;
-        } else {
-            let lo = self.nodes[index - 1].anchor.x;
-            let hi = self.nodes[index + 1].anchor.x;
-            let pad = 1e-4_f32;
-            if next.x <= lo {
-                next.x = lo + pad;
-            }
-            if next.x >= hi {
-                next.x = hi - pad;
-            }
         }
 
         let delta = next - self.nodes[index].anchor;
@@ -320,7 +310,35 @@ impl CurveEditorModel {
         self.nodes[index].in_handle = self.nodes[index].in_handle + delta;
         self.nodes[index].out_handle = self.nodes[index].out_handle + delta;
 
-        self.enforce_monotonicity_around(index);
+        if index > 0 && index + 1 < self.nodes.len() {
+            let moved = self.nodes.remove(index);
+            let mut insert_at = 1usize;
+            while insert_at + 1 < self.nodes.len()
+                && self.nodes[insert_at].anchor.x <= moved.anchor.x
+            {
+                insert_at += 1;
+            }
+            self.nodes.insert(insert_at, moved);
+
+            // Keep interior anchors strictly ascending by tiny epsilon gaps.
+            let pad = 1e-4_f32;
+            for i in 2..self.nodes.len() - 1 {
+                if self.nodes[i].anchor.x <= self.nodes[i - 1].anchor.x {
+                    self.nodes[i].anchor.x = (self.nodes[i - 1].anchor.x + pad).min(1.0 - pad);
+                }
+            }
+            for i in (1..self.nodes.len() - 2).rev() {
+                if self.nodes[i].anchor.x >= self.nodes[i + 1].anchor.x {
+                    self.nodes[i].anchor.x = (self.nodes[i + 1].anchor.x - pad).max(pad);
+                }
+            }
+
+            for i in 0..self.nodes.len() - 1 {
+                self.fix_segment(i);
+            }
+        } else {
+            self.enforce_monotonicity_around(index);
+        }
     }
 
     pub fn move_in_handle(&mut self, index: usize, target: Point2D) {

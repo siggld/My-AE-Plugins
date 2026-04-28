@@ -106,6 +106,8 @@ pub struct CustomGraphEditorUiAdapter {
     selected: Option<Selection>,
     handle_drag_mode: Option<HandleDragMode>,
     handle_enabled: Vec<bool>,
+    snap_enabled: bool,
+    snap_threshold_px: f32,
 }
 
 impl Default for CustomGraphEditorUiAdapter {
@@ -129,7 +131,13 @@ impl CustomGraphEditorUiAdapter {
             selected: None,
             handle_drag_mode: None,
             handle_enabled: Vec::new(),
+            snap_enabled: false,
+            snap_threshold_px: 10.0,
         }
+    }
+
+    pub fn set_snap_enabled(&mut self, enabled: bool) {
+        self.snap_enabled = enabled;
     }
 
     fn sync_node_state(&mut self, model: &CurveEditorModel) {
@@ -140,19 +148,22 @@ impl CustomGraphEditorUiAdapter {
     }
 
     fn apply_handles_for_anchor(&mut self, model: &mut CurveEditorModel, index: usize) {
-        if index == 0 || index + 1 >= model.node_count() {
+        if index >= model.node_count() {
             return;
         }
-        let nodes = model.get_nodes();
-        let anchor = nodes[index].anchor;
-        let prev = nodes[index - 1].anchor;
-        let next = nodes[index + 1].anchor;
-        let span_l = (anchor.x - prev.x).max(1e-4);
-        let span_r = (next.x - anchor.x).max(1e-4);
-        let in_target = Point2D::new(anchor.x - span_l / 3.0, anchor.y);
-        let out_target = Point2D::new(anchor.x + span_r / 3.0, anchor.y);
-        model.move_in_handle(index, in_target);
-        model.move_out_handle(index, out_target);
+        let anchor = model.get_node(index).anchor;
+        if index > 0 {
+            let prev = model.get_node(index - 1).anchor;
+            let span_l = (anchor.x - prev.x).max(1e-4);
+            let in_target = Point2D::new(anchor.x - span_l / 2.0, anchor.y);
+            model.move_in_handle(index, in_target);
+        }
+        if index + 1 < model.node_count() {
+            let next = model.get_node(index + 1).anchor;
+            let span_r = (next.x - anchor.x).max(1e-4);
+            let out_target = Point2D::new(anchor.x + span_r / 2.0, anchor.y);
+            model.move_out_handle(index, out_target);
+        }
         self.handle_enabled[index] = true;
     }
 
@@ -161,8 +172,20 @@ impl CustomGraphEditorUiAdapter {
             return;
         }
         let anchor = model.get_node(index).anchor;
-        model.move_in_handle(index, anchor);
-        model.move_out_handle(index, anchor);
+        if index > 0 {
+            let prev = model.get_node(index - 1).anchor;
+            model.move_in_handle(
+                index,
+                Point2D::new(anchor.x - (anchor.x - prev.x) / 3.0, anchor.y),
+            );
+        }
+        if index + 1 < model.node_count() {
+            let next = model.get_node(index + 1).anchor;
+            model.move_out_handle(
+                index,
+                Point2D::new(anchor.x + (next.x - anchor.x) / 3.0, anchor.y),
+            );
+        }
         self.handle_enabled[index] = false;
     }
 
@@ -267,7 +290,7 @@ impl CustomGraphEditorUiAdapter {
 
         if let Some(node_index) = self.hit_test_anchor(model, screen) {
             let is_interior = node_index > 0 && node_index + 1 < model.node_count();
-            if e.button == MouseButton::Left && e.alt_down && is_interior {
+            if (e.button == MouseButton::Left || e.button == MouseButton::Right) && e.alt_down {
                 if self.handle_enabled[node_index] {
                     self.remove_handles_for_anchor(model, node_index);
                     self.active_drag = DragTarget {
@@ -363,7 +386,10 @@ impl CustomGraphEditorUiAdapter {
         if self.active_drag.kind == DragTargetType::None {
             return false;
         }
-        let normalized = self.screen_to_normalized(Point2D::new(e.x, e.y));
+        let mut normalized = self.screen_to_normalized(Point2D::new(e.x, e.y));
+        if self.snap_enabled {
+            normalized = self.snap_to_grid(normalized);
+        }
         match self.active_drag.kind {
             DragTargetType::Anchor => {
                 if e.alt_down
@@ -435,6 +461,23 @@ impl CustomGraphEditorUiAdapter {
         };
         self.handle_drag_mode = None;
         had_drag
+    }
+
+    pub fn delete_selected(&mut self, model: &mut CurveEditorModel) -> bool {
+        self.sync_node_state(model);
+        if let Some(Selection::Anchor(index)) = self.selected
+            && model.remove_node(index)
+        {
+            self.sync_node_state(model);
+            self.selected = None;
+            self.active_drag = DragTarget {
+                kind: DragTargetType::None,
+                node_index: 0,
+            };
+            self.handle_drag_mode = None;
+            return true;
+        }
+        false
     }
 
     pub fn screen_to_normalized(&self, screen: Point2D) -> Point2D {
@@ -535,6 +578,28 @@ impl CustomGraphEditorUiAdapter {
             return None;
         }
         Some(clamp01(best_x))
+    }
+
+    fn snap_to_grid(&self, p: Point2D) -> Point2D {
+        let major_step_x = 1.0 / self.grid_div_x.max(1) as f32;
+        let major_step_y = 1.0 / self.grid_div_y.max(1) as f32;
+        let fine_step_x = major_step_x / 9.0;
+        let fine_step_y = major_step_y / 9.0;
+
+        let snap_axis = |value: f32, step: f32, px_scale: f32| -> f32 {
+            let snapped = (value / step).round() * step;
+            let threshold_norm = self.snap_threshold_px / px_scale.max(1.0);
+            if (snapped - value).abs() <= threshold_norm {
+                clamp01(snapped)
+            } else {
+                value
+            }
+        };
+
+        Point2D::new(
+            snap_axis(p.x, fine_step_x, self.viewport.width),
+            snap_axis(p.y, fine_step_y, self.viewport.height),
+        )
     }
 }
 
@@ -722,8 +787,18 @@ mod tests {
             },
         );
         let n = m.get_node(1);
-        assert!(approx(n.in_handle.x, n.anchor.x, 1e-4));
-        assert!(approx(n.out_handle.x, n.anchor.x, 1e-4));
+        let prev = m.get_node(0).anchor;
+        let next = m.get_node(2).anchor;
+        assert!(approx(
+            n.in_handle.x,
+            n.anchor.x - (n.anchor.x - prev.x) / 3.0,
+            1e-4
+        ));
+        assert!(approx(
+            n.out_handle.x,
+            n.anchor.x + (next.x - n.anchor.x) / 3.0,
+            1e-4
+        ));
     }
 
     #[test]

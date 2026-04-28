@@ -12,13 +12,14 @@ use crate::ui_adapter::{
     CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData, UiMarker,
 };
 
-const UI_BOX_WIDTH: u16 = 320;
-const UI_BOX_HEIGHT: u16 = 180;
+const UI_BOX_BASE: u16 = 320;
+const UI_BOX_SIZE: u16 = ((UI_BOX_BASE as f32) * 1.75) as u16;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     EnableGuiTest,
     GraphEditor,
+    MagnetSnap,
 }
 
 #[derive(Default)]
@@ -54,10 +55,17 @@ impl AdobePluginGlobal for Plugin {
             |param: &mut ae::ParamDef| {
                 param.set_flags(ParamFlag::SUPERVISE);
                 param.set_ui_flags(ParamUIFlags::CONTROL | ParamUIFlags::DO_NOT_ERASE_CONTROL);
-                param.set_ui_width(UI_BOX_WIDTH);
-                param.set_ui_height(UI_BOX_HEIGHT);
+                param.set_ui_width(UI_BOX_SIZE);
+                param.set_ui_height(UI_BOX_SIZE);
                 -1
             },
+        )?;
+        params.add(
+            Params::MagnetSnap,
+            "Magnet Snap",
+            CheckBoxDef::setup(|d| {
+                d.set_default(false);
+            }),
         )?;
 
         in_data
@@ -72,7 +80,7 @@ impl AdobePluginGlobal for Plugin {
         cmd: ae::Command,
         in_data: InData,
         mut out_data: OutData,
-        _params: &mut ae::Parameters<Params>,
+        params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
@@ -128,10 +136,13 @@ impl AdobePluginGlobal for Plugin {
                     self.handle_draw(&mut extra)?;
                 }
                 ae::Event::Click(_) => {
-                    self.handle_click(&mut extra)?;
+                    self.handle_click(&mut extra, params)?;
                 }
                 ae::Event::Drag(_) => {
-                    self.handle_drag(&mut extra)?;
+                    self.handle_drag(&mut extra, params)?;
+                }
+                ae::Event::Keydown(key_event) => {
+                    self.handle_keydown(&mut extra, key_event, params)?;
                 }
                 _ => {}
             },
@@ -162,12 +173,17 @@ impl Plugin {
         self.adapter.set_viewport(viewport);
     }
 
-    fn handle_click(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+    fn handle_click(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
         self.sync_viewport(extra);
+        self.sync_snap_toggle(params)?;
         extra.set_send_drag(true);
 
         let p = extra.screen_point();
@@ -196,12 +212,17 @@ impl Plugin {
         Ok(())
     }
 
-    fn handle_drag(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+    fn handle_drag(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
         self.sync_viewport(extra);
+        self.sync_snap_toggle(params)?;
 
         let p = extra.screen_point();
         let modifiers = extra.modifiers();
@@ -229,6 +250,35 @@ impl Plugin {
                 | ae::EventOutFlags::NEVER_UPDATE
                 | ae::EventOutFlags::UPDATE_NOW,
         );
+        Ok(())
+    }
+
+    fn handle_keydown(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        key_event: ae::KeyDownEventInfo,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
+        if extra.effect_area() != ae::EffectArea::Control {
+            return Ok(());
+        }
+        self.sync_snap_toggle(params)?;
+        let keycode = key_event.as_ref().keycode as u16;
+        if keycode == ae::sys::PF_ControlCode_Delete as u16
+            && self.adapter.delete_selected(&mut self.model)
+        {
+            extra.set_event_out_flags(
+                ae::EventOutFlags::HANDLED_EVENT
+                    | ae::EventOutFlags::NEVER_UPDATE
+                    | ae::EventOutFlags::UPDATE_NOW,
+            );
+        }
+        Ok(())
+    }
+
+    fn sync_snap_toggle(&mut self, params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
+        let snap = params.get(Params::MagnetSnap)?.as_checkbox()?.value();
+        self.adapter.set_snap_enabled(snap);
         Ok(())
     }
 
@@ -313,11 +363,42 @@ impl Plugin {
         let draw: UiDrawData = self.adapter.build_draw_data(&self.model);
 
         let grid_pen = supplier.new_pen(&grid_color, 1.0)?;
+        let border_pen = supplier.new_pen(&grid_color, 2.0)?;
+        let fine_grid_color = ae::drawbot::ColorRgba {
+            red: 0.2,
+            green: 0.2,
+            blue: 0.2,
+            alpha: 1.0,
+        };
+        let fine_grid_pen = supplier.new_pen(&fine_grid_color, 0.5)?;
+        // Minor grid: split each major cell into 9 parts.
+        let major_div = 4.0_f32;
+        for i in 0..=(major_div as i32 * 9) {
+            if i % 9 == 0 {
+                continue;
+            }
+            let t = i as f32 / (major_div * 9.0);
+            let x = viewport.left + viewport.width * t;
+            let y = viewport.top + viewport.height * t;
+            let mut v = supplier.new_path()?;
+            v.move_to(x, viewport.top)?;
+            v.line_to(x, viewport.top + viewport.height)?;
+            surface.stroke_path(&fine_grid_pen, &v)?;
+            let mut h = supplier.new_path()?;
+            h.move_to(viewport.left, y)?;
+            h.line_to(viewport.left + viewport.width, y)?;
+            surface.stroke_path(&fine_grid_pen, &h)?;
+        }
+
         for line in &draw.grid_lines {
             let mut path = supplier.new_path()?;
             path.move_to(line.a.x, line.a.y)?;
             path.line_to(line.b.x, line.b.y)?;
-            surface.stroke_path(&grid_pen, &path)?;
+            let is_outer = (line.a.x - viewport.left).abs() < 0.5
+                || (line.a.x - (viewport.left + viewport.width)).abs() < 0.5
+                || (line.a.y - viewport.top).abs() < 0.5
+                || (line.a.y - (viewport.top + viewport.height)).abs() < 0.5;
+            surface.stroke_path(if is_outer { &border_pen } else { &grid_pen }, &path)?;
         }
 
         let handle_pen = supplier.new_pen(&handle_line_color, 1.0)?;
