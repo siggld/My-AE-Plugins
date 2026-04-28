@@ -12,17 +12,8 @@ build:
 
 [windows]
 release:
-    #region agent log
-    Add-Content -Path '{{justfile_directory()}}\debug-1e940a.log' -Value ((@{sessionId="1e940a";runId="pre-fix-2";hypothesisId="H6";location="AdobePlugin.just:windows:release:start";message="plugin release start";data=@{crateName="{{CrateName}}";binaryName="{{BinaryName}}";pluginName="{{PluginName}}";targetDir="{{TargetDir}}"};timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()} | ConvertTo-Json -Compress))
-    #endregion
     cargo build -p {{CrateName}} --release
-    #region agent log
-    Add-Content -Path '{{justfile_directory()}}\debug-1e940a.log' -Value ((@{sessionId="1e940a";runId="pre-fix-2";hypothesisId="H7";location="AdobePlugin.just:windows:release:post-build";message="post cargo build";data=@{dllExists=(Test-Path '{{TargetDir}}\release\{{BinaryName}}.dll');dllPath='{{TargetDir}}\release\{{BinaryName}}.dll'};timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()} | ConvertTo-Json -Compress))
-    #endregion
     Copy-Item -Force '{{TargetDir}}\release\{{BinaryName}}.dll' '{{TargetDir}}\release\{{PluginName}}.aex'
-    #region agent log
-    Add-Content -Path '{{justfile_directory()}}\debug-1e940a.log' -Value ((@{sessionId="1e940a";runId="pre-fix-2";hypothesisId="H8";location="AdobePlugin.just:windows:release:post-copy";message="post dll->aex copy";data=@{aexExists=(Test-Path '{{TargetDir}}\release\{{PluginName}}.aex');aexPath='{{TargetDir}}\release\{{PluginName}}.aex'};timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()} | ConvertTo-Json -Compress))
-    #endregion
     if (-not $env:NO_INSTALL) { \
         Start-Process PowerShell -Verb runAs -ArgumentList "-command Set-Location '{{source_directory()}}'; Copy-Item -Force '{{TargetDir}}\release\{{BinaryName}}.dll' 'C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\{{PluginName}}.aex'" \
     }
