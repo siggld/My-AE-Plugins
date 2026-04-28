@@ -386,8 +386,8 @@ impl Plugin {
         mut out_layer: Layer,
         params: &mut Parameters<Params>,
     ) -> Result<(), Error> {
-        let width = out_layer.width() as usize;
-        let height = out_layer.height() as usize;
+        let width = out_layer.width();
+        let height = out_layer.height();
         if width == 0 || height == 0 {
             return Ok(());
         }
@@ -402,7 +402,7 @@ impl Plugin {
             .clamp(0.0, 1.0);
         let mode = params.get(Params::Mode)?.as_popup()?.value();
         let center = params.get(Params::Center)?.as_point()?.value();
-        let angle = params.get(Params::Angle)?.as_angle()?.value() as f32;
+        let angle = params.get(Params::Angle)?.as_angle()?.value();
         let amount = params.get(Params::Amount)?.as_float_slider()?.value() as f32;
         let offset = params.get(Params::Offset)?.as_float_slider()?.value() as f32;
         let keep_division = params.get(Params::KeepDivision)?.as_checkbox()?.value();
@@ -448,8 +448,8 @@ impl Plugin {
         } else {
             (0.0, 0.0)
         };
-        let center_x = center.0 as f32 / 100.0 * (width as f32 - 1.0);
-        let center_y = center.1 as f32 / 100.0 * (height as f32 - 1.0);
+        let center_x = center.0 / 100.0 * (width as f32 - 1.0);
+        let center_y = center.1 / 100.0 * (height as f32 - 1.0);
 
         let mut boundary = vec![0.0f32; width * height];
         for y in 0..height {
