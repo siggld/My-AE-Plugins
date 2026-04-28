@@ -129,7 +129,10 @@ impl AdobePluginGlobal for Plugin {
                 }
                 cb.checkin_layer_pixels(0)?;
             }
-            ae::Command::Render { in_layer, mut out_layer } => {
+            ae::Command::Render {
+                in_layer,
+                mut out_layer,
+            } => {
                 debug_log(
                     "H3",
                     "plugins/custom-gui-test/src/lib.rs:render",
