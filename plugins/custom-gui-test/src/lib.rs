@@ -156,12 +156,18 @@ impl Plugin {
     fn fixed_aspect_viewport(frame: ae::Rect) -> EditorViewport {
         let area_w = (frame.right - frame.left).max(1) as f32;
         let area_h = (frame.bottom - frame.top).max(1) as f32;
-        // Keep square viewport and reduce top/bottom empty margin.
-        let pad = 2.0_f32;
-        let side = (area_w.min(area_h) - pad * 2.0).max(1.0);
+        // Square viewport with min/max size.
+        let min_side = 300.0_f32;
+        let max_side = 420.0_f32;
+        let side = area_w
+            .min(area_h)
+            .clamp(min_side, max_side)
+            .min(area_w)
+            .min(area_h);
         EditorViewport {
             left: frame.left as f32 + (area_w - side) * 0.5,
-            top: frame.top as f32 + pad,
+            // Bottom-align to reduce empty area below grid.
+            top: frame.top as f32 + (area_h - side),
             width: side,
             height: side,
         }

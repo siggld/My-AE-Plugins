@@ -108,6 +108,7 @@ pub struct CustomGraphEditorUiAdapter {
     handle_enabled: Vec<bool>,
     snap_enabled: bool,
     snap_threshold_px: f32,
+    linked_ratio: f32,
 }
 
 impl Default for CustomGraphEditorUiAdapter {
@@ -133,6 +134,7 @@ impl CustomGraphEditorUiAdapter {
             handle_enabled: Vec::new(),
             snap_enabled: false,
             snap_threshold_px: 10.0,
+            linked_ratio: 1.0,
         }
     }
 
@@ -152,16 +154,19 @@ impl CustomGraphEditorUiAdapter {
             return;
         }
         let anchor = model.get_node(index).anchor;
+        let min_norm_x = (18.0 / self.viewport.width.max(1.0)).min(0.25);
         if index > 0 {
             let prev = model.get_node(index - 1).anchor;
             let span_l = (anchor.x - prev.x).max(1e-4);
-            let in_target = Point2D::new(anchor.x - span_l / 2.0, anchor.y);
+            let len = (span_l / 2.0).max(min_norm_x).min(span_l - 1e-5);
+            let in_target = Point2D::new(anchor.x - len, anchor.y);
             model.move_in_handle(index, in_target);
         }
         if index + 1 < model.node_count() {
             let next = model.get_node(index + 1).anchor;
             let span_r = (next.x - anchor.x).max(1e-4);
-            let out_target = Point2D::new(anchor.x + span_r / 2.0, anchor.y);
+            let len = (span_r / 2.0).max(min_norm_x).min(span_r - 1e-5);
+            let out_target = Point2D::new(anchor.x + len, anchor.y);
             model.move_out_handle(index, out_target);
         }
         self.handle_enabled[index] = true;
@@ -324,6 +329,7 @@ impl CustomGraphEditorUiAdapter {
                 };
                 self.selected = Some(Selection::Anchor(node_index));
                 self.handle_drag_mode = None;
+                self.sync_linear_handles_if_disabled(model, node_index);
                 return true;
             }
         }
@@ -340,6 +346,7 @@ impl CustomGraphEditorUiAdapter {
                 } else {
                     HandleDragMode::LinkedHorizontal
                 });
+                self.capture_link_ratio(model, node_index);
                 return true;
             }
             if let Some(node_index) = self.hit_test_handle(model, screen, false) {
@@ -353,6 +360,7 @@ impl CustomGraphEditorUiAdapter {
                 } else {
                     HandleDragMode::LinkedHorizontal
                 });
+                self.capture_link_ratio(model, node_index);
                 return true;
             }
             if let Some(new_node_x) = self.hit_test_curve(model, screen) {
@@ -404,6 +412,7 @@ impl CustomGraphEditorUiAdapter {
                     return true;
                 }
                 model.move_anchor(self.active_drag.node_index, normalized);
+                self.sync_linear_handles_if_disabled(model, self.active_drag.node_index);
                 true
             }
             DragTargetType::InHandle => {
@@ -418,10 +427,13 @@ impl CustomGraphEditorUiAdapter {
                     }
                     HandleDragMode::LinkedHorizontal => {
                         let anchor = model.get_node(index).anchor;
-                        let dx = normalized.x - anchor.x;
-                        let current_out = model.get_node(index).out_handle;
-                        model.move_in_handle(index, Point2D::new(anchor.x + dx, normalized.y));
-                        model.move_out_handle(index, Point2D::new(anchor.x - dx, current_out.y));
+                        let v = Point2D::new(normalized.x - anchor.x, normalized.y - anchor.y);
+                        let out = Point2D::new(
+                            anchor.x - v.x * self.linked_ratio,
+                            anchor.y - v.y * self.linked_ratio,
+                        );
+                        model.move_in_handle(index, normalized);
+                        model.move_out_handle(index, out);
                     }
                 }
                 true
@@ -438,10 +450,16 @@ impl CustomGraphEditorUiAdapter {
                     }
                     HandleDragMode::LinkedHorizontal => {
                         let anchor = model.get_node(index).anchor;
-                        let dx = normalized.x - anchor.x;
-                        let current_in = model.get_node(index).in_handle;
-                        model.move_out_handle(index, Point2D::new(anchor.x + dx, normalized.y));
-                        model.move_in_handle(index, Point2D::new(anchor.x - dx, current_in.y));
+                        let v = Point2D::new(normalized.x - anchor.x, normalized.y - anchor.y);
+                        let inv_ratio = if self.linked_ratio.abs() > 1e-6 {
+                            1.0 / self.linked_ratio
+                        } else {
+                            1.0
+                        };
+                        let inn =
+                            Point2D::new(anchor.x - v.x * inv_ratio, anchor.y - v.y * inv_ratio);
+                        model.move_out_handle(index, normalized);
+                        model.move_in_handle(index, inn);
                     }
                 }
                 true
@@ -597,6 +615,29 @@ impl CustomGraphEditorUiAdapter {
             snap_axis(p.x, fine_step_x, self.viewport.width),
             snap_axis(p.y, fine_step_y, self.viewport.height),
         )
+    }
+
+    fn capture_link_ratio(&mut self, model: &CurveEditorModel, index: usize) {
+        if index >= model.node_count() {
+            self.linked_ratio = 1.0;
+            return;
+        }
+        let n = model.get_node(index);
+        let in_v = Point2D::new(n.in_handle.x - n.anchor.x, n.in_handle.y - n.anchor.y);
+        let out_v = Point2D::new(n.out_handle.x - n.anchor.x, n.out_handle.y - n.anchor.y);
+        let in_len = (in_v.x * in_v.x + in_v.y * in_v.y).sqrt();
+        let out_len = (out_v.x * out_v.x + out_v.y * out_v.y).sqrt();
+        self.linked_ratio = if in_len > 1e-6 && out_len > 1e-6 {
+            out_len / in_len
+        } else {
+            1.0
+        };
+    }
+
+    fn sync_linear_handles_if_disabled(&mut self, model: &mut CurveEditorModel, index: usize) {
+        if index < self.handle_enabled.len() && !self.handle_enabled[index] {
+            self.remove_handles_for_anchor(model, index);
+        }
     }
 }
 
