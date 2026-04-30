@@ -460,12 +460,38 @@ impl Plugin {
         let center_x = center.0 / 100.0 * (width as f32 - 1.0);
         let center_y = center.1 / 100.0 * (height as f32 - 1.0);
 
+        let mut region_label = vec![0u8; width * height];
+        for idx in 0..(width * height) {
+            let a = mask_a[idx];
+            let b = mask_b[idx];
+            region_label[idx] = if a <= 0.0 && b <= 0.0 {
+                0
+            } else if a >= b {
+                1
+            } else {
+                2
+            };
+        }
+
         let mut boundary = vec![0.0f32; width * height];
         let mut blurred_a = vec![0.0f32; width * height];
         let mut blurred_b = vec![0.0f32; width * height];
+        let mut blurred_rgb = vec![
+            ae::PixelF32 {
+                alpha: 0.0,
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+            };
+            width * height
+        ];
         for y in 0..height {
             for x in 0..width {
                 let idx = y * width + x;
+                let current_label = region_label[idx];
+                if current_label == 0 {
+                    continue;
+                }
                 let (vx, vy) = if mode == 2 {
                     (dir_x, dir_y)
                 } else {
@@ -477,7 +503,16 @@ impl Plugin {
                 let mut sum_a = 0.0;
                 let mut sum_b = 0.0;
                 let mut count = 0.0;
-                for step in -radius..=radius {
+                let (step_start, step_end) = if mode == 2 {
+                    (-radius, radius)
+                } else {
+                    (0, radius)
+                };
+                let mut sum_r = 0.0;
+                let mut sum_g = 0.0;
+                let mut sum_b_ch = 0.0;
+                let mut sum_w = 0.0;
+                for step in step_start..=step_end {
                     let sx = x as f32 + vx * (step as f32 + offset);
                     let sy = y as f32 + vy * (step as f32 + offset);
                     if sx < 0.0 || sy < 0.0 || sx >= width as f32 || sy >= height as f32 {
@@ -489,9 +524,25 @@ impl Plugin {
                     if keep_division && source[si].alpha <= 0.0 {
                         continue;
                     }
+                    if keep_division && region_label[si] != current_label {
+                        continue;
+                    }
                     sum_a += mask_a[si];
                     sum_b += mask_b[si];
                     count += 1.0;
+
+                    let w = if current_label == 1 {
+                        mask_a[si]
+                    } else {
+                        mask_b[si]
+                    };
+                    if w > 0.0 {
+                        let s = source[si];
+                        sum_r += s.red * w;
+                        sum_g += s.green * w;
+                        sum_b_ch += s.blue * w;
+                        sum_w += w;
+                    }
                 }
                 if count > 0.0 {
                     let ba = sum_a / count;
@@ -499,6 +550,14 @@ impl Plugin {
                     blurred_a[idx] = ba;
                     blurred_b[idx] = bb;
                     boundary[idx] = (ba.min(bb) * 2.0).clamp(0.0, 1.0);
+                }
+                if sum_w > 0.0 {
+                    blurred_rgb[idx] = ae::PixelF32 {
+                        alpha: source[idx].alpha,
+                        red: (sum_r / sum_w).clamp(0.0, 1.0),
+                        green: (sum_g / sum_w).clamp(0.0, 1.0),
+                        blue: (sum_b_ch / sum_w).clamp(0.0, 1.0),
+                    };
                 }
             }
         }
@@ -517,19 +576,16 @@ impl Plugin {
             } else {
                 let ba = blurred_a[idx];
                 let bb = blurred_b[idx];
-                let total = (ba + bb).max(1.0e-6);
-                let mix_a = (ba / total).clamp(0.0, 1.0);
-                let mix_b = (bb / total).clamp(0.0, 1.0);
-                let boundary_color = ae::PixelF32 {
-                    red: (color_a.red * mix_a + color_b.red * mix_b).clamp(0.0, 1.0),
-                    green: (color_a.green * mix_a + color_b.green * mix_b).clamp(0.0, 1.0),
-                    blue: (color_a.blue * mix_a + color_b.blue * mix_b).clamp(0.0, 1.0),
-                    alpha: src.alpha,
-                };
+                let selection = ba.max(bb).clamp(0.0, 1.0);
+                let blur_strength = (selection * amount.max(0.0) / 100.0).clamp(0.0, 1.0);
+                let blurred = blurred_rgb[idx];
                 let mut color = ae::PixelF32 {
-                    red: (src.red * (1.0 - b) + boundary_color.red * b).clamp(0.0, 1.0),
-                    green: (src.green * (1.0 - b) + boundary_color.green * b).clamp(0.0, 1.0),
-                    blue: (src.blue * (1.0 - b) + boundary_color.blue * b).clamp(0.0, 1.0),
+                    red: (src.red * (1.0 - blur_strength) + blurred.red * blur_strength)
+                        .clamp(0.0, 1.0),
+                    green: (src.green * (1.0 - blur_strength) + blurred.green * blur_strength)
+                        .clamp(0.0, 1.0),
+                    blue: (src.blue * (1.0 - blur_strength) + blurred.blue * blur_strength)
+                        .clamp(0.0, 1.0),
                     alpha: src.alpha,
                 };
                 if enable_sss {
