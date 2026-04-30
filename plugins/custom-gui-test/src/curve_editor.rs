@@ -128,55 +128,89 @@ pub struct CurveGraphNode {
     pub handles_enabled: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct CurveGraphState {
     pub nodes: Vec<CurveGraphNode>,
+}
+
+impl Default for CurveGraphState {
+    fn default() -> Self {
+        Self {
+            nodes: vec![
+                CurveGraphNode {
+                    anchor_x: 0.0,
+                    anchor_y: 0.0,
+                    in_x: 0.0,
+                    in_y: 0.0,
+                    out_x: 1.0 / 3.0,
+                    out_y: 1.0 / 3.0,
+                    handles_enabled: false,
+                },
+                CurveGraphNode {
+                    anchor_x: 1.0,
+                    anchor_y: 1.0,
+                    in_x: 2.0 / 3.0,
+                    in_y: 2.0 / 3.0,
+                    out_x: 1.0,
+                    out_y: 1.0,
+                    handles_enabled: false,
+                },
+            ],
+        }
+    }
 }
 
 impl ArbitraryData<CurveGraphState> for CurveGraphState {
     fn interpolate(&self, other: &CurveGraphState, value: f64) -> CurveGraphState {
         let t = value.clamp(0.0, 1.0) as f32;
-        if self.nodes.len() < 2 || other.nodes.len() < 2 {
-            if t < 0.5 { self.clone() } else { other.clone() }
+        let left = self.valid_or_default();
+        let right = other.valid_or_default();
+        let (left, right) = if left.nodes.len() == right.nodes.len() {
+            (left, right)
+        } else if left.nodes.len() < right.nodes.len() {
+            (left.with_inserted_points_from(&right), right)
         } else {
-            let left_aligned = self.with_inserted_points_from(other);
-            let right_aligned = other.with_inserted_points_from(&left_aligned);
-            let left_final = left_aligned.with_inserted_points_from(&right_aligned);
-            let right_final = right_aligned.with_inserted_points_from(&left_final);
+            let right_aligned = right.with_inserted_points_from(&left);
+            (left, right_aligned)
+        };
 
-            if left_final.nodes.len() != right_final.nodes.len() || left_final.nodes.is_empty() {
-                if t < 0.5 {
-                    return left_final;
-                }
-                return right_final;
-            }
-
-            let mut nodes = Vec::with_capacity(left_final.nodes.len());
-            for i in 0..left_final.nodes.len() {
-                let a = &left_final.nodes[i];
-                let b = &right_final.nodes[i];
-                nodes.push(CurveGraphNode {
-                    anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
-                    anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
-                    in_x: a.in_x + (b.in_x - a.in_x) * t,
-                    in_y: a.in_y + (b.in_y - a.in_y) * t,
-                    out_x: a.out_x + (b.out_x - a.out_x) * t,
-                    out_y: a.out_y + (b.out_y - a.out_y) * t,
-                    handles_enabled: if t < 0.5 {
-                        a.handles_enabled
-                    } else {
-                        b.handles_enabled
-                    },
-                });
-            }
-            CurveGraphState { nodes }
+        if left.nodes.len() != right.nodes.len() || left.nodes.is_empty() {
+            return if t < 0.5 { left } else { right };
         }
+
+        let mut nodes = Vec::with_capacity(left.nodes.len());
+        for i in 0..left.nodes.len() {
+            let a = &left.nodes[i];
+            let b = &right.nodes[i];
+            nodes.push(CurveGraphNode {
+                anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
+                anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
+                in_x: a.in_x + (b.in_x - a.in_x) * t,
+                in_y: a.in_y + (b.in_y - a.in_y) * t,
+                out_x: a.out_x + (b.out_x - a.out_x) * t,
+                out_y: a.out_y + (b.out_y - a.out_y) * t,
+                handles_enabled: if t < 0.5 {
+                    a.handles_enabled
+                } else {
+                    b.handles_enabled
+                },
+            });
+        }
+        CurveGraphState { nodes }
     }
 }
 
 impl CurveGraphState {
-    fn with_inserted_points_from(&self, reference: &CurveGraphState) -> CurveGraphState {
+    fn valid_or_default(&self) -> CurveGraphState {
         if self.nodes.len() < 2 {
+            CurveGraphState::default()
+        } else {
+            self.clone()
+        }
+    }
+
+    fn with_inserted_points_from(&self, reference: &CurveGraphState) -> CurveGraphState {
+        if self.nodes.len() < 2 || self.nodes.len() >= reference.nodes.len() {
             return self.clone();
         }
         let mut model = CurveEditorModel::new();
@@ -745,5 +779,47 @@ mod tests {
         let m = CurveEditorModel::new();
         let lines = m.get_grid_lines(4, 4);
         assert_eq!(lines.len(), (4 + 4 + 2) as usize);
+    }
+
+    #[test]
+    fn graph_state_default_is_linear_curve() {
+        let state = CurveGraphState::default();
+        assert_eq!(state.nodes.len(), 2);
+        assert!(approx(state.nodes[0].anchor_x, 0.0, 1e-5));
+        assert!(approx(state.nodes[0].anchor_y, 0.0, 1e-5));
+        assert!(approx(state.nodes[1].anchor_x, 1.0, 1e-5));
+        assert!(approx(state.nodes[1].anchor_y, 1.0, 1e-5));
+    }
+
+    #[test]
+    fn graph_state_interpolates_added_point_without_midpoint_switch() {
+        let a = CurveGraphState::default();
+        let mut model = CurveEditorModel::new();
+        let inserted = model.add_node_on_curve(0.5);
+        model.move_anchor(inserted, Point2D::new(0.5, 0.2));
+        let b = model.to_graph_state(&[false, false, false]);
+
+        let mid = a.interpolate(&b, 0.5);
+        assert_eq!(mid.nodes.len(), 3);
+        assert!(approx(mid.nodes[1].anchor_x, 0.5, 1e-3));
+        assert!(approx(mid.nodes[1].anchor_y, 0.35, 1e-3));
+    }
+
+    #[test]
+    fn graph_state_interpolates_moved_point_by_index() {
+        let mut left_model = CurveEditorModel::new();
+        let left_inserted = left_model.add_node_on_curve(0.4);
+        left_model.move_anchor(left_inserted, Point2D::new(0.4, 0.2));
+        let left = left_model.to_graph_state(&[false, false, false]);
+
+        let mut right_model = CurveEditorModel::new();
+        let right_inserted = right_model.add_node_on_curve(0.6);
+        right_model.move_anchor(right_inserted, Point2D::new(0.6, 0.8));
+        let right = right_model.to_graph_state(&[false, false, false]);
+
+        let mid = left.interpolate(&right, 0.5);
+        assert_eq!(mid.nodes.len(), 3);
+        assert!(approx(mid.nodes[1].anchor_x, 0.5, 1e-3));
+        assert!(approx(mid.nodes[1].anchor_y, 0.5, 1e-3));
     }
 }
