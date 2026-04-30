@@ -136,32 +136,76 @@ pub struct CurveGraphState {
 impl ArbitraryData<CurveGraphState> for CurveGraphState {
     fn interpolate(&self, other: &CurveGraphState, value: f64) -> CurveGraphState {
         let t = value.clamp(0.0, 1.0) as f32;
-        if self.nodes.len() != other.nodes.len() || self.nodes.len() < 2 {
-            if t < 0.5 {
-                return self.clone();
-            }
-            return other.clone();
-        }
+        if self.nodes.len() < 2 || other.nodes.len() < 2 {
+            if t < 0.5 { self.clone() } else { other.clone() }
+        } else {
+            let left_aligned = self.with_inserted_points_from(other);
+            let right_aligned = other.with_inserted_points_from(&left_aligned);
+            let left_final = left_aligned.with_inserted_points_from(&right_aligned);
+            let right_final = right_aligned.with_inserted_points_from(&left_final);
 
-        let mut nodes = Vec::with_capacity(self.nodes.len());
-        for i in 0..self.nodes.len() {
-            let a = &self.nodes[i];
-            let b = &other.nodes[i];
-            nodes.push(CurveGraphNode {
-                anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
-                anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
-                in_x: a.in_x + (b.in_x - a.in_x) * t,
-                in_y: a.in_y + (b.in_y - a.in_y) * t,
-                out_x: a.out_x + (b.out_x - a.out_x) * t,
-                out_y: a.out_y + (b.out_y - a.out_y) * t,
-                handles_enabled: if t < 0.5 {
-                    a.handles_enabled
-                } else {
-                    b.handles_enabled
-                },
-            });
+            if left_final.nodes.len() != right_final.nodes.len() || left_final.nodes.is_empty() {
+                if t < 0.5 {
+                    return left_final;
+                }
+                return right_final;
+            }
+
+            let mut nodes = Vec::with_capacity(left_final.nodes.len());
+            for i in 0..left_final.nodes.len() {
+                let a = &left_final.nodes[i];
+                let b = &right_final.nodes[i];
+                nodes.push(CurveGraphNode {
+                    anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
+                    anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
+                    in_x: a.in_x + (b.in_x - a.in_x) * t,
+                    in_y: a.in_y + (b.in_y - a.in_y) * t,
+                    out_x: a.out_x + (b.out_x - a.out_x) * t,
+                    out_y: a.out_y + (b.out_y - a.out_y) * t,
+                    handles_enabled: if t < 0.5 {
+                        a.handles_enabled
+                    } else {
+                        b.handles_enabled
+                    },
+                });
+            }
+            CurveGraphState { nodes }
         }
-        CurveGraphState { nodes }
+    }
+}
+
+impl CurveGraphState {
+    fn with_inserted_points_from(&self, reference: &CurveGraphState) -> CurveGraphState {
+        if self.nodes.len() < 2 {
+            return self.clone();
+        }
+        let mut model = CurveEditorModel::new();
+        model.apply_graph_state(self);
+        let mut handle_enabled = self
+            .nodes
+            .iter()
+            .map(|n| n.handles_enabled)
+            .collect::<Vec<_>>();
+        handle_enabled.resize(model.node_count(), false);
+
+        for ref_node in &reference.nodes {
+            let x = clamp01(ref_node.anchor_x);
+            let exists = model
+                .get_nodes()
+                .iter()
+                .any(|n| (n.anchor.x - x).abs() <= 1e-4);
+            if exists {
+                continue;
+            }
+            let inserted = model.add_node_on_curve(x);
+            if inserted <= handle_enabled.len() {
+                // Insert a point that preserves the original shape.
+                handle_enabled.insert(inserted, false);
+            } else {
+                handle_enabled.resize(model.node_count(), false);
+            }
+        }
+        model.to_graph_state(&handle_enabled)
     }
 }
 
