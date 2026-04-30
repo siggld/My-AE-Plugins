@@ -189,10 +189,14 @@ impl ArbitraryData<CurveGraphState> for CurveGraphState {
                 in_y: a.in_y + (b.in_y - a.in_y) * t,
                 out_x: a.out_x + (b.out_x - a.out_x) * t,
                 out_y: a.out_y + (b.out_y - a.out_y) * t,
-                handles_enabled: if t < 0.5 {
+                handles_enabled: if a.handles_enabled == b.handles_enabled {
                     a.handles_enabled
+                } else if !a.handles_enabled && b.handles_enabled {
+                    // Ensure handle appears progressively right after the source key.
+                    t > 0.0
                 } else {
-                    b.handles_enabled
+                    // Keep handle active until reaching the destination key exactly.
+                    t < 1.0
                 },
             });
         }
