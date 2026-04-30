@@ -461,6 +461,8 @@ impl Plugin {
         let center_y = center.1 / 100.0 * (height as f32 - 1.0);
 
         let mut boundary = vec![0.0f32; width * height];
+        let mut blurred_a = vec![0.0f32; width * height];
+        let mut blurred_b = vec![0.0f32; width * height];
         for y in 0..height {
             for x in 0..width {
                 let idx = y * width + x;
@@ -494,6 +496,8 @@ impl Plugin {
                 if count > 0.0 {
                     let ba = sum_a / count;
                     let bb = sum_b / count;
+                    blurred_a[idx] = ba;
+                    blurred_b[idx] = bb;
                     boundary[idx] = (ba.min(bb) * 2.0).clamp(0.0, 1.0);
                 }
             }
@@ -511,7 +515,23 @@ impl Plugin {
                     alpha: src.alpha,
                 }
             } else {
-                let mut color = src;
+                let ba = blurred_a[idx];
+                let bb = blurred_b[idx];
+                let total = (ba + bb).max(1.0e-6);
+                let mix_a = (ba / total).clamp(0.0, 1.0);
+                let mix_b = (bb / total).clamp(0.0, 1.0);
+                let boundary_color = ae::PixelF32 {
+                    red: (color_a.red * mix_a + color_b.red * mix_b).clamp(0.0, 1.0),
+                    green: (color_a.green * mix_a + color_b.green * mix_b).clamp(0.0, 1.0),
+                    blue: (color_a.blue * mix_a + color_b.blue * mix_b).clamp(0.0, 1.0),
+                    alpha: src.alpha,
+                };
+                let mut color = ae::PixelF32 {
+                    red: (src.red * (1.0 - b) + boundary_color.red * b).clamp(0.0, 1.0),
+                    green: (src.green * (1.0 - b) + boundary_color.green * b).clamp(0.0, 1.0),
+                    blue: (src.blue * (1.0 - b) + boundary_color.blue * b).clamp(0.0, 1.0),
+                    alpha: src.alpha,
+                };
                 if enable_sss {
                     color.red = (color.red + sss_color.red * b * sss_spread).clamp(0.0, 1.0);
                     color.green = (color.green + sss_color.green * b * sss_spread).clamp(0.0, 1.0);

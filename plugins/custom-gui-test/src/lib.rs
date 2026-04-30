@@ -19,6 +19,7 @@ const GRID_SIZE_LARGE: f32 = 350.0;
 const TOOLBAR_HEIGHT: f32 = 40.0;
 const TOOLBAR_MARGIN: f32 = 6.0;
 const TOOL_BUTTON_SIZE: f32 = 24.0;
+const PANEL_PADDING: f32 = 6.0;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -200,6 +201,32 @@ impl Plugin {
         ]
     }
 
+    fn content_panel_rect(frame: ae::Rect, viewport: &EditorViewport) -> ae::drawbot::RectF32 {
+        let [_, _, large_rect] = Self::toolbar_button_rects(frame, viewport);
+        let mut left = viewport.left.min(large_rect.0) - PANEL_PADDING;
+        let mut top = viewport.top - PANEL_PADDING;
+        let mut right =
+            (viewport.left + viewport.width).max(large_rect.0 + large_rect.2) + PANEL_PADDING;
+        let mut bottom =
+            (viewport.top + viewport.height).max(large_rect.1 + large_rect.3) + PANEL_PADDING;
+
+        let frame_left = frame.left as f32;
+        let frame_top = frame.top as f32;
+        let frame_right = frame.right as f32;
+        let frame_bottom = frame.bottom as f32;
+        left = left.clamp(frame_left, frame_right);
+        top = top.clamp(frame_top, frame_bottom);
+        right = right.clamp(frame_left, frame_right);
+        bottom = bottom.clamp(frame_top, frame_bottom);
+
+        ae::drawbot::RectF32 {
+            left: left + 0.5,
+            top: top + 0.5,
+            width: (right - left).max(1.0),
+            height: (bottom - top).max(1.0),
+        }
+    }
+
     fn hit_button(x: f32, y: f32, rect: (f32, f32, f32, f32)) -> bool {
         x >= rect.0 && x <= rect.0 + rect.2 && y >= rect.1 && y <= rect.1 + rect.3
     }
@@ -347,12 +374,7 @@ impl Plugin {
 
         let frame = extra.current_frame();
         let viewport = Self::fixed_aspect_viewport(frame, self.grid_size_px);
-        let bg_rect = ae::drawbot::RectF32 {
-            left: frame.left as f32 + 0.5,
-            top: frame.top as f32 + 0.5,
-            width: (frame.right - frame.left).max(1) as f32,
-            height: (frame.bottom - frame.top).max(1) as f32,
-        };
+        let bg_rect = Self::content_panel_rect(frame, &viewport);
         let editor_rect = ae::drawbot::RectF32 {
             left: viewport.left + 0.5,
             top: viewport.top + 0.5,
