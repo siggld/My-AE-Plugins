@@ -16,7 +16,7 @@ fn main() {
     let version_parts: Vec<&str> = pkg_version.split('.').collect();
     if version_parts.len() != 3 {
         panic!("CARGO_PKG_VERSION must be in the format 'major.minor.patch'");
-    } 
+    }
     let major: u32 = version_parts[0].parse().expect("Invalid major version");
     let minor: u32 = version_parts[1].parse().expect("Invalid minor version");
     let patch: u32 = version_parts[2].parse().expect("Invalid patch version");

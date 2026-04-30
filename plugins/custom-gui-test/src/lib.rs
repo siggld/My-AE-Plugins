@@ -12,19 +12,36 @@ use crate::ui_adapter::{
     CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData, UiMarker,
 };
 
-const UI_BOX_SIZE: u16 = 420;
+const UI_BOX_WIDTH: u16 = 420;
+const UI_BOX_HEIGHT: u16 = 430;
+const GRID_SIZE_SMALL: f32 = 280.0;
+const GRID_SIZE_LARGE: f32 = 350.0;
+const TOOLBAR_HEIGHT: f32 = 40.0;
+const TOOLBAR_MARGIN: f32 = 6.0;
+const TOOL_BUTTON_SIZE: f32 = 24.0;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
     EnableGuiTest,
     GraphEditor,
-    MagnetSnap,
 }
 
-#[derive(Default)]
 struct Plugin {
     model: CurveEditorModel,
     adapter: CustomGraphEditorUiAdapter,
+    magnet_snap: bool,
+    grid_size_px: f32,
+}
+
+impl Default for Plugin {
+    fn default() -> Self {
+        Self {
+            model: CurveEditorModel::new(),
+            adapter: CustomGraphEditorUiAdapter::new(),
+            magnet_snap: false,
+            grid_size_px: GRID_SIZE_LARGE,
+        }
+    }
 }
 
 ae::define_effect!(Plugin, (), Params);
@@ -54,17 +71,10 @@ impl AdobePluginGlobal for Plugin {
             |param: &mut ae::ParamDef| {
                 param.set_flags(ParamFlag::SUPERVISE);
                 param.set_ui_flags(ParamUIFlags::CONTROL | ParamUIFlags::DO_NOT_ERASE_CONTROL);
-                param.set_ui_width(UI_BOX_SIZE);
-                param.set_ui_height(UI_BOX_SIZE);
+                param.set_ui_width(UI_BOX_WIDTH);
+                param.set_ui_height(UI_BOX_HEIGHT);
                 -1
             },
-        )?;
-        params.add(
-            Params::MagnetSnap,
-            "Magnet Snap",
-            CheckBoxDef::setup(|d| {
-                d.set_default(false);
-            }),
         )?;
 
         in_data
@@ -79,7 +89,7 @@ impl AdobePluginGlobal for Plugin {
         cmd: ae::Command,
         in_data: InData,
         mut out_data: OutData,
-        params: &mut ae::Parameters<Params>,
+        _params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
@@ -135,13 +145,13 @@ impl AdobePluginGlobal for Plugin {
                     self.handle_draw(&mut extra)?;
                 }
                 ae::Event::Click(_) => {
-                    self.handle_click(&mut extra, params)?;
+                    self.handle_click(&mut extra)?;
                 }
                 ae::Event::Drag(_) => {
-                    self.handle_drag(&mut extra, params)?;
+                    self.handle_drag(&mut extra)?;
                 }
                 ae::Event::Keydown(key_event) => {
-                    self.handle_keydown(&mut extra, key_event, params)?;
+                    self.handle_keydown(&mut extra, key_event)?;
                 }
                 _ => {}
             },
@@ -153,52 +163,108 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
-    fn fixed_aspect_viewport(frame: ae::Rect) -> EditorViewport {
+    fn fixed_aspect_viewport(frame: ae::Rect, preferred_side: f32) -> EditorViewport {
         let area_w = (frame.right - frame.left).max(1) as f32;
         let area_h = (frame.bottom - frame.top).max(1) as f32;
-        // Square viewport with min/max size.
-        let min_side = 300.0_f32;
-        let max_side = 420.0_f32;
-        let side = area_w.min(area_h).clamp(min_side, max_side);
+        let avail_h = (area_h - TOOLBAR_HEIGHT - TOOLBAR_MARGIN * 2.0).max(1.0);
+        let side = preferred_side.min(area_w).min(avail_h).max(1.0);
         EditorViewport {
             left: frame.left as f32 + (area_w - side) * 0.5,
-            // Keep equal margin ratio above/below.
-            top: frame.top as f32 + (area_h - side) * 0.5,
+            top: frame.top as f32 + TOOLBAR_MARGIN,
             width: side,
             height: side,
         }
     }
 
-    fn sync_viewport(&mut self, extra: &ae::EventExtra) {
-        let frame = extra.current_frame();
-        let viewport = Self::fixed_aspect_viewport(frame);
-        self.adapter.set_viewport(viewport);
+    fn toolbar_button_rects(
+        _frame: ae::Rect,
+        viewport: &EditorViewport,
+    ) -> [(f32, f32, f32, f32); 3] {
+        let toolbar_top = viewport.top + viewport.height + TOOLBAR_MARGIN;
+        let total_w = TOOL_BUTTON_SIZE * 3.0 + TOOLBAR_MARGIN * 2.0;
+        let start_x = viewport.left + (viewport.width - total_w) * 0.5;
+        [
+            (start_x, toolbar_top, TOOL_BUTTON_SIZE, TOOL_BUTTON_SIZE),
+            (
+                start_x + TOOL_BUTTON_SIZE + TOOLBAR_MARGIN,
+                toolbar_top,
+                TOOL_BUTTON_SIZE,
+                TOOL_BUTTON_SIZE,
+            ),
+            (
+                start_x + (TOOL_BUTTON_SIZE + TOOLBAR_MARGIN) * 2.0,
+                toolbar_top,
+                TOOL_BUTTON_SIZE,
+                TOOL_BUTTON_SIZE,
+            ),
+        ]
     }
 
-    fn handle_click(
-        &mut self,
-        extra: &mut ae::EventExtra,
-        params: &mut ae::Parameters<Params>,
-    ) -> Result<(), ae::Error> {
+    fn hit_button(x: f32, y: f32, rect: (f32, f32, f32, f32)) -> bool {
+        x >= rect.0 && x <= rect.0 + rect.2 && y >= rect.1 && y <= rect.1 + rect.3
+    }
+
+    fn sync_viewport(&mut self, extra: &ae::EventExtra) {
+        let frame = extra.current_frame();
+        let viewport = Self::fixed_aspect_viewport(frame, self.grid_size_px);
+        self.adapter.set_viewport(viewport);
+        self.adapter.set_snap_enabled(self.magnet_snap);
+    }
+
+    fn handle_click(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
         self.sync_viewport(extra);
-        self.sync_snap_toggle(params)?;
         extra.set_send_drag(true);
 
         let p = extra.screen_point();
+        let mouse_x = p.h as f32;
+        let mouse_y = p.v as f32;
+        let frame = extra.current_frame();
+        let viewport = Self::fixed_aspect_viewport(frame, self.grid_size_px);
+        let [mag_rect, small_rect, large_rect] = Self::toolbar_button_rects(frame, &viewport);
+        if Self::hit_button(mouse_x, mouse_y, mag_rect) {
+            self.magnet_snap = !self.magnet_snap;
+            self.adapter.set_snap_enabled(self.magnet_snap);
+            extra.set_event_out_flags(
+                ae::EventOutFlags::HANDLED_EVENT
+                    | ae::EventOutFlags::NEVER_UPDATE
+                    | ae::EventOutFlags::UPDATE_NOW,
+            );
+            return Ok(());
+        }
+        if Self::hit_button(mouse_x, mouse_y, small_rect) {
+            self.grid_size_px = GRID_SIZE_SMALL;
+            self.sync_viewport(extra);
+            extra.set_event_out_flags(
+                ae::EventOutFlags::HANDLED_EVENT
+                    | ae::EventOutFlags::NEVER_UPDATE
+                    | ae::EventOutFlags::UPDATE_NOW,
+            );
+            return Ok(());
+        }
+        if Self::hit_button(mouse_x, mouse_y, large_rect) {
+            self.grid_size_px = GRID_SIZE_LARGE;
+            self.sync_viewport(extra);
+            extra.set_event_out_flags(
+                ae::EventOutFlags::HANDLED_EVENT
+                    | ae::EventOutFlags::NEVER_UPDATE
+                    | ae::EventOutFlags::UPDATE_NOW,
+            );
+            return Ok(());
+        }
         let modifiers = extra.modifiers();
-        let shift_down = extra.modifiers().contains(Modifiers::SHIFT_KEY);
+        let shift_down = modifiers.contains(Modifiers::SHIFT_KEY);
         let alt_down = modifiers.contains(Modifiers::OPT_ALT_KEY);
         let ctrl_down = modifiers.contains(Modifiers::CMD_CTRL_KEY);
 
         self.adapter.on_mouse_down(
             &mut self.model,
             MouseEvent {
-                x: p.h as f32,
-                y: p.v as f32,
+                x: mouse_x,
+                y: mouse_y,
                 button: MouseButton::Left,
                 shift_down,
                 alt_down,
@@ -214,17 +280,12 @@ impl Plugin {
         Ok(())
     }
 
-    fn handle_drag(
-        &mut self,
-        extra: &mut ae::EventExtra,
-        params: &mut ae::Parameters<Params>,
-    ) -> Result<(), ae::Error> {
+    fn handle_drag(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
         self.sync_viewport(extra);
-        self.sync_snap_toggle(params)?;
 
         let p = extra.screen_point();
         let modifiers = extra.modifiers();
@@ -259,9 +320,7 @@ impl Plugin {
         &mut self,
         extra: &mut ae::EventExtra,
         key_event: ae::KeyDownEventInfo,
-        params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
-        self.sync_snap_toggle(params)?;
         let keycode = key_event.as_ref().keycode as u16;
         if keycode == ae::sys::PF_ControlCode_Delete as u16 {
             let _ = self.adapter.delete_selected(&mut self.model);
@@ -272,12 +331,6 @@ impl Plugin {
                     | ae::EventOutFlags::UPDATE_NOW,
             );
         }
-        Ok(())
-    }
-
-    fn sync_snap_toggle(&mut self, params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
-        let snap = params.get(Params::MagnetSnap)?.as_checkbox()?.value();
-        self.adapter.set_snap_enabled(snap);
         Ok(())
     }
 
@@ -293,7 +346,7 @@ impl Plugin {
         let surface = drawbot.surface()?;
 
         let frame = extra.current_frame();
-        let viewport = Self::fixed_aspect_viewport(frame);
+        let viewport = Self::fixed_aspect_viewport(frame, self.grid_size_px);
         let bg_rect = ae::drawbot::RectF32 {
             left: frame.left as f32 + 0.5,
             top: frame.top as f32 + 0.5,
@@ -429,7 +482,139 @@ impl Plugin {
         )?;
         Self::draw_marker_squares(&supplier, &surface, &draw.anchors, &anchor_color, 8.0)?;
 
+        let [mag_rect, small_rect, large_rect] = Self::toolbar_button_rects(frame, &viewport);
+        let button_border = ae::drawbot::ColorRgba {
+            red: 0.7,
+            green: 0.7,
+            blue: 0.7,
+            alpha: 1.0,
+        };
+        let button_active = ae::drawbot::ColorRgba {
+            red: 0.35,
+            green: 0.5,
+            blue: 0.8,
+            alpha: 1.0,
+        };
+        let button_idle = ae::drawbot::ColorRgba {
+            red: 0.18,
+            green: 0.18,
+            blue: 0.18,
+            alpha: 1.0,
+        };
+        Self::draw_toolbar_button(
+            &supplier,
+            &surface,
+            mag_rect,
+            if self.magnet_snap {
+                &button_active
+            } else {
+                &button_idle
+            },
+            &button_border,
+        )?;
+        Self::draw_toolbar_button(
+            &supplier,
+            &surface,
+            small_rect,
+            if (self.grid_size_px - GRID_SIZE_SMALL).abs() < 0.5 {
+                &button_active
+            } else {
+                &button_idle
+            },
+            &button_border,
+        )?;
+        Self::draw_toolbar_button(
+            &supplier,
+            &surface,
+            large_rect,
+            if (self.grid_size_px - GRID_SIZE_LARGE).abs() < 0.5 {
+                &button_active
+            } else {
+                &button_idle
+            },
+            &button_border,
+        )?;
+        Self::draw_magnet_icon(&supplier, &surface, mag_rect, &button_border)?;
+        Self::draw_square_icon(&surface, small_rect, 0.4, &button_border)?;
+        Self::draw_square_icon(&surface, large_rect, 0.65, &button_border)?;
+
         extra.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
+        Ok(())
+    }
+
+    fn draw_toolbar_button(
+        supplier: &ae::drawbot::Supplier,
+        surface: &ae::drawbot::Surface,
+        rect: (f32, f32, f32, f32),
+        fill: &ae::drawbot::ColorRgba,
+        border: &ae::drawbot::ColorRgba,
+    ) -> Result<(), ae::Error> {
+        surface.paint_rect(
+            fill,
+            &ae::drawbot::RectF32 {
+                left: rect.0,
+                top: rect.1,
+                width: rect.2,
+                height: rect.3,
+            },
+        )?;
+        let pen = supplier.new_pen(border, 1.0)?;
+        let mut path = supplier.new_path()?;
+        path.move_to(rect.0, rect.1)?;
+        path.line_to(rect.0 + rect.2, rect.1)?;
+        path.line_to(rect.0 + rect.2, rect.1 + rect.3)?;
+        path.line_to(rect.0, rect.1 + rect.3)?;
+        path.line_to(rect.0, rect.1)?;
+        surface.stroke_path(&pen, &path)?;
+        Ok(())
+    }
+
+    fn draw_square_icon(
+        surface: &ae::drawbot::Surface,
+        rect: (f32, f32, f32, f32),
+        scale: f32,
+        color: &ae::drawbot::ColorRgba,
+    ) -> Result<(), ae::Error> {
+        let s = rect.2.min(rect.3) * scale;
+        let x = rect.0 + (rect.2 - s) * 0.5;
+        let y = rect.1 + (rect.3 - s) * 0.5;
+        surface.paint_rect(
+            color,
+            &ae::drawbot::RectF32 {
+                left: x,
+                top: y,
+                width: s,
+                height: s,
+            },
+        )?;
+        Ok(())
+    }
+
+    fn draw_magnet_icon(
+        supplier: &ae::drawbot::Supplier,
+        surface: &ae::drawbot::Surface,
+        rect: (f32, f32, f32, f32),
+        color: &ae::drawbot::ColorRgba,
+    ) -> Result<(), ae::Error> {
+        let pen = supplier.new_pen(color, 2.0)?;
+        let cx = rect.0 + rect.2 * 0.5;
+        let cy = rect.1 + rect.3 * 0.5;
+        let w = rect.2 * 0.42;
+        let h = rect.3 * 0.45;
+        let mut path = supplier.new_path()?;
+        path.move_to(cx - w * 0.5, cy - h * 0.5)?;
+        path.line_to(cx - w * 0.5, cy + h * 0.2)?;
+        path.add_arc(
+            &ae::drawbot::PointF32 {
+                x: cx,
+                y: cy + h * 0.2,
+            },
+            w * 0.5,
+            180.0,
+            360.0,
+        )?;
+        path.line_to(cx + w * 0.5, cy - h * 0.5)?;
+        surface.stroke_path(&pen, &path)?;
         Ok(())
     }
 

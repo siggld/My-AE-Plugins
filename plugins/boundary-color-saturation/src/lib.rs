@@ -481,7 +481,9 @@ impl Plugin {
                     if sx < 0.0 || sy < 0.0 || sx >= width as f32 || sy >= height as f32 {
                         continue;
                     }
-                    let si = sy.round() as usize * width + sx.round() as usize;
+                    let sx_i = (sx.floor() as usize).min(width - 1);
+                    let sy_i = (sy.floor() as usize).min(height - 1);
+                    let si = sy_i * width + sx_i;
                     if keep_division && source[si].alpha <= 0.0 {
                         continue;
                     }
