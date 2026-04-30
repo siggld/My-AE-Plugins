@@ -142,6 +142,10 @@ impl CustomGraphEditorUiAdapter {
         self.snap_enabled = enabled;
     }
 
+    pub fn is_dragging(&self) -> bool {
+        self.active_drag.kind != DragTargetType::None
+    }
+
     pub fn export_handle_enabled(&self, node_count: usize) -> Vec<bool> {
         let mut out = vec![false; node_count];
         for (dst, src) in out.iter_mut().zip(self.handle_enabled.iter().copied()) {
