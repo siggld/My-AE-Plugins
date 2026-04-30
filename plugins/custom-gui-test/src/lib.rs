@@ -68,7 +68,10 @@ impl AdobePluginGlobal for Plugin {
         params.add_customized(
             Params::GraphEditor,
             "Graph Editor",
-            NullDef::new(),
+            PointDef::setup(|d| {
+                d.set_default_x(0.5);
+                d.set_default_y(0.5);
+            }),
             |param: &mut ae::ParamDef| {
                 param.set_flags(ParamFlag::SUPERVISE);
                 param.set_ui_flags(ParamUIFlags::CONTROL | ParamUIFlags::DO_NOT_ERASE_CONTROL);
