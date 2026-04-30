@@ -7,6 +7,9 @@
 
 #![allow(dead_code)]
 
+use ae::pf::ArbitraryData;
+use after_effects as ae;
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul, Sub};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -114,6 +117,54 @@ pub struct HandleLink {
     pub is_out_handle: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct CurveGraphNode {
+    pub anchor_x: f32,
+    pub anchor_y: f32,
+    pub in_x: f32,
+    pub in_y: f32,
+    pub out_x: f32,
+    pub out_y: f32,
+    pub handles_enabled: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct CurveGraphState {
+    pub nodes: Vec<CurveGraphNode>,
+}
+
+impl ArbitraryData<CurveGraphState> for CurveGraphState {
+    fn interpolate(&self, other: &CurveGraphState, value: f64) -> CurveGraphState {
+        let t = value.clamp(0.0, 1.0) as f32;
+        if self.nodes.len() != other.nodes.len() || self.nodes.len() < 2 {
+            if t < 0.5 {
+                return self.clone();
+            }
+            return other.clone();
+        }
+
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        for i in 0..self.nodes.len() {
+            let a = &self.nodes[i];
+            let b = &other.nodes[i];
+            nodes.push(CurveGraphNode {
+                anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
+                anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
+                in_x: a.in_x + (b.in_x - a.in_x) * t,
+                in_y: a.in_y + (b.in_y - a.in_y) * t,
+                out_x: a.out_x + (b.out_x - a.out_x) * t,
+                out_y: a.out_y + (b.out_y - a.out_y) * t,
+                handles_enabled: if t < 0.5 {
+                    a.handles_enabled
+                } else {
+                    b.handles_enabled
+                },
+            });
+        }
+        CurveGraphState { nodes }
+    }
+}
+
 // Owns an ordered list of BezierNodes describing a curve that is monotonic
 // in X. Node[0] sits at x=0 and Node[last] sits at x=1 in the default state.
 //
@@ -164,6 +215,63 @@ impl CurveEditorModel {
 
     pub fn get_nodes(&self) -> &[BezierNode] {
         &self.nodes
+    }
+
+    pub fn to_graph_state(&self, handle_enabled: &[bool]) -> CurveGraphState {
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        for (i, n) in self.nodes.iter().enumerate() {
+            nodes.push(CurveGraphNode {
+                anchor_x: n.anchor.x,
+                anchor_y: n.anchor.y,
+                in_x: n.in_handle.x,
+                in_y: n.in_handle.y,
+                out_x: n.out_handle.x,
+                out_y: n.out_handle.y,
+                handles_enabled: handle_enabled.get(i).copied().unwrap_or(false),
+            });
+        }
+        CurveGraphState { nodes }
+    }
+
+    pub fn apply_graph_state(&mut self, state: &CurveGraphState) {
+        if state.nodes.len() < 2 {
+            self.reset_to_default();
+            return;
+        }
+
+        self.nodes.clear();
+        for n in &state.nodes {
+            self.nodes.push(BezierNode::new(
+                Point2D::new(clamp01(n.anchor_x), clamp01(n.anchor_y)),
+                Point2D::new(clamp01(n.in_x), clamp01(n.in_y)),
+                Point2D::new(clamp01(n.out_x), clamp01(n.out_y)),
+            ));
+        }
+
+        self.nodes.sort_by(|a, b| {
+            a.anchor
+                .x
+                .partial_cmp(&b.anchor.x)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        self.nodes[0].anchor.x = 0.0;
+        let last = self.nodes.len() - 1;
+        self.nodes[last].anchor.x = 1.0;
+
+        let pad = 1e-4_f32;
+        for i in 1..last {
+            if self.nodes[i].anchor.x <= self.nodes[i - 1].anchor.x {
+                self.nodes[i].anchor.x = (self.nodes[i - 1].anchor.x + pad).min(1.0 - pad);
+            }
+        }
+        for i in (1..last).rev() {
+            if self.nodes[i].anchor.x >= self.nodes[i + 1].anchor.x {
+                self.nodes[i].anchor.x = (self.nodes[i + 1].anchor.x - pad).max(pad);
+            }
+        }
+        for i in 0..self.nodes.len() - 1 {
+            self.fix_segment(i);
+        }
     }
 
     fn find_segment_index(&self, x: f32) -> usize {

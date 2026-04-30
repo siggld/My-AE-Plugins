@@ -7,7 +7,7 @@ use ae::pf::*;
 use after_effects as ae;
 use std::env;
 
-use crate::curve_editor::CurveEditorModel;
+use crate::curve_editor::{CurveEditorModel, CurveGraphState};
 use crate::ui_adapter::{
     CustomGraphEditorUiAdapter, EditorViewport, MouseButton, MouseEvent, UiDrawData, UiMarker,
 };
@@ -68,9 +68,8 @@ impl AdobePluginGlobal for Plugin {
         params.add_customized(
             Params::GraphEditor,
             "Graph Editor",
-            PointDef::setup(|d| {
-                d.set_default_x(0.5);
-                d.set_default_y(0.5);
+            ArbitraryDef::setup(|d| {
+                let _ = d.set_default(CurveGraphState::default());
             }),
             |param: &mut ae::ParamDef| {
                 param.set_flags(ParamFlag::SUPERVISE);
@@ -93,7 +92,7 @@ impl AdobePluginGlobal for Plugin {
         cmd: ae::Command,
         in_data: InData,
         mut out_data: OutData,
-        _params: &mut ae::Parameters<Params>,
+        params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
@@ -146,20 +145,23 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::Event { mut extra } => match extra.event() {
                 ae::Event::Draw(_) => {
-                    self.handle_draw(&mut extra)?;
+                    self.handle_draw(&mut extra, params)?;
                 }
                 ae::Event::Click(_) => {
-                    self.handle_click(&mut extra)?;
+                    self.handle_click(&mut extra, params)?;
                 }
                 ae::Event::Drag(_) => {
-                    self.handle_drag(&mut extra)?;
+                    self.handle_drag(&mut extra, params)?;
                 }
                 ae::Event::Keydown(key_event) => {
-                    self.handle_keydown(&mut extra, key_event)?;
+                    self.handle_keydown(&mut extra, key_event, params)?;
                 }
                 _ => {}
             },
             ae::Command::UpdateParamsUi => {}
+            ae::Command::ArbitraryCallback { mut extra } => {
+                extra.dispatch::<CurveGraphState, Params>(Params::GraphEditor)?;
+            }
             _ => {}
         }
         Ok(())
@@ -167,6 +169,39 @@ impl AdobePluginGlobal for Plugin {
 }
 
 impl Plugin {
+    fn load_graph_state_from_param(&mut self, params: &ae::Parameters<Params>) {
+        let Ok(param) = params.get(Params::GraphEditor) else {
+            return;
+        };
+        let Ok(arb) = param.as_arbitrary() else {
+            return;
+        };
+        let Ok(state_lock) = arb.value::<CurveGraphState>() else {
+            return;
+        };
+        let state = (*state_lock).clone();
+        self.model.apply_graph_state(&state);
+        let handle_enabled = state
+            .nodes
+            .iter()
+            .map(|n| n.handles_enabled)
+            .collect::<Vec<_>>();
+        self.adapter
+            .import_handle_enabled(self.model.node_count(), &handle_enabled);
+    }
+
+    fn store_graph_state_to_param(&mut self, params: &mut ae::Parameters<Params>) {
+        let handle_enabled = self.adapter.export_handle_enabled(self.model.node_count());
+        let state = self.model.to_graph_state(&handle_enabled);
+        let Ok(mut param) = params.get_mut(Params::GraphEditor) else {
+            return;
+        };
+        let Ok(mut arb) = param.as_arbitrary_mut() else {
+            return;
+        };
+        let _ = arb.set_value(state);
+    }
+
     fn fixed_aspect_viewport(frame: ae::Rect, preferred_side: f32) -> EditorViewport {
         let area_w = (frame.right - frame.left).max(1) as f32;
         let area_h = (frame.bottom - frame.top).max(1) as f32;
@@ -241,11 +276,16 @@ impl Plugin {
         self.adapter.set_snap_enabled(self.magnet_snap);
     }
 
-    fn handle_click(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+    fn handle_click(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
+        self.load_graph_state_from_param(params);
         self.sync_viewport(extra);
         extra.set_send_drag(true);
 
@@ -290,7 +330,7 @@ impl Plugin {
         let alt_down = modifiers.contains(Modifiers::OPT_ALT_KEY);
         let ctrl_down = modifiers.contains(Modifiers::CMD_CTRL_KEY);
 
-        self.adapter.on_mouse_down(
+        let consumed = self.adapter.on_mouse_down(
             &mut self.model,
             MouseEvent {
                 x: mouse_x,
@@ -301,6 +341,9 @@ impl Plugin {
                 ctrl_down,
             },
         );
+        if consumed {
+            self.store_graph_state_to_param(params);
+        }
 
         extra.set_event_out_flags(
             ae::EventOutFlags::HANDLED_EVENT
@@ -310,11 +353,16 @@ impl Plugin {
         Ok(())
     }
 
-    fn handle_drag(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+    fn handle_drag(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
+        self.load_graph_state_from_param(params);
         self.sync_viewport(extra);
 
         let p = extra.screen_point();
@@ -332,10 +380,13 @@ impl Plugin {
             ctrl_down,
         };
 
-        if last {
-            self.adapter.on_mouse_up(mouse);
+        let consumed = if last {
+            self.adapter.on_mouse_up(mouse)
         } else {
-            self.adapter.on_mouse_move(&mut self.model, mouse);
+            self.adapter.on_mouse_move(&mut self.model, mouse)
+        };
+        if consumed {
+            self.store_graph_state_to_param(params);
         }
 
         extra.set_event_out_flags(
@@ -350,10 +401,15 @@ impl Plugin {
         &mut self,
         extra: &mut ae::EventExtra,
         key_event: ae::KeyDownEventInfo,
+        params: &mut ae::Parameters<Params>,
     ) -> Result<(), ae::Error> {
+        self.load_graph_state_from_param(params);
         let keycode = key_event.as_ref().keycode as u16;
         if keycode == ae::sys::PF_ControlCode_Delete as u16 {
-            let _ = self.adapter.delete_selected(&mut self.model);
+            let deleted = self.adapter.delete_selected(&mut self.model);
+            if deleted {
+                self.store_graph_state_to_param(params);
+            }
             // Always consume Delete to avoid AE removing the whole effect.
             extra.set_event_out_flags(
                 ae::EventOutFlags::HANDLED_EVENT
@@ -364,11 +420,16 @@ impl Plugin {
         Ok(())
     }
 
-    fn handle_draw(&mut self, extra: &mut ae::EventExtra) -> Result<(), ae::Error> {
+    fn handle_draw(
+        &mut self,
+        extra: &mut ae::EventExtra,
+        params: &mut ae::Parameters<Params>,
+    ) -> Result<(), ae::Error> {
         if extra.effect_area() != ae::EffectArea::Control {
             return Ok(());
         }
 
+        self.load_graph_state_from_param(params);
         self.sync_viewport(extra);
 
         let drawbot = extra.context_handle().drawing_reference()?;

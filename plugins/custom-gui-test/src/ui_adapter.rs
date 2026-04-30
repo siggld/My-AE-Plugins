@@ -142,6 +142,28 @@ impl CustomGraphEditorUiAdapter {
         self.snap_enabled = enabled;
     }
 
+    pub fn export_handle_enabled(&self, node_count: usize) -> Vec<bool> {
+        let mut out = vec![false; node_count];
+        for (dst, src) in out.iter_mut().zip(self.handle_enabled.iter().copied()) {
+            *dst = src;
+        }
+        out
+    }
+
+    pub fn import_handle_enabled(&mut self, node_count: usize, states: &[bool]) {
+        self.handle_enabled.clear();
+        self.handle_enabled.resize(node_count, false);
+        for (dst, src) in self.handle_enabled.iter_mut().zip(states.iter().copied()) {
+            *dst = src;
+        }
+        self.active_drag = DragTarget {
+            kind: DragTargetType::None,
+            node_index: 0,
+        };
+        self.selected = None;
+        self.handle_drag_mode = None;
+    }
+
     fn sync_node_state(&mut self, model: &CurveEditorModel) {
         let n = model.node_count();
         if self.handle_enabled.len() != n {

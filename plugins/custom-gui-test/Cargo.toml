@@ -15,6 +15,7 @@ catch-panics = []
 after-effects = { workspace = true }
 utils = { path = "../../crates/utils" }
 ae_ui = { path = "../../crates/ae_ui" }
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 pipl = { workspace = true }
