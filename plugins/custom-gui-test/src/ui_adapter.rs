@@ -156,12 +156,6 @@ impl CustomGraphEditorUiAdapter {
         for (dst, src) in self.handle_enabled.iter_mut().zip(states.iter().copied()) {
             *dst = src;
         }
-        self.active_drag = DragTarget {
-            kind: DragTargetType::None,
-            node_index: 0,
-        };
-        self.selected = None;
-        self.handle_drag_mode = None;
     }
 
     fn sync_node_state(&mut self, model: &CurveEditorModel) {
@@ -388,7 +382,6 @@ impl CustomGraphEditorUiAdapter {
             if let Some(new_node_x) = self.hit_test_curve(model, screen) {
                 let inserted = model.add_node_on_curve(new_node_x);
                 self.sync_node_state(model);
-                self.remove_handles_for_anchor(model, inserted);
                 self.active_drag = DragTarget {
                     kind: DragTargetType::Anchor,
                     node_index: inserted,

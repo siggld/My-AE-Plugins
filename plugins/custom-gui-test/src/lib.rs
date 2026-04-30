@@ -170,7 +170,7 @@ impl AdobePluginGlobal for Plugin {
 
 impl Plugin {
     fn load_graph_state_from_param(&mut self, params: &ae::Parameters<Params>) {
-        let Ok(param) = params.get(Params::GraphEditor) else {
+        let Ok(param) = params.checkout(Params::GraphEditor) else {
             return;
         };
         let Ok(arb) = param.as_arbitrary() else {
@@ -190,10 +190,10 @@ impl Plugin {
             .import_handle_enabled(self.model.node_count(), &handle_enabled);
     }
 
-    fn store_graph_state_to_param(&mut self, params: &mut ae::Parameters<Params>) {
+    fn store_graph_state_to_param(&mut self, params: &ae::Parameters<Params>) {
         let handle_enabled = self.adapter.export_handle_enabled(self.model.node_count());
         let state = self.model.to_graph_state(&handle_enabled);
-        let Ok(mut param) = params.get_mut(Params::GraphEditor) else {
+        let Ok(mut param) = params.checkout(Params::GraphEditor) else {
             return;
         };
         let Ok(mut arb) = param.as_arbitrary_mut() else {
@@ -362,7 +362,6 @@ impl Plugin {
             return Ok(());
         }
 
-        self.load_graph_state_from_param(params);
         self.sync_viewport(extra);
 
         let p = extra.screen_point();
