@@ -49,8 +49,7 @@ fn main() {
         },
         Property::AE_Effect_Info_Flags(0),
         Property::AE_Effect_Global_OutFlags(
-            OutFlags::PiplOverridesOutdataOutflags
-                | OutFlags::DeepColorAware
+            OutFlags::DeepColorAware
                 | OutFlags::SendUpdateParamsUI
                 | OutFlags::PixIndependent
                 | OutFlags::UseOutputExtent
@@ -67,6 +66,9 @@ fn main() {
             ,
         ),
         Property::AE_Effect_Match_Name("TKG_IslandIdColor_V3"),
+        Property::AE_Reserved_Info(8),
         Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
     ])
 }
+
+

@@ -758,12 +758,10 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
     }
 
     let mut buffer = Vec::new();
-    if cfg!(target_os = "windows") {
-        buffer.write_u8(1)?; // Reserved
-        buffer.write_u8(0)?; // Reserved
-    }
-    buffer.write_u32::<ByteOrder>(0)?; // kPIPropertiesVersion
-    buffer.write_all(&u32_bytes(properties.len() as u32))?;
+    buffer.write_all(&u32_bytes(1))?; // kPIPropertiesVersion
+    buffer.write_u16::<byteorder::LittleEndian>(0)?; // reserved
+    buffer.write_u16::<byteorder::LittleEndian>(properties.len() as u16)?;
+    buffer.write_u16::<byteorder::LittleEndian>(0)?; // reserved
     for prop in properties {
         match prop {
             Property::Kind(x) => {
@@ -1145,11 +1143,7 @@ pub fn build_pipl(properties: Vec<Property>) -> Result<Vec<u8>> {
             }
             Property::AE_Effect_Info_Flags(x) => {
                 write(&mut buffer, b"8BIM", b"eINF", |buffer| {
-                    if cfg!(target_os = "windows") {
-                        buffer.write_u32::<ByteOrder>(x)
-                    } else {
-                        buffer.write_u16::<ByteOrder>(x as u16)
-                    }
+                    buffer.write_u16::<ByteOrder>(x as u16)
                 })?;
             }
             Property::AE_Effect_Global_OutFlags(x) => {
@@ -1671,3 +1665,4 @@ pub fn plugin_build(properties: Vec<Property>) {
         )),
     );
 }
+

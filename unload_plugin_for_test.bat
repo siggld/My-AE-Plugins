@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set "AE_PLUGINS=C:\Program Files\Adobe\Adobe After Effects 2024\Support Files\Plug-ins\AOD"
+set "AE_PLUGINS=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
 set "PNAME=island_id_color"
 
 echo This script RENAMES the plugin so AE will NOT load it.
@@ -15,3 +15,4 @@ if exist "%AE_PLUGINS%\%PNAME%.aex" (
     echo No file: %AE_PLUGINS%\%PNAME%.aex
 )
 pause
+

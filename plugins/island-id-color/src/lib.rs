@@ -1872,8 +1872,13 @@ impl AdobePluginGlobal for Plugin {
             }
             ae::Command::GlobalSetup => {
                 out_data.set_out_flag(ae::OutFlags::SendUpdateParamsUi, true);
+                out_data.set_out_flag(ae::OutFlags::DeepColorAware, true);
+                out_data.set_out_flag(ae::OutFlags::UseOutputExtent, true);
+                out_data.set_out_flag(ae::OutFlags::WideTimeInput, true);
                 out_data.set_out_flag2(OutFlags2::SupportsSmartRender, true);
                 out_data.set_out_flag2(OutFlags2::SupportsThreadedRendering, true);
+                out_data.set_out_flag2(OutFlags2::FloatColorAware, true);
+                out_data.set_out_flag2(OutFlags2::AutomaticWideTimeInput, true);
                 out_data.set_out_flag2(OutFlags2::SupportsGetFlattenedSequenceData, true);
                 out_data.set_out_flag2(OutFlags2::ParamGroupStartCollapsedFlag, true);
             }
@@ -3612,3 +3617,4 @@ impl Plugin {
         Ok(())
     }
 }
+

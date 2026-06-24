@@ -13,7 +13,7 @@ set "VS_2022=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliar
 set "VS_2022_BUILDTOOLS=C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 set "VS_18=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 
-set "AE_PLUGINS=C:\Program Files\Adobe\Adobe After Effects 2024\Support Files\Plug-ins\AOD"
+set "AE_PLUGINS=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
 set "PNAME=island_id_color"
 
 :: Use VS 2022 (Community or Build Tools); fallback to VS 18 only if 2022 is not installed
@@ -51,10 +51,10 @@ echo.
 echo [2/4] Purging stale cache...
 
 echo   - Removing MediaCore entries...
-powershell -NoProfile -Command "Get-ChildItem -Path 'C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore' -Filter '*%PNAME%*' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue; Write-Host '  MediaCore cleanup done.'"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0cleanup_ae_cache.ps1"
 
 echo   - Removing AE PluginCache registry key...
-powershell -NoProfile -Command "Remove-Item -Path 'HKCU:\Software\Adobe\After Effects\24.6\PluginCache' -Recurse -ErrorAction SilentlyContinue; Write-Host '  Registry cleanup done.'"
+powershell -NoProfile -Command "Remove-Item -Path 'HKCU:\Software\Adobe\After Effects\24.6\PluginCache' -Recurse -ErrorAction SilentlyContinue; Write-Host '  Legacy 24.6 registry cleanup done.'"
 
 :: ============================================================
 :: STEP 3: Build
@@ -70,7 +70,7 @@ if errorlevel 1 (
 )
 
 :: ============================================================
-:: STEP 4: Deploy to AE Plug-ins folder
+:: STEP 4: Deploy to AE Common MediaCore folder
 :: ============================================================
 echo.
 echo [4/4] Deploying to After Effects...
@@ -92,6 +92,6 @@ if errorlevel 1 (
 echo.
 echo ============================================================
 echo DONE! Deployed: %AE_PLUGINS%\%PNAME%.aex
-echo Next: Launch AE and verify plugin loads under Aodaruma/AOD_IslandIdColor
+echo Next: Launch AE and verify plugin loads under Aodaruma/IslandIdColor
 echo ============================================================
 pause

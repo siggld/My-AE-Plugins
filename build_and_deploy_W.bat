@@ -8,17 +8,17 @@ setlocal
 :: is placed in repo's target folder on W: to avoid G: sync issues.
 :: Run from W: repo root. Visual Studio 2022 is required.
 ::
-:: vcvars64.bat の場所（VS 2022 が使われているか確認するときの目安）:
+:: vcvars64.bat ????VS 2022 ??????????????????:
 ::   Community:  C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat
 ::   BuildTools: C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat
-:: 実行時に "Using: ..." で表示されるパスが 2022 なら VS 2022 でビルドされている。
+:: ???? "Using: ..." ????????? 2022 ?? VS 2022 ??????????
 :: ============================================================
 
 set "VS_2022=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 set "VS_2022_BUILDTOOLS=C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 set "VS_18=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 
-set "AE_PLUGINS=C:\Program Files\Adobe\Adobe After Effects 2024\Support Files\Plug-ins\AOD"
+set "AE_PLUGINS=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
 set "PNAME=island_id_color"
 
 if exist "%VS_2022%" (set "VCVARS=%VS_2022%") else if exist "%VS_2022_BUILDTOOLS%" (set "VCVARS=%VS_2022_BUILDTOOLS%") else (set "VCVARS=%VS_18%")
@@ -76,3 +76,4 @@ echo DONE! Deployed: %AE_PLUGINS%\%PNAME%.aex
 echo Built from W: (or current drive) target. Launch AE to verify.
 echo ============================================================
 pause
+

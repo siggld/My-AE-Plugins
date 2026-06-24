@@ -22,6 +22,7 @@ Plugins prefixed with `AOD_` are isolated under `plugins_aod/` as original autho
   - ベクトルや曲線情報を利用したブラー表現を検証中です / Work-in-progress blur effect using vector and curve information.
 - TKG_CustomGUITest（制作中）
   - カスタムGUI実装の実機検証用サンドボックスです / Reusable sandbox for validating custom GUI implementations in AE.
+  - GraphEditor v1.0.0 を汎用GUI基盤として検証済みです（キーフレーム補間・ポイント/ハンドル編集・ハンドル遷移を含む） / Validates GraphEditor v1.0.0 as a reusable GUI baseline, including keyframe interpolation, point/handle editing, and smooth handle transitions.
 - TKG_BoundaryColorSaturation
   - 境界色抽出とブラー制御のベースUIを構築します / Creates a base UI for boundary color extraction and blur controls.
 
