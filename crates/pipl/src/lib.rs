@@ -1665,4 +1665,3 @@ pub fn plugin_build(properties: Vec<Property>) {
         )),
     );
 }
-
