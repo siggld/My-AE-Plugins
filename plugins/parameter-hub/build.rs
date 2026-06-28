@@ -4,7 +4,6 @@ use pipl::*;
 const PF_PLUG_IN_VERSION: u16 = 13;
 const PF_PLUG_IN_SUBVERS: u16 = 28;
 
-// PiPL (25, 31) エラー対策: OutFlags / OutFlags2 を必ず含め、変更時は cargo clean 後に再ビルドすること。
 #[rustfmt::skip]
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(does_dialog)");
@@ -12,8 +11,6 @@ fn main() {
 
     let current_year = chrono::Local::now().year();
     println!("cargo:rustc-env=BUILD_YEAR={}", current_year);
-    println!("cargo:rustc-env=PIPL_AE_RESERVED=0");
-    println!("cargo:rustc-env=PIPL_SUPPORT_URL=https://github.com/Aodaruma/aodaruma-ae-plugin");
 
     let pkg_version = env!("CARGO_PKG_VERSION");
     let version_parts: Vec<&str> = pkg_version.split('.').collect();
@@ -28,7 +25,7 @@ fn main() {
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("TKG_IslandIdColor"),
+        Property::Name("TKG_ParameterHub"),
         Property::Category("Aodaruma"),
 
         #[cfg(target_os = "windows")]
@@ -49,24 +46,22 @@ fn main() {
         },
         Property::AE_Effect_Info_Flags(0),
         Property::AE_Effect_Global_OutFlags(
-            OutFlags::PiplOverridesOutdataOutflags
-                | OutFlags::DeepColorAware
-                | OutFlags::SendUpdateParamsUI
-                | OutFlags::PixIndependent
+            OutFlags::PixIndependent
                 | OutFlags::UseOutputExtent
+                | OutFlags::DeepColorAware
                 | OutFlags::WideTimeInput
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2(
-            OutFlags2::SupportsSmartRender
+            OutFlags2::FloatColorAware
                 | OutFlags2::SupportsThreadedRendering
-                | OutFlags2::FloatColorAware
                 | OutFlags2::SupportsGetFlattenedSequenceData
                 | OutFlags2::AutomaticWideTimeInput
-                | OutFlags2::ParamGroupStartCollapsedFlag
+                | OutFlags2::SupportsSmartRender
             ,
         ),
-        Property::AE_Effect_Match_Name("TKG_IslandIdColor_V3"),
-        Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aodaruma-ae-plugin"),
+        Property::AE_Effect_Match_Name("ParameterHub"),
+        Property::AE_Reserved_Info(8),
+        Property::AE_Effect_Support_URL("https://github.com/Aodaruma/aod-AE-plugin"),
     ])
 }

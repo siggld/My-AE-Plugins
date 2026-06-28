@@ -5,6 +5,7 @@ members = [
     "plugins/custom-gui-test",
     "plugins/boundary-color-saturation",
     "plugins/island-id-color",
+    "plugins/parameter-hub",
     "plugins/vector-curve-blur",
     "plugins/tkg-path-line-hatching",
 ]

@@ -23,6 +23,8 @@ Plugins prefixed with `AOD_` are isolated under `plugins_aod/` as original autho
 - TKG_CustomGUITest（制作中）
   - カスタムGUI実装の実機検証用サンドボックスです / Reusable sandbox for validating custom GUI implementations in AE.
   - GraphEditor v1.0.0 を汎用GUI基盤として検証済みです（キーフレーム補間・ポイント/ハンドル編集・ハンドル遷移を含む） / Validates GraphEditor v1.0.0 as a reusable GUI baseline, including keyframe interpolation, point/handle editing, and smooth handle transitions.
+- TKG_ParameterHub（試作中）
+  - 分散したAEパラメーターを集約制御するHubの骨組みです / Scaffolds a hub-style controller for collecting and relaying AE effect parameters.
 - TKG_BoundaryColorSaturation
   - 境界色抽出とブラー制御のベースUIを構築します / Creates a base UI for boundary color extraction and blur controls.
 
@@ -104,6 +106,30 @@ cargo new-plugin
 cargo generate --path templates/plugin --destination plugins
 ```
 
+### GitHub Desktop + Google Drive note
+
+This repository lives on a Google Drive synced path, and Windows may inject `desktop.ini` into `.git/`. That breaks GitHub Desktop with errors such as `fatal: git show-ref: bad ref refs/tags/desktop.ini`.
+
+Initial setup on each machine:
+
+```sh
+powershell -ExecutionPolicy Bypass -File .\install_git_hooks.ps1
+```
+
+What it does:
+
+- sets `core.hooksPath` to `.githooks`
+- removes stray `.git/**/desktop.ini`
+- keeps cleanup running on common Git hook timings
+
+If GitHub Desktop is already broken, run:
+
+```sh
+powershell -ExecutionPolicy Bypass -File .\cleanup_git_desktop_ini.ps1
+```
+
+Or double-click `repair_git_metadata.bat`, then restart GitHub Desktop.
+
 ### Repository layout
 
 - `plugins/`: `TKG_` 系の開発対象プラグイン / actively developed `TKG_` plugins
@@ -124,3 +150,4 @@ cargo generate --path templates/plugin --destination plugins
 ### Contribution
 
 Issues and pull requests are welcome. Please keep `cargo fmt` and `cargo clippy` clean when possible.
+

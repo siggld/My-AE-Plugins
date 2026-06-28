@@ -59,6 +59,12 @@
 - 単体プラグイン: `just -f plugins/<name>/Justfile build`
 - インストールをスキップ: `NO_INSTALL=1 just build`
 
+## GitHub Desktop / Google Drive 対策
+
+- このリポジトリは同期ドライブ配下のため、Windows や Google Drive により `.git/` 配下へ `desktop.ini` が混入し、GitHub Desktop が `fatal: git show-ref: bad ref refs/tags/desktop.ini` で壊れることがある。
+- 各マシンの初回セットアップ時に、ルートで `powershell -ExecutionPolicy Bypass -File .\install_git_hooks.ps1` を実行し、`core.hooksPath=.githooks` を設定すること。
+- GitHub Desktop がすでに壊れた場合は `powershell -ExecutionPolicy Bypass -File .\cleanup_git_desktop_ini.ps1` または `repair_git_metadata.bat` を実行してから再起動すること。
+- hook 本体では `.git/` 配下の `desktop.ini` だけを削除し、作業ツリーのファイルは触らない。
 ## テスト（CI 互換）
 
 `.github/workflows/ci.yml` に合わせ、ローカルでも以下を実行してください。
@@ -136,3 +142,10 @@
 - 圧縮されたログからコード変更する前に、原文の該当箇所を確認する。
 - AGENTS.md、Git差分、クラッシュ原文、編集対象コードを自動圧縮しない。
 - Headroom は全体プロキシとしてではなく、必要時の長大ログ圧縮に限定して扱う。
+## Genshijin default
+
+- このプロジェクトは、明示的な上書きが無い限り genshijin v1.4.0 の `normal` mode を既定とする。
+- 技術内容、コード、コマンド、識別子、パス、数値、エラーメッセージは省略しない。
+- 破壊的操作の確認、セキュリティ警告、誤解しやすい手順は通常の日本語に戻して明確化する。
+- `.md`、`.html`、`.json`、`.yaml`、`.csv` などのユーザー向けテキスト成果物には、自動で genshijin 調を適用しない。
+

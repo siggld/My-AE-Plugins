@@ -4,17 +4,14 @@ use std::io::Result;
 pub fn produce_resource(pipl: &[u8], _macos_rsrc_path: Option<&str>) {
     #[cfg(target_os = "windows")]
     {
-        fn to_seq(bytes: &[u8]) -> String {
-            bytes.iter().fold(String::new(), |mut s, b| {
-                s.push_str(&format!("\\x{b:02x}"));
-                s
-            })
-        }
+        let out_dir = std::env::var("OUT_DIR").unwrap();
+        let pipl_path = std::path::Path::new(&out_dir).join("pipl.bin");
+        std::fs::write(&pipl_path, pipl).unwrap();
 
         let mut res = winres::WindowsResource::new();
         res.append_rc_content(&format!(
-            "16000 PiPL DISCARDABLE BEGIN \"{}\" END",
-            to_seq(pipl)
+            "16000 PiPL DISCARDABLE \"{}\"",
+            pipl_path.display().to_string().replace('\\', "\\\\")
         ));
         res.compile().unwrap();
     }

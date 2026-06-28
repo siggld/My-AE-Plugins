@@ -1,0 +1,4 @@
+#!/bin/sh
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo_root/cleanup_git_desktop_ini.ps1" -Quiet >/dev/null 2>&1 || true
+exit 0

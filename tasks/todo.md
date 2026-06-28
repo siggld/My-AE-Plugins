@@ -55,3 +55,23 @@
 - [ ] Tangent 方向の軌跡追加を実装する: パス軌跡から `NormalRange` 形状のマップを作成し、`PathBlurAmount` 分前後へ拡張後、Tangent 方向へ伸ばす新規項目を追加する
 - [x] UI とドキュメントを同期する: 新規パラメータ名・説明・挙動を `docs/Vector-Curve-Blur-開発指示書.md` と必要な README/CHANGELOG に反映する
 - [ ] 検証する: `cargo fmt --all -- --check`、`cargo clippy --workspace`、`cargo test`、必要なら対象クレートのビルドと手動確認手順を残す
+
+# Parameter Hub 初期着手（2026-06-28）
+
+- [x] 仕様書を確認し、repo既存の `AEEffect` テンプレートと類似実装を調査
+- [x] `plugins/parameter-hub` を workspace member として追加
+- [x] `Cargo.toml` / `build.rs` / `src/lib.rs` / `README.md` の初期骨組みを追加
+- [x] 仕様書を実装境界へ落とし込む設計メモを追加
+- [ ] Smart Add 実行経路を AEEffect 単体で担うか、AEGP/スクリプト補助を併用するか確定
+- [ ] 登録情報の永続化方式と Hub パラメータ命名規則を詳細化
+- [ ] 最初の MVP 実処理（Hub 作成、値コピー、リンク式設定）の実装に着手
+
+
+# GitHub Desktop / desktop.ini hook（2026-06-28）
+
+- [x] .git/**/desktop.ini 掃除スクリプトを追加
+- [x] .githooks と hook 導入スクリプトを追加
+- [x] README.md / AGENTS.md / tasks/lessons.md に共有手順を追加
+- [ ] 他端末でも install_git_hooks.ps1 を一度実行
+
+
