@@ -1,3 +1,5 @@
+#![allow(clippy::drop_non_drop, clippy::question_mark)]
+
 use ae::pf::*;
 use after_effects as ae;
 use std::env;
