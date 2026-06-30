@@ -46,10 +46,12 @@ fn main() {
         },
         Property::AE_Effect_Info_Flags(0),
         Property::AE_Effect_Global_OutFlags(
-            OutFlags::PixIndependent
+            OutFlags::PiplOverridesOutdataOutflags
+                | OutFlags::PixIndependent
                 | OutFlags::UseOutputExtent
                 | OutFlags::DeepColorAware
                 | OutFlags::WideTimeInput
+                | OutFlags::SendUpdateParamsUI
             ,
         ),
         Property::AE_Effect_Global_OutFlags_2(
@@ -58,6 +60,7 @@ fn main() {
                 | OutFlags2::SupportsGetFlattenedSequenceData
                 | OutFlags2::AutomaticWideTimeInput
                 | OutFlags2::SupportsSmartRender
+                | OutFlags2::ParamGroupStartCollapsedFlag
             ,
         ),
         Property::AE_Effect_Match_Name("ParameterHub"),
